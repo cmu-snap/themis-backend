@@ -4,7 +4,7 @@
 	"queue_size" : "128",
 	"queue_speed" : "30", 
 	"flows" : [{
-	    "cc_alg" : "cubic",
+	    "ccalg" : "cubic",
 	    "duration" : "10",
 	    "rtt": "50"
 	}]
@@ -14,7 +14,7 @@
 	"queue_size" : "128",
 	"queue_speed" : "30", 
 	"flows" : [{
-	    "cc_alg" : "reno",
+	    "ccalg" : "reno",
 	    "duration" : "30",
 	    "rtt": "50"
 	}]
@@ -24,7 +24,7 @@
 	"queue_size" : "128",
 	"queue_speed" : "30", 
 	"flows" : [{
-	    "cc_alg" : "bbr",
+	    "ccalg" : "bbr",
 	    "duration" : "30",
 	    "rtt": "50"
 	}]

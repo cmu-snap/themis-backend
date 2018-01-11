@@ -1,6 +1,8 @@
 import cctestbed as mut # module under test
 import subprocess
 import shlex
+from click.testing import CliRunner
+import unittest.mock as mock
 
 SERVER_IFNAME='enp6s0f0'
 CLIENT_IFNAME='enp6s0f1'
@@ -40,4 +42,12 @@ def test_set_rtt():
     mut.remove_rtt('128.104.222.54')
 
 def test_run_experiment():
-    mut.run_experiment('experiments.json')
+    #process_mock = mock.Mock()
+    #attrs = {'communicate.return_value':('output','error')}
+    #process_mock.configure_mock(**attrs)
+    #mock_popen.return_value = process_mock
+    #runner = CliRunner()
+    #result = runner.invoke(mut.main, ['run_experiment', 'experiments.json'])
+    #print(result.output)
+    #assert result.exit_code == 0
+    mut._run_experiment('experiments.json')
