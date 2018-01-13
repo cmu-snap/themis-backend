@@ -1,6 +1,9 @@
 import cctestbed as mut # module under test
+
+import pytest
 import subprocess
 import shlex
+import json
 from click.testing import CliRunner
 import unittest.mock as mock
 
@@ -15,6 +18,45 @@ CLIENT_IP='192.0.0.3'
 
 #TODO: test for nonexistent ifnames
 
+@pytest.fixture(scope='session')
+def environment():
+    env = mut.Environment(client_ifname = 'enp6s0f1',
+                          server_ifname = 'enp6s0f0',
+                          client_ip_lan = '192.0.0.4',
+                          server_ip_lan = '192.0.0.1',
+                          client_ip_wan = '128.104.222.54',
+                          server_ip_wan = '128.104.222.70')
+    return env
+
+@pytest.fixture(params=[0,1,2])
+def experiment(request, environment):
+    with open('experiments.json') as f:
+        config = json.load(f)
+
+    experiments = []
+    for experiment_name, experiment in config.items():
+        flows = []
+        for idx, flow in enumerate(experiment['flows']):
+            flows.append(mut.Flow(ccalg=flow['ccalg'],
+                              duration=int(flow['duration']),
+                              rtt=int(flow['rtt']),
+                              client_port=5555+idx,
+                              server_port=5201+idx))
+        
+            experiments.append(mut.Experiment(name = experiment_name,
+                                          btlbw = int(experiment['btlbw']),
+                                          queue_size = int(experiment['queue_size']),
+                                          queue_speed = int(experiment['queue_speed']),
+                                          flows = flows,
+                                          server_log = '/users/rware/server-{}.iperf'.format(experiment_name),
+                                          client_log = '/users/rware/client-{}.iperf'.format(experiment_name),
+                                          server_tcpdump_log= '/users/rware/server-tcpdump-{}.pcap'.format(experiment_name),
+                                          bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}.pcap'.format(experiment_name),
+                                              queue_log= '/opt/15-712/cctestbed/queue-{}.txt'.format(experiment_name),
+                                              env=environment))
+    return experiments[request.param]
+    
+        
 def test_get_interface_pci():
     pci = mut.get_interface_pci(SERVER_IFNAME)
     assert(pci == SERVER_PCI)
@@ -41,13 +83,13 @@ def test_set_rtt():
     mut.set_rtt('128.104.222.54',50)
     mut.remove_rtt('128.104.222.54')
 
-def test_run_experiment():
-    #process_mock = mock.Mock()
-    #attrs = {'communicate.return_value':('output','error')}
-    #process_mock.configure_mock(**attrs)
-    #mock_popen.return_value = process_mock
-    #runner = CliRunner()
-    #result = runner.invoke(mut.main, ['run_experiment', 'experiments.json'])
-    #print(result.output)
-    #assert result.exit_code == 0
-    mut._run_experiment('experiments.json')
+@pytest.mark.usefixtures('experiment')
+class TestExperiment():
+    def test_start_iperf_server(experiment):
+        with experiment:
+            experiment.start_iperf_server(experiment.flows[0], 1)
+            cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
