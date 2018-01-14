@@ -3,9 +3,10 @@ import cctestbed as mut # module under test
 import pytest
 import subprocess
 import shlex
+import os
 import json
-from click.testing import CliRunner
-import unittest.mock as mock
+import time
+
 
 SERVER_IFNAME='enp6s0f0'
 CLIENT_IFNAME='enp6s0f1'
@@ -84,12 +85,69 @@ def test_set_rtt():
     mut.remove_rtt('128.104.222.54')
 
 @pytest.mark.usefixtures('experiment')
-class TestExperiment():
-    def test_start_iperf_server(experiment):
-        with experiment:
-            experiment.start_iperf_server(experiment.flows[0], 1)
-            cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
+class TestExperiment():   
+    
+    def test_start_iperf_server(self, experiment):
+        cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
+        with experiment.start_iperf_server(experiment.flows[0], 1):
             output = subprocess.run(shlex.split(cmd))
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
+        filename = os.path.basename(experiment.server_log)
+        assert(os.path.isfile(filename))
+        os.remove(filename)
+
+    def test_start_tcpdump_server(self, experiment):
+        cmd = 'ssh -p 22 rware@{} pgrep tcpdump'.format(experiment.env.server_ip_wan)
+        with experiment.start_tcpdump_server(experiment.flows[0]):
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
+        filename = os.path.basename(experiment.server_tcpdump_log)
+        assert(os.path.isfile(filename))
+        os.remove(filename)
+
+    def test_start_monitor_bess(self, experiment):
+        cmd = 'pgrep tail'    
+        with experiment.start_monitor_bess():
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
+        assert(os.path.isfile(experiment.queue_log))
+        os.remove(experiment.queue_log)
+
+    # TODO: fix this. BESS needs to be running to run this
+    def test_start_tcpdump_bess(self, experiment):
+        cmd = 'pgrep -f "bessctl tcpdump"'
+        with experiment.start_tcpdump_bess():
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
+        assert(os.path.isfile(experiment.bess_tcpdump_log))
+        os.remove(experiment.queue_log)
+
+    #TODO: fix this. BESS needs to be running for this to work
+    #TOD: add setup function and teardown function that starts and stops bess
+    def test_start_tcpdump_client(self, experiment):
+        cmd = 'ssh -p 22 rware@{} pgrep iperf3'
+        with experiment.start_tcpdump_server(experiment.flows[0]):
+            output = subprocess.run(shlex.split(cmd.format(
+                experiment.env.server_ip_wan)))
+            assert(output.returncode==0)
+            output = subprocess.run(shlex.split(cmd.format(
+                experiment.env.client_ip_wan)))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd.format(
+            experiment.env.server_ip_wan)))
+        assert(output.returncode==1)
+        filename = os.path.basename(client_log)
+        assert(os.path.isfile(filename))
+        os.remove(filename)
+        filename = os.path.basename(server_log)
+        os.remove(filename)
+        assert(os.path.isfile(filename))
+            

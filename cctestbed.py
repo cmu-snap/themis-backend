@@ -4,9 +4,12 @@ import shlex
 from collections import namedtuple
 import json
 import time
+from contextlib import contextmanager
 
 import os
 import pwd
+
+#TODO: delete Experiment class
 
 # code for 2 pmdport's
 
@@ -41,12 +44,7 @@ class Experiment(object):
         self.queue_log = queue_log
         self.env = env
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cleanup()
-        
+    @contextmanager
     def start_iperf_server(self, flow, affinity):
         cmd = ('ssh -p 22 rware@{} '
                'nohup iperf3 --server '
@@ -61,32 +59,103 @@ class Experiment(object):
                    flow.server_port,
                    affinity,
                    self.server_log)
-        pipe_syscalls([cmd], sudo=False)
+        yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
+                                cmd='iperf3',
+                                filepath=self.server_log)
 
 
+    @contextmanager
     def start_tcpdump_server(self, flow):
         cmd = ('ssh -p 22 rware@{} '
-               'sudo tcpdump -n '
-               '-s 65535 '
-               '-i {} '
+               'sudo tcpdump -n --packet-buffered '
+               '--snapshot-length=65535 '
+               '--interface={} '
                '-w {} '
                'port {} '
-               '> /dev/null 2> /dev/null < devnull & ').format(
+               '> /dev/null 2> /dev/null < /dev/null & ').format(
                    self.env.server_ip_wan,
                    self.env.server_ifname,
                    self.server_tcpdump_log,
                    flow.client_port)
-        pipe_syscalls([cmd], sudo=False)
-    
-    def cleanup(self):
-        cmd = 'ssh -p 22 rware@{} pkill {}'
-        pipe_syscalls([cmd.format(self.env.server_ip_wan,
-                                  'iperf3'], sudo=False)
-        pipe_syscalls([cmd.format(self.env.server_ip_wan,
-                                  'tcpdump'], sudo=False)
-                      
+        yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
+                                cmd='tcpdump',
+                                filepath=self.server_tcpdump_log)
 
+    @contextmanager
+    def start_monitor_bess(self):
+        cmd = 'tail -n1 -F /tmp/bessd.INFO > {} &'.format(self.queue_log)
+        # for some reason using subprocess here just hangs so use os.system instead
+        yield os.system(cmd) 
+        self.cleanup_local_cmd(cmd='tail')
 
+    @contextmanager
+    def start_tcpdump_bess(self):
+        cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc0 out 0 -n '
+               '-s 65535 '
+               '-w {} &> /dev/null &').format(self.bess_tcpdump_log)
+        yield pipe_syscalls([cmd])
+        self.cleanup_local_cmd(cmd='"bessctl tcpdump"')
+
+    @contextmanager
+    def start_tcpdump_client(self, flow, affinity):
+        with self.start_tcpdump_server(flow, affinity):
+            cmd = ('ssh -p 22 rware@{} '
+                   'nohup iperf3 --client {} '
+                   '--verbose '
+                   '--bind {} '
+                   '--cport {} '
+                   '--linux-congestion {} '
+                   '--interval 0.5 '
+                   '--time {} '
+                   '--length 1024K '
+                   '--affinity {} '
+                   '--set-mss 1500 '
+                   '--window 100M '
+                   '--zerocopy '
+                   '--logfile {} '
+                   '> /dev/null 2> /dev/null < /dev/null &').format(
+                       self.env.client_ip_wan,
+                       self.env.server_ip_lan,
+                       self.env.client_ip_lan,
+                       flow.client_port,
+                       flow.ccalg,
+                       flow.duration,
+                       affinity,
+                       self.client_log)
+            yield pipe_syscalls([cmd])
+        self.cleanup_remote_cmd(ip=self.env.client.ip_wan,
+                                cmd='iperf3',
+                                filepath=self.client_log)
+        
+    def cleanup_remote_cmd(self, ip, cmd, filepath=None):
+        """Kill remote commands and copy over files.
+
+        Parameters:
+        -----------
+        ip : str
+           IP addr of remote machines
+        cmd : str
+           cmd we want to kill
+        filepath : str, default is None
+           Path to file we want to copy to local machine. If None,
+           will not copy any file.
+        """
+        run = 'ssh -p 22 rware@{} sudo pkill -f -9 {}'.format(ip,cmd)
+        pipe_syscalls([run], sudo=False)
+        if filepath is not None:
+            # copy remote file to local machine and delet on remote machine
+           run = 'scp rware@{}:{} .'.format(ip, filepath)
+           pipe_syscalls([run], sudo=False)
+           run = 'ssh -p 22 rware@{} rm -f {}'.format(ip, filepath)
+           pipe_syscalls([run], sudo=False)
+
+    def cleanup_local_cmd(self, cmd):
+        run = 'sudo pkill -f -9 {}'.format(cmd)
+        pipe_syscalls([run], sudo=False)
+
+        
 def run_iperf(flows, env, exp):
     try:
         click.echo('RUNNING IPERF')
@@ -318,9 +387,16 @@ def pipe_syscalls(cmds, sudo=True):
     for idx, cmd in enumerate(cmds[1:]):
         procs.append(subprocess.Popen(shlex.split(cmd), stdin=procs[idx].stdout, stdout=subprocess.PIPE))
         #procs[idx-1].stdout.close()
-    stdout, stderr = procs[-1].communicate()
-    if stderr is not None:
-        raise subprocess.CallProcessError('Encountered error running cmd: {}/n{}'.format(cmd, stderr))
+    try:
+        stdout, stderr = procs[-1].communicate(timeout=5)
+    except subprocess.TimeoutExpired as e:
+        # need to kill all the processes if a timeout occurs
+        for proc in procs:
+            proc.kill()
+        click.echo('Process took longer than 5 seconds to finish: {}'.format(procs[-1].args))
+        raise e
+    if procs[-1].returncode != 0 or stderr is not None:
+        raise RuntimeError('Encountered error running cmd: {}/n{}'.format(cmd, stderr))
     return stdout.decode('utf-8')
 
 
