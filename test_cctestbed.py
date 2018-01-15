@@ -130,7 +130,7 @@ class TestExperiment(object):
 
     def test_start_tcpdump_server(self, experiment):
         cmd = 'ssh -p 22 rware@{} pgrep tcpdump'.format(experiment.env.server_ip_wan)
-        with experiment.start_tcpdump_server(experiment.flows[0]):
+        with experiment.start_tcpdump_server():
             output = subprocess.run(shlex.split(cmd))
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))

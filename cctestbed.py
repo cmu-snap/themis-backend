@@ -9,7 +9,7 @@ from contextlib import contextmanager, ExitStack
 import os
 import pwd
 
-#TODO: delete Experiment class
+#TODO: delete Experiment namedtuple class
 
 # code for 2 pmdport's
 
@@ -45,8 +45,6 @@ class Experiment(object):
         self.env = env
 
     def __repr__(self):
-        #attribs = ', '.join(
-        #    '{}={}'.format(name, val) for name, val in exp.__dict__.items())
         attribs = json.dumps(self.__dict__,
                              sort_keys=True,
                              indent=4,
@@ -67,6 +65,8 @@ class Experiment(object):
             stack.enter_context(self.set_rtt(self.flows[0].rtt))
             # monitor the queue
             stack.enter_context(self.start_monitor_bess())
+            # tcpdump server
+            stack.enter_context(self.start_tcpdump_server())
             # start each flow
             for idx, flow in enumerate(self.flows):
                 if flow.duration > max_duration:
@@ -150,18 +150,16 @@ class Experiment(object):
                                 filepath=self.server_log)
 
     @contextmanager
-    def start_tcpdump_server(self, flow):
+    def start_tcpdump_server(self):
         cmd = ('ssh -p 22 rware@{} '
                'sudo tcpdump -n --packet-buffered '
                '--snapshot-length=65535 '
                '--interface={} '
                '-w {} '
-               'port {} '
                '> /dev/null 2> /dev/null < /dev/null & ').format(
                    self.env.server_ip_wan,
                    self.env.server_ifname,
-                   self.server_tcpdump_log,
-                   flow.client_port)
+                   self.server_tcpdump_log)
         yield pipe_syscalls([cmd], sudo=False)
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
                                 cmd='tcpdump',
@@ -177,10 +175,10 @@ class Experiment(object):
 
     @contextmanager
     def start_tcpdump_bess(self):
-        cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc0 out 0 -n '
+        cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc1 out 0 -n '
                '-s 65535 '
                '-w {} &> /dev/null &').format(self.bess_tcpdump_log)
-        yield subprocess.run(shlex.split(cmd)) #pipe_syscalls([cmd])
+        yield subprocess.run(shlex.split(cmd)) 
         self.cleanup_local_cmd(cmd=self.bess_tcpdump_log)
 
     @contextmanager
@@ -480,7 +478,7 @@ def pipe_syscalls(cmds, sudo=True):
         procs.append(subprocess.Popen(shlex.split(cmd), stdin=procs[idx].stdout, stdout=subprocess.PIPE))
         #procs[idx-1].stdout.close()
     try:
-        stdout, stderr = procs[-1].communicate(timeout=5)
+        stdout, stderr = procs[-1].communicate(timeout=30)
     except subprocess.TimeoutExpired as e:
         # need to kill all the processes if a timeout occurs
         for proc in procs:
