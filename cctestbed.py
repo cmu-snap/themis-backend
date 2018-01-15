@@ -44,17 +44,45 @@ class Experiment(object):
         self.queue_log = queue_log
         self.env = env
 
+    def __repr__(self):
+        #attribs = ', '.join(
+        #    '{}={}'.format(name, val) for name, val in exp.__dict__.items())
+        attribs = json.dumps(self.__dict__,
+                             sort_keys=True,
+                             indent=4,
+                             separators=(',','='))
+        return 'Experiment({})'.format(attribs)
+
+    def __str__(self):
+        return repr(self) 
+        
     def run(self):
+        print('STARTING EXPERIMENT')
+        print(self)
         max_duration = 0
         with ExitStack() as stack:
-            print(self.start_bess())
+            # start bess
+            print(stack.enter_context(self.start_bess()))
+            # set rtt -- for now cannot set RTT per flow so just use first one
+            stack.enter_context(self.set_rtt(self.flows[0].rtt))
+            # monitor the queue
+            stack.enter_context(self.start_monitor_bess())
+            # start each flow
             for idx, flow in enumerate(self.flows):
                 if flow.duration > max_duration:
                     max_duration = flow.duration
-                self.start_iperf_client(flow, (idx % 32) + 1)
+                stack.enter_context(self.start_iperf_client(flow, (idx % 32) + 1))
+            # TODO: change this to check if iperf done
+            # wait until flows finish
+            print('SLEEPING FOR {}s'.format(max_duration))
             time.sleep(max_duration)
+            # show pipeline
+            cmd = '/opt/bess/bessctl/bessctl show pipeline'
+            print(pipe_syscalls([cmd]))
+            cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+            print(pipe_syscalls([cmd]))
         print('EXPERIMENT DONE')
-            
+    
     @contextmanager
     def start_bess(self):
         cmd = '/opt/bess/bessctl/bessctl daemon start'
@@ -63,13 +91,43 @@ class Experiment(object):
                "\"BESS_PCI_SERVER='{}', "
                "BESS_PCI_CLIENT='{}', "
                "BESS_QUEUE_SIZE='{}', "
-               "BESS_QUEUE_SPEED='{}'\"").format(server_pci,
-                                                 client_pci,
-                                                 queue_size,
-                                                 queue_speed)
+               "BESS_QUEUE_SPEED='{}'\"").format(self.env.server_pci,
+                                                 self.env.client_pci,
+                                                 self.queue_size,
+                                                 self.queue_speed)
         yield pipe_syscalls([cmd])
         cmd = '/opt/bess/bessctl/bessctl daemon stop'
         pipe_syscalls([cmd])
+
+    @contextmanager
+    def set_rtt(self, target_rtt):
+        print('SETTING RTT TO {}'.format(target_rtt))
+        # get current average RTT from ping
+        cmd_rtt = ("ssh -p 22 rware@{} "
+                   "ping -c 4 -I {} {} "
+                   "| tail -1 "
+                   "| awk '{{print $4}}' "
+                   "| cut -d '/' -f 2").format(self.env.server_ip_wan,
+                                               self.env.server_ip_lan,
+                                               self.env.client_ip_lan)
+        cmd_rtt = cmd_rtt.split('|')
+        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        print('CURRENT AVG RTT = {}'.format(avg_rtt))
+        if target_rtt < avg_rtt:
+            raise ValueError('Existing RTT is {} so RTT cannot be set to {}'.format(
+                avg_rtt, target_rtt))
+        # set RTT to target RTT
+        cmd = 'ssh -p 22 rware@{} sudo tc qdisc add dev enp6s0f0 root netem delay {}ms'.format(self.env.client_ip_wan, target_rtt-avg_rtt)
+        pipe_syscalls([cmd], sudo=False)
+        # check new average
+        new_avg_rtt = float(pipe_syscalls(cmd_rtt))
+        print('NEW AVG RTT = {}'.format(new_avg_rtt))
+        yield new_avg_rtt
+        # when done, remove RTT change
+        click.echo('REMOVING RTT CHANGES')
+        cmd = 'ssh -p 22 rware@{} sudo tc qdisc del dev enp6s0f0 root netem'.format(
+            self.env.client_ip_wan)
+        print(pipe_syscalls([cmd], sudo=False))
         
     @contextmanager
     def start_iperf_server(self, flow, affinity):
@@ -111,9 +169,10 @@ class Experiment(object):
 
     @contextmanager
     def start_monitor_bess(self):
-        cmd = 'tail -n1 -f /tmp/bessd.INFO &> {} &'.format(self.queue_log)
+        cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.queue_log)
         # for some reason using subprocess here just hangs so use os.system instead
-        yield os.system(cmd) 
+        yield os.system(cmd)
+        subprocess.run(['pkill','-9','tail'])
         #self.cleanup_local_cmd(cmd='tail')
 
     @contextmanager

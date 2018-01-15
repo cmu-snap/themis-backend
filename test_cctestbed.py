@@ -32,7 +32,7 @@ def environment():
                           client_pci = '06:00.1')
     return env
 
-@pytest.fixture(params=[0,1,2])
+@pytest.fixture()
 def experiment(request, environment):
     with open('experiments.json') as f:
         config = json.load(f)
@@ -58,7 +58,7 @@ def experiment(request, environment):
                                           bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}.pcap'.format(experiment_name),
                                               queue_log= '/opt/15-712/cctestbed/queue-{}.txt'.format(experiment_name),
                                               env=environment))
-    return experiments[request.param]
+    return experiments[0]
     
         
 def test_get_interface_pci():
@@ -83,9 +83,9 @@ def test_env_var():
         assert('TEST=test' in f.read())
     subprocess.run(shlex.split('sudo sed -i "/^TEST=test/ d" /etc/environment'))
 
-def test_set_rtt():
-    mut.set_rtt('128.104.222.54',50)
-    mut.remove_rtt('128.104.222.54')
+#def test_set_rtt():
+#    mut.set_rtt('128.104.222.54',50)
+#    mut.remove_rtt('128.104.222.54')
 
 @pytest.mark.usefixtures('experiment')
 class TestExperiment(object):   
@@ -139,7 +139,6 @@ class TestExperiment(object):
         assert(os.path.isfile(filename))
         os.remove(filename)
         
-    #TODO: fix this.
     def test_start_monitor_bess(self, experiment):
         cmd = 'pgrep tail'    
         with experiment.start_monitor_bess() as cmd_output:
@@ -185,6 +184,22 @@ class TestExperiment(object):
         filename = os.path.basename(server_log)
         assert(os.path.isfile(filename))
         os.remove(filename)
-    
+
+    def test_set_rtt(self, experiment, bess):
+        target_rtt = experiment.flows[0].rtt
+        with experiment.set_rtt(target_rtt):
+            cmd_rtt = ("ssh -p 22 rware@{} "
+                       "ping -c 4 -I {} {} "
+                       "| tail -1 "
+                       "| awk '{{print $4}}' "
+                       "| cut -d '/' -f 2").format(experiment.env.server_ip_wan,
+                                                   experiment.env.server_ip_lan,
+                                                   experiment.env.client_ip_lan)
+            cmd_rtt = cmd_rtt.split('|')
+            avg_rtt = float(mut.pipe_syscalls(cmd_rtt, sudo=False))
+            assert(avg_rtt >= target_rtt)
+        avg_rtt = float(mut.pipe_syscalls(cmd_rtt, sudo=False))
+        assert(avg_rtt < target_rtt)
+            
     def test_run(self, experiment):
         experiment.run()

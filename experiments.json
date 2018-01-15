@@ -8,27 +8,7 @@
 	    "duration" : "10",
 	    "rtt": "50"
 	}]
-    },
-    "reno-30mbs-50rtt-1bdp-30s" : {
-	"btlbw" : "30",
-	"queue_size" : "128",
-	"queue_speed" : "30", 
-	"flows" : [{
-	    "ccalg" : "reno",
-	    "duration" : "30",
-	    "rtt": "50"
-	}]
-    },
-    "bbr-30mbs-50rtt-1bdp-30s" : {
-	"btlbw" : "30",
-	"queue_size" : "128",
-	"queue_speed" : "30", 
-	"flows" : [{
-	    "ccalg" : "bbr",
-	    "duration" : "30",
-	    "rtt": "50"
-	}]
-    }	
+    }
 }
 	  
 	
