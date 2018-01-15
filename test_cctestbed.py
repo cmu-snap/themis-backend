@@ -7,6 +7,7 @@ import os
 import json
 import time
 
+from contextlib import ExitStack
 
 SERVER_IFNAME='enp6s0f0'
 CLIENT_IFNAME='enp6s0f1'
@@ -26,7 +27,9 @@ def environment():
                           client_ip_lan = '192.0.0.4',
                           server_ip_lan = '192.0.0.1',
                           client_ip_wan = '128.104.222.54',
-                          server_ip_wan = '128.104.222.70')
+                          server_ip_wan = '128.104.222.70',
+                          server_pci = '06:00.0',
+                          client_pci = '06:00.1')
     return env
 
 @pytest.fixture(params=[0,1,2])
@@ -85,17 +88,44 @@ def test_set_rtt():
     mut.remove_rtt('128.104.222.54')
 
 @pytest.mark.usefixtures('experiment')
-class TestExperiment():   
-    
+class TestExperiment(object):   
+
+    @pytest.fixture
+    def bess(self, request, experiment):
+        def bess_close():
+            # finalizer code for shutting down bess
+            cmd = '/opt/bess/bessctl/bessctl daemon stop'
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode == 0)
+        # start bess daemon and bess config
+        cmd = '/opt/bess/bessctl/bessctl daemon start'
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode == 0)
+        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+               "\"BESS_PCI_SERVER='{}', "
+               "BESS_PCI_CLIENT='{}', "
+               "BESS_QUEUE_SIZE='{}', "
+               "BESS_QUEUE_SPEED='{}'\"").format(experiment.env.server_pci,
+                                                 experiment.env.client_pci,
+                                                 experiment.queue_size,
+                                                 experiment.queue_speed)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==0)
+        request.addfinalizer(bess_close)
+
     def test_start_iperf_server(self, experiment):
         cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
-        with experiment.start_iperf_server(experiment.flows[0], 1):
+        with experiment.start_iperf_server(experiment.flows[0], affinity=1):
+            time.sleep(10)
             output = subprocess.run(shlex.split(cmd))
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
         filename = os.path.basename(experiment.server_log)
         assert(os.path.isfile(filename))
+        with open(filename) as f:
+            print("SERVER FILE:")
+            print(f.read())
         os.remove(filename)
 
     def test_start_tcpdump_server(self, experiment):
@@ -108,10 +138,12 @@ class TestExperiment():
         filename = os.path.basename(experiment.server_tcpdump_log)
         assert(os.path.isfile(filename))
         os.remove(filename)
-
+        
+    #TODO: fix this.
     def test_start_monitor_bess(self, experiment):
         cmd = 'pgrep tail'    
-        with experiment.start_monitor_bess():
+        with experiment.start_monitor_bess() as cmd_output:
+            print(cmd_output)
             output = subprocess.run(shlex.split(cmd))
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))
@@ -120,34 +152,39 @@ class TestExperiment():
         os.remove(experiment.queue_log)
 
     # TODO: fix this. BESS needs to be running to run this
-    def test_start_tcpdump_bess(self, experiment):
-        cmd = 'pgrep -f "bessctl tcpdump"'
+    def test_start_tcpdump_bess(self, experiment, bess):
+        cmd = 'pgrep -f {}'.format(experiment.bess_tcpdump_log)
         with experiment.start_tcpdump_bess():
             output = subprocess.run(shlex.split(cmd))
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
         assert(os.path.isfile(experiment.bess_tcpdump_log))
-        os.remove(experiment.queue_log)
-
-    #TODO: fix this. BESS needs to be running for this to work
-    #TOD: add setup function and teardown function that starts and stops bess
-    def test_start_tcpdump_client(self, experiment):
-        cmd = 'ssh -p 22 rware@{} pgrep iperf3'
-        with experiment.start_tcpdump_server(experiment.flows[0]):
+        os.remove(experiment.bess_tcpdump_log)
+        os.remove('nohup.out')
+        
+    def test_start_iperf_client(self, experiment, bess):
+        with experiment.start_iperf_client(experiment.flows[0], 1):
+            cmd = 'ssh -p 22 rware@{} pgrep iperf3'
             output = subprocess.run(shlex.split(cmd.format(
                 experiment.env.server_ip_wan)))
             assert(output.returncode==0)
             output = subprocess.run(shlex.split(cmd.format(
                 experiment.env.client_ip_wan)))
             assert(output.returncode==0)
+        time.sleep(5)
         output = subprocess.run(shlex.split(cmd.format(
             experiment.env.server_ip_wan)))
+        assert(output.returncode==1)
+        output = subprocess.run(shlex.split(cmd.format(
+            experiment.env.client_ip_wan)))
         assert(output.returncode==1)
         filename = os.path.basename(client_log)
         assert(os.path.isfile(filename))
         os.remove(filename)
         filename = os.path.basename(server_log)
-        os.remove(filename)
         assert(os.path.isfile(filename))
-            
+        os.remove(filename)
+    
+    def test_run(self, experiment):
+        experiment.run()

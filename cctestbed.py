@@ -4,7 +4,7 @@ import shlex
 from collections import namedtuple
 import json
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 import os
 import pwd
@@ -13,7 +13,7 @@ import pwd
 
 # code for 2 pmdport's
 
-Environment = namedtuple('Environment', ['client_ifname', 'server_ifname', 'client_ip_wan', 'server_ip_wan', 'client_ip_lan', 'server_ip_lan'])
+Environment = namedtuple('Environment', ['client_ifname', 'server_ifname', 'client_ip_wan', 'server_ip_wan', 'client_ip_lan', 'server_ip_lan', 'server_pci', 'client_pci'])
 Experiment = namedtuple('Experiment', ['name', 'btlbw', 'queue_size', 'queue_speed', 'flows', 'server_log', 'client_log', 'server_tcpdump_log', 'bess_tcpdump_log', 'queue_log'])
 Flow = namedtuple('Flow', ['ccalg', 'duration', 'rtt', 'client_port', 'server_port'])
 
@@ -44,6 +44,33 @@ class Experiment(object):
         self.queue_log = queue_log
         self.env = env
 
+    def run(self):
+        max_duration = 0
+        with ExitStack() as stack:
+            print(self.start_bess())
+            for idx, flow in enumerate(self.flows):
+                if flow.duration > max_duration:
+                    max_duration = flow.duration
+                self.start_iperf_client(flow, (idx % 32) + 1)
+            time.sleep(max_duration)
+        print('EXPERIMENT DONE')
+            
+    @contextmanager
+    def start_bess(self):
+        cmd = '/opt/bess/bessctl/bessctl daemon start'
+        pipe_syscalls([cmd])
+        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+               "\"BESS_PCI_SERVER='{}', "
+               "BESS_PCI_CLIENT='{}', "
+               "BESS_QUEUE_SIZE='{}', "
+               "BESS_QUEUE_SPEED='{}'\"").format(server_pci,
+                                                 client_pci,
+                                                 queue_size,
+                                                 queue_speed)
+        yield pipe_syscalls([cmd])
+        cmd = '/opt/bess/bessctl/bessctl daemon stop'
+        pipe_syscalls([cmd])
+        
     @contextmanager
     def start_iperf_server(self, flow, affinity):
         cmd = ('ssh -p 22 rware@{} '
@@ -63,7 +90,6 @@ class Experiment(object):
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
                                 cmd='iperf3',
                                 filepath=self.server_log)
-
 
     @contextmanager
     def start_tcpdump_server(self, flow):
@@ -85,22 +111,22 @@ class Experiment(object):
 
     @contextmanager
     def start_monitor_bess(self):
-        cmd = 'tail -n1 -F /tmp/bessd.INFO > {} &'.format(self.queue_log)
+        cmd = 'tail -n1 -f /tmp/bessd.INFO &> {} &'.format(self.queue_log)
         # for some reason using subprocess here just hangs so use os.system instead
         yield os.system(cmd) 
-        self.cleanup_local_cmd(cmd='tail')
+        #self.cleanup_local_cmd(cmd='tail')
 
     @contextmanager
     def start_tcpdump_bess(self):
         cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc0 out 0 -n '
                '-s 65535 '
                '-w {} &> /dev/null &').format(self.bess_tcpdump_log)
-        yield pipe_syscalls([cmd])
-        self.cleanup_local_cmd(cmd='"bessctl tcpdump"')
+        yield subprocess.run(shlex.split(cmd)) #pipe_syscalls([cmd])
+        self.cleanup_local_cmd(cmd=self.bess_tcpdump_log)
 
     @contextmanager
-    def start_tcpdump_client(self, flow, affinity):
-        with self.start_tcpdump_server(flow, affinity):
+    def start_iperf_client(self, flow, affinity):
+        with self.start_iperf_server(flow, affinity):
             cmd = ('ssh -p 22 rware@{} '
                    'nohup iperf3 --client {} '
                    '--verbose '
@@ -124,8 +150,8 @@ class Experiment(object):
                        flow.duration,
                        affinity,
                        self.client_log)
-            yield pipe_syscalls([cmd])
-        self.cleanup_remote_cmd(ip=self.env.client.ip_wan,
+            yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
                                 cmd='iperf3',
                                 filepath=self.client_log)
         
@@ -142,17 +168,22 @@ class Experiment(object):
            Path to file we want to copy to local machine. If None,
            will not copy any file.
         """
-        run = 'ssh -p 22 rware@{} sudo pkill -f -9 {}'.format(ip,cmd)
-        pipe_syscalls([run], sudo=False)
-        if filepath is not None:
-            # copy remote file to local machine and delet on remote machine
-           run = 'scp rware@{}:{} .'.format(ip, filepath)
-           pipe_syscalls([run], sudo=False)
-           run = 'ssh -p 22 rware@{} rm -f {}'.format(ip, filepath)
-           pipe_syscalls([run], sudo=False)
+        try:
+            run = 'ssh -p 22 rware@{} sudo pkill -9 {}'.format(ip,cmd)
+            #pipe_syscalls([run], sudo=False)
+            close_proc = subprocess.run(shlex.split(cmd))
+            if close_proc.returncode == 0:
+                print('Process for cmd not found: {}'.format(cmd))
+        finally:
+            if filepath is not None:
+                # copy remote file to local machine and delete on remote machine
+                run = 'scp rware@{}:{} .'.format(ip, filepath)
+                pipe_syscalls([run], sudo=False)
+                run = 'ssh -p 22 rware@{} rm -f {}'.format(ip, filepath)
+                pipe_syscalls([run], sudo=False)
 
     def cleanup_local_cmd(self, cmd):
-        run = 'sudo pkill -f -9 {}'.format(cmd)
+        run = 'sudo pkill -f {}'.format(cmd)
         pipe_syscalls([run], sudo=False)
 
         
@@ -296,7 +327,9 @@ def _run_experiment(config_file):
                       client_ip_lan = '192.0.0.4',
                       server_ip_lan = '192.0.0.1',
                       client_ip_wan = '128.104.222.54',
-                      server_ip_wan = '128.104.222.70')
+                      server_ip_wan = '128.104.222.70',
+                      server_pci = '06:00.0',
+                      client_pci = '06:00.1')
 
     for experiment_name, experiment in experiments.items():
         _start_bess(env.server_ifname ,env.client_ifname,
@@ -396,7 +429,7 @@ def pipe_syscalls(cmds, sudo=True):
         click.echo('Process took longer than 5 seconds to finish: {}'.format(procs[-1].args))
         raise e
     if procs[-1].returncode != 0 or stderr is not None:
-        raise RuntimeError('Encountered error running cmd: {}/n{}'.format(cmd, stderr))
+        raise RuntimeError('Encountered error running cmd: {}\n{}'.format(procs[-1].args, stderr))
     return stdout.decode('utf-8')
 
 
