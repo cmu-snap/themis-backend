@@ -1,23 +1,35 @@
 import click
+import click_log
 import subprocess
 import shlex
 from collections import namedtuple
 import json
 import time
 from contextlib import contextmanager, ExitStack
-
+import logging
 import os
 import pwd
+from datetime import datetime
+
+LOG = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter('[%(asctime)s:%(levelname)s] %(message)s')
+LOG.addHandler(ch)
+click_log.basic_config(LOG)
+
 
 #TODO: delete Experiment namedtuple class
+#TODO: add logging and --debug cmdline option
+#TODO: how to change RTT per flow using tc -- add delay per port instead of per interface
 
-# code for 2 pmdport's
+
+# code for 2 pmdport
 
 Environment = namedtuple('Environment', ['client_ifname', 'server_ifname', 'client_ip_wan', 'server_ip_wan', 'client_ip_lan', 'server_ip_lan', 'server_pci', 'client_pci'])
-Experiment = namedtuple('Experiment', ['name', 'btlbw', 'queue_size', 'queue_speed', 'flows', 'server_log', 'client_log', 'server_tcpdump_log', 'bess_tcpdump_log', 'queue_log'])
+#Experiment = namedtuple('Experiment', ['name', 'btlbw', 'queue_size', 'queue_speed', 'flows', 'server_log', 'client_log', 'server_tcpdump_log', 'bess_tcpdump_log', 'queue_log'])
 Flow = namedtuple('Flow', ['ccalg', 'duration', 'rtt', 'client_port', 'server_port'])
 
-#note: currently's RTT's are set per machine so we can't have different RTT
+#note: currently's RTT's are set per machine so we can't have different RTT per flow
 
 class Experiment(object):
     def __init__(self,
@@ -82,6 +94,10 @@ class Experiment(object):
             cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
             print(pipe_syscalls([cmd]))
         print('EXPERIMENT DONE')
+        #cmd = 'tar -cvzf {}.tar.gz *{}*'.format(self.name, self.name)
+        #pipe_syscalls([cmd])
+        #cmd = 'rm -f *{}*'.format(self.name)
+        #pipe_syscalls([cmd])
     
     @contextmanager
     def start_bess(self):
@@ -164,12 +180,25 @@ class Experiment(object):
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
                                 cmd='tcpdump',
                                 filepath=self.server_tcpdump_log)
-
+        cmd = ('tshark '
+               '-T fields '
+               '-E separator=, '
+               '-E quote=d '
+               '-r {} '
+               '-e frame.time_relative '
+               '-e tcp.len '
+               '-e tcp.analysis.ack_rtt '
+               '> {}.csv').format(self.bess_tcpdump_log, self.bess_tcpdump_log[:-5])
+        print('RUNNING CMD: {}'.format(cmd))
+        subprocess.run(shlex.split(cmd))
+    
     @contextmanager
     def start_monitor_bess(self):
         cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.queue_log)
         # for some reason using subprocess here just hangs so use os.system instead
+        print('RUNNING CMD: {}'.format(cmd))
         yield os.system(cmd)
+        print('RUNNING CMD: pkill -9 tail')
         subprocess.run(['pkill','-9','tail'])
         #self.cleanup_local_cmd(cmd='tail')
 
@@ -228,7 +257,8 @@ class Experiment(object):
         try:
             run = 'ssh -p 22 rware@{} sudo pkill -9 {}'.format(ip,cmd)
             #pipe_syscalls([run], sudo=False)
-            close_proc = subprocess.run(shlex.split(cmd))
+            print('RUNNING CMD: {}'.format(run))
+            close_proc = subprocess.run(shlex.split(run))
             if close_proc.returncode == 0:
                 print('Process for cmd not found: {}'.format(cmd))
         finally:
@@ -243,128 +273,7 @@ class Experiment(object):
         run = 'sudo pkill -f {}'.format(cmd)
         pipe_syscalls([run], sudo=False)
 
-        
-def run_iperf(flows, env, exp):
-    try:
-        click.echo('RUNNING IPERF')
-        for idx, flow in enumerate(flows):
-            cmd = ('ssh -p 22 rware@{} '
-                   'nohup iperf3 --server '
-                   '--bind {} '
-                   '--port {} '
-                   '--one-off '
-                   '--affinity {} '
-                   '--logfile {} '
-                   ' > /dev/null 2> /dev/null < /dev/null &').format(env.server_ip_wan,
-                                                                     env.server_ip_lan,
-                                                                     flow.server_port,
-                                                                     (idx % 32) + 1, 
-                                                                     exp.server_log)
-            click.echo(pipe_syscalls([cmd], sudo=False))
-
-            cmd = ('ssh -p 22 rware@{} '
-                   'sudo tcpdump -n -s 65535 '
-                   '-i enp6s0f0 '
-                   '-w {} '
-                   'port {} '
-                   ' > /dev/null 2> /dev/null < /dev/null &').format(env.server_ip_wan, exp.server_tcpdump_log, flow.client_port)
-            click.echo(pipe_syscalls([cmd], sudo=False))
-        
-        # start monitoring of BESS output
-        cmd = 'tail -n1 -f /tmp/bessd.INFO &> {} &'.format(exp.queue_log)
-        click.echo(cmd)
-        #result = pipe_syscalls([cmd], sudo=False)
-        #click.echo(result)
-        #if pipe_syscalls([cmd], sudo=False):
-        #    raise RuntimeError('Encountered error running cmd: {}'.format(cmd))
-        
-        # start BESS tcpdump
-        cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc0 out 0 -n '
-               '-s 65535 '
-               '-w {} &> /dev/null &'.format(exp.bess_tcpdump_log))
-        pipe_syscalls([cmd])
     
-        for idx, flow in enumerate(flows):
-            cmd = ('ssh -p 22 rware@{} '
-                   'nohup iperf3 --client {} '
-                   '--verbose '
-                   '--bind {} '
-                   '--cport {} '
-                   '--linux-congestion {} '
-                   '--interval 0.5 '
-                   '--time {} '
-                   '--length 1024K '
-                   '--affinity {} '
-                   '--set-mss 1500 '
-                   '--window 100M '
-                   '--zerocopy '
-                   '--logfile {} '
-                   '> /dev/null 2> /dev/null < /dev/null &').format(env.client_ip_wan,
-                                                                    env.server_ip_lan,
-                                                                    env.client_ip_lan,
-                                                                    flow.client_port,
-                                                                    flow.ccalg,
-                                                                    flow.duration,
-                                                                    (idx % 32) + 1,
-                                                                    exp.client_log)
-            pipe_syscalls([cmd], sudo=False)
-        
-        # TODO: remove hardcoding of the number of processors
-        # TODO: check for largest flow duration
-        click.echo('SLEEPING FOR {}s'.format(flows[0].duration))
-        time.sleep(flows[0].duration)
-
-        cmd = 'ssh -p 22 rware@{} pgrep -x iperf3'.format(env.server_ip_wan)
-        pgrep_iperf = pipe_syscalls([cmd], sudo=False)
-
-        while pgrep_iperf is not None or pgrep_iperf.strip() != '':
-            time.sleep(1)
-            pgrep_iperf = pipe_syscalls([cmd], sudo=False)
-    except (KeyboardInterrupt, SystemExit):
-        raise RuntimeError('Experiment aborted!')
-    finally:
-        #kill all processes
-        cmd = 'sudo killall ssh'
-        pipe_syscalls([cmd], sudo=False)
-        cmd = 'sudo killall tcpdump'
-        pipe_syscalls([cmd], sudo=False)
-        cmd = 'sudo killall tail'
-        pipe_syscalls([cmd], sudo=False)
-        cmd = 'ssh -p 22 rware@{} sudo killall tcpdump'.format(env.client_ip_wan)
-        pipe_syscalls([cmd], sudo=False)
-        
-        # get results from server & client
-        cmd = 'scp rware@{}:{} .'
-        pipe_syscalls([cmd.format(env.client_ip_wan, exp.client_log)], sudo=False)
-        #pipe_syscalls([cmd.format(env.client_ip_wan, CLIENT_LOG)])
-        pipe_syscalls([cmd.format(env.server_ip_wan, exp.server_log)], sudo=False)
-        pipe_syscalls([cmd.format(env.server_ip_wan, exp.server_tcpdump_log)], sudo=False)
-        
-        # delete files
-        cmd = 'ssh -p 22 rware@{} rm -f {}'
-        #pipe_syscalls([cmd.format(env.client_ip_wan, CLIENT_LOG)])
-        #pipe_syscalls([cmd.format(env.server_ip_wan, SERVER_LOG)])
-        #pipe_syscalls([cmd.format(env.server_ip_wan, SERVER_TCPDUMP_LOG)])
-        pipe_syscalls([cmd.format(env.client_ip_wan, exp.client_log)], sudo=False)
-        pipe_syscalls([cmd.format(env.server_ip_wan, exp.server_log)], sudo=False)
-        pipe_syscalls([cmd.format(env.server_ip_wan, exp.server_tcpdump_log)], sudo=False)
-        
-        # show pipeline
-        cmd = '/opt/bess/bessctl/bessctl show pipeline'
-        click.echo(pipe_syscalls([cmd]))
-        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        click.echo(pipe_syscalls([cmd]))
-        
-        cmd = '/opt/bess/bessctl/bessctl show port'
-        click.echo(pipe_syscalls([cmd]))
-        
-        cmd = '/opt/bess/bessctl/bessctl show module'
-        click.echo(pipe_syscalls([cmd]))
-        
-        cmd = '/opt/bess/bessctl/bessctl show worker'
-        click.echo(pipe_syscalls([cmd]))
-
-
 @click.group()
 def main():
     pass
@@ -372,13 +281,9 @@ def main():
 # TODO: add option to only run specific experiment by name
 @click.command()
 @click.argument('config_file')
-def run_experiment(config_file):
-    _run_experiment(config_file)
-
-def _run_experiment(config_file):
-    with open(config_file) as f:
-        experiments = json.load(f)
-
+@click.option('--name', '-n', multiple=True)
+@click_log.simple_verbosity_option(LOG)
+def run_experiment(config_file, name):
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -387,35 +292,49 @@ def _run_experiment(config_file):
                       server_ip_wan = '128.104.222.70',
                       server_pci = '06:00.0',
                       client_pci = '06:00.1')
+    
+    with open(config_file) as f:
+        config = json.load(f)
 
-    for experiment_name, experiment in experiments.items():
-        _start_bess(env.server_ifname ,env.client_ifname,
-                    experiment['queue_size'], experiment['queue_speed'])
-        rtt = int(experiment['flows'][0]['rtt'])
-        set_rtt(env.client_ip_wan, rtt)
-        flows = [Flow(ccalg=flow['ccalg'],
-                      duration=int(flow['duration']),
-                      rtt=int(flow['rtt']),
-                      client_port=5555+idx,
-                      server_port=5201+idx,)
-                 for idx, flow in enumerate(experiment['flows'])]
-        exp = Experiment(name = experiment_name,
-                         btlbw = int(experiment['btlbw']),
-                         queue_size = int(experiment['queue_size']),
-                         queue_speed = int(experiment['queue_speed']),
-                         flows = flows,
-                         server_log = '/users/rware/server-{}.iperf'.format(experiment_name),
-                         client_log = '/users/rware/client-{}.iperf'.format(experiment_name),
-                         server_tcpdump_log= '/users/rware/server-tcpdump-{}.pcap'.format(experiment_name),
-                         bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}.pcap'.format(experiment_name),
-                         queue_log= '/opt/15-712/cctestbed/queue-{}.txt'.format(experiment_name))
-        try:
-            run_iperf(flows, env, exp)
-        finally:
-            remove_rtt(env.client_ip_wan)
-            _stop_bess()
-        break # run just one for testing
+    experiment_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
+        
+    for experiment_name, experiment in config.items():
+        flows = []
+        experiments = {}
+        for idx, flow in enumerate(experiment['flows']):
+            flows.append(Flow(ccalg=flow['ccalg'],
+                              duration=int(flow['duration']),
+                              rtt=int(flow['rtt']),
+                              client_port=5555+idx,
+                              server_port=5201+idx))
+            experiments[experiment_name] = Experiment(
+                name = experiment_name,
+                btlbw = int(experiment['btlbw']),
+                queue_size = int(experiment['queue_size']),
+                queue_speed = int(experiment['queue_speed']),
+                flows = flows,
+                server_log = '/users/rware/server-{}-{}.iperf'.format(
+                    experiment_name, experiment_time),
+                client_log = '/users/rware/client-{}-{}.iperf'.format(
+                    experiment_name, experiment_time),
+                server_tcpdump_log= '/users/rware/server-tcpdump-{}-{}.pcap'.format(
+                    experiment_name, experiment_time),
+                bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}-{}.pcap'.format(
+                    experiment_name, experiment_time),
+                queue_log= '/opt/15-712/cctestbed/queue-{}-{}.txt'.format(
+                    experiment_name, experiment_time),
+                env=env)
 
+    if len(name) == 0:
+        # run all the experiments
+        for experiment in experiments.values():
+            experiment.run()
+    else:
+        for n in name:
+            experiments[n].run()
+            
+        
+    
 @click.command()
 @click.argument('ifname_server')
 @click.argument('ifname_client')
@@ -455,7 +374,7 @@ def _stop_bess():
     
 main.add_command(start_bess)
 main.add_command(stop_bess)
-#main.add_command(run_experiment)
+main.add_command(run_experiment)
 
 def pipe_syscalls(cmds, sudo=True):
     """Run linux commands, piping input and output

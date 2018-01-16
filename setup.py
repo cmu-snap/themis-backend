@@ -6,6 +6,7 @@ setup(
     py_modules=['cctestbed'],
     install_requires=[
         'Click',
+        'click_log'
     ],
     entry_points='''
     [console_scripts]

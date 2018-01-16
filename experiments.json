@@ -1,11 +1,11 @@
 {
-    "cubic-30mbs-50rtt-1bdp-10s" : {
+    "cubic" : {
 	"btlbw" : "30",
 	"queue_size" : "128",
 	"queue_speed" : "30", 
 	"flows" : [{
 	    "ccalg" : "cubic",
-	    "duration" : "10",
+	    "duration" : "30",
 	    "rtt": "50"
 	}]
     }
