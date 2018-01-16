@@ -297,10 +297,11 @@ def run_experiment(config_file, name):
         config = json.load(f)
 
     experiment_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
-        
+    experiments = {}
+    
     for experiment_name, experiment in config.items():
         flows = []
-        experiments = {}
+
         for idx, flow in enumerate(experiment['flows']):
             flows.append(Flow(ccalg=flow['ccalg'],
                               duration=int(flow['duration']),
