@@ -1,4 +1,4 @@
-import click
+\1;95;0cimport click
 import click_log
 import subprocess
 import shlex
@@ -71,8 +71,9 @@ class Experiment(object):
         print(self)
         max_duration = 0
         with ExitStack() as stack:
-            # start bess
+            # start bess -- give bess time to start
             print(stack.enter_context(self.start_bess()))
+            time.sleep(5)
             # set rtt -- for now cannot set RTT per flow so just use first one
             stack.enter_context(self.set_rtt(self.flows[0].rtt))
             # monitor the queue
