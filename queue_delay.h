@@ -28,8 +28,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_MODULES_QUEUE_H_
-#define BESS_MODULES_QUEUE_H_
+#ifndef BESS_MODULES_QUEUE_DELAY_H_
+#define BESS_MODULES_QUEUE_DELAY_H_
 
 #include "../kmod/llring.h"
 #include "../module.h"
@@ -107,4 +107,4 @@ class QueueDelay : public Module {
   } stats_;
 };
 
-#endif  // BESS_MODULES_QUEUE_H_
+#endif  // BESS_MODULES_QUEUE_DELAY_H_
