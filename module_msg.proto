@@ -1128,3 +1128,10 @@ message MplsPopArg {
 message WorkerSplitArg {
   map<uint32, uint32> worker_gates = 1; // ogate -> worker mask
 }
+
+/**
+ *
+ */
+message QueueCommandSetDelayArg {
+  uint64 delay = 1; /// The maximum number of packets to store in the queue.
+}
