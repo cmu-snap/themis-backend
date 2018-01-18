@@ -1,0 +1,8 @@
+import time
+
+m = Measure()
+Source() -> Timestamp() -> QueueDelay(delay=50) -> m -> Sink()
+
+while True:
+    print(m.get_summary().latency.avg_ns)
+    time.sleep(2)
