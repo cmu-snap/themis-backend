@@ -35,6 +35,10 @@
 
 #define DEFAULT_QUEUE_SIZE 1024
 
+enum {
+  ATTR_W_TIMESTAMP,
+};
+
 const Commands QueueDelay::cmds = {
     {"set_burst", "QueueCommandSetBurstArg",
      MODULE_CMD_FUNC(&QueueDelay::CommandSetBurst), Command::THREAD_SAFE},
@@ -88,9 +92,15 @@ int QueueDelay::Resize(int slots) {
 }
 
 CommandResponse QueueDelay::Init(const bess::pb::QueueDelayArg &arg) {
+  using AccessMode = bess::metadata::Attribute::AccessMode;
+
+  AddMetadataAttr("timestamp", 4, AccessMode::kWrite);
+  
   task_id_t tid;
   CommandResponse err;
 
+  
+  
   tid = RegisterTask(nullptr);
   if (tid == INVALID_TASK_ID) {
     return CommandFailure(ENOMEM, "Task creation failed");
@@ -116,6 +126,8 @@ CommandResponse QueueDelay::Init(const bess::pb::QueueDelayArg &arg) {
     }
   }
 
+  delay_ = arg.delay();
+  
   if (arg.prefetch()) {
     prefetch_ = true;
   }
@@ -268,6 +280,12 @@ CheckConstraintResult QueueDelay::CheckModuleConstraints() const {
   }
 
   return status;
+}
+
+CommandResponse QueueDelay::CommandSetDelay(
+    const bess::pb::QueueDelayCommandSetDelayArg &arg) {
+  delay_ = arg.delay();
+  return CommandSuccess();
 }
 
 ADD_MODULE(QueueDelay, "queue",

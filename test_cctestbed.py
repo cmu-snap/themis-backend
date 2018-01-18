@@ -33,7 +33,9 @@ def environment():
     return env
 
 @pytest.fixture()
-def experiment(request, environment):
+def experiment(environment):
+    experiments = mut.load_experiment('experiments.json')
+    """
     with open('experiments.json') as f:
         config = json.load(f)
 
@@ -57,8 +59,10 @@ def experiment(request, environment):
                                           server_tcpdump_log= '/users/rware/server-tcpdump-{}.pcap'.format(experiment_name),
                                           bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}.pcap'.format(experiment_name),
                                               queue_log= '/opt/15-712/cctestbed/queue-{}.txt'.format(experiment_name),
-                                              env=environment))
-    return experiments[0]
+                                              env=environment,
+                                              tarfile='{}.tar.gz'.format(experiment_name)))
+    """
+    return experiments['cubic']
     
         
 def test_get_interface_pci():
@@ -203,3 +207,5 @@ class TestExperiment(object):
             
     def test_run(self, experiment):
         experiment.run()
+        assert(os.path.isfile(experiment.tarfile))
+        os.remove(experiment.tarfile)

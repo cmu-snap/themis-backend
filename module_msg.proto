@@ -1132,7 +1132,7 @@ message WorkerSplitArg {
 /**
  *
  */
-message QueueCommandSetDelayArg {
+message QueueDelayCommandSetDelayArg {
   uint64 delay = 1; /// The maximum number of packets to store in the queue.
 }
 

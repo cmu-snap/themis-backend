@@ -1,4 +1,4 @@
-\1;95;0cimport click
+import click
 import click_log
 import subprocess
 import shlex
@@ -22,6 +22,9 @@ click_log.basic_config(LOG)
 #TODO: add logging and --debug cmdline option
 #TODO: how to change RTT per flow using tc -- add delay per port instead of per interface
 
+#TODO: need separate files for each flow's iperf output
+
+#TODO: store files in a special tmp folder
 
 # code for 2 pmdport
 
@@ -43,7 +46,8 @@ class Experiment(object):
                  server_tcpdump_log,
                  bess_tcpdump_log,
                  queue_log,
-                 env):
+                 env,
+                 tarfile):
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
@@ -55,7 +59,8 @@ class Experiment(object):
         self.bess_tcpdump_log = bess_tcpdump_log
         self.queue_log = queue_log
         self.env = env
-
+        self.tarfile = tarfile
+        
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
                              sort_keys=True,
@@ -99,7 +104,16 @@ class Experiment(object):
         #pipe_syscalls([cmd])
         #cmd = 'rm -f *{}*'.format(self.name)
         #pipe_syscalls([cmd])
-    
+        cmd = './cleanup-data.sh {} {} {}'.format(self.server_tcpdump_log,
+                                                  self.tarfile,
+                                                  os.path.basename(self.tarfile)[:-7])
+        os.system(cmd)
+        #os.remove(os.path.basename(self.bess_tcpdump_log))
+        os.remove(os.path.basename(self.queue_log))
+        os.remove(os.path.basename(self.server_log))
+        os.remove(os.path.basename(self.client_log))
+        os.remove(os.path.basename(self.server_tcpdump_log))
+        
     @contextmanager
     def start_bess(self):
         cmd = '/opt/bess/bessctl/bessctl daemon start'
@@ -181,6 +195,7 @@ class Experiment(object):
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
                                 cmd='tcpdump',
                                 filepath=self.server_tcpdump_log)
+        """
         cmd = ('tshark '
                '-T fields '
                '-E separator=, '
@@ -192,7 +207,8 @@ class Experiment(object):
                '> {}.csv').format(self.bess_tcpdump_log, self.bess_tcpdump_log[:-5])
         print('RUNNING CMD: {}'.format(cmd))
         subprocess.run(shlex.split(cmd))
-    
+        """
+        
     @contextmanager
     def start_monitor_bess(self):
         cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.queue_log)
@@ -285,6 +301,19 @@ def main():
 @click.option('--name', '-n', multiple=True)
 @click_log.simple_verbosity_option(LOG)
 def run_experiment(config_file, name):
+    experiments = load_experiment(config_file)
+    
+    if len(name) == 0:
+        # run all the experiments
+        for experiment in experiments.values():
+            # make sure bess daemon is shut down
+            os.system('/opt/bess/bessctl/bessctl daemon stop')
+            experiment.run()
+    else:
+        for n in name:
+            experiments[n].run()
+
+def load_experiment(config_file):
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -293,7 +322,7 @@ def run_experiment(config_file, name):
                       server_ip_wan = '128.104.222.70',
                       server_pci = '06:00.0',
                       client_pci = '06:00.1')
-    
+
     with open(config_file) as f:
         config = json.load(f)
 
@@ -325,16 +354,13 @@ def run_experiment(config_file, name):
                     experiment_name, experiment_time),
                 queue_log= '/opt/15-712/cctestbed/queue-{}-{}.txt'.format(
                     experiment_name, experiment_time),
+                tarfile = '/opt/15-712/cctestbed/{}-{}.tar.gz'.format(
+                    experiment_name, experiment_time),
                 env=env)
 
-    if len(name) == 0:
-        # run all the experiments
-        for experiment in experiments.values():
-            experiment.run()
-    else:
-        for n in name:
-            experiments[n].run()
-            
+    return experiments
+
+    
         
     
 @click.command()
@@ -457,11 +483,12 @@ def connect_dpdk(ifname_server, ifname_client):
     # TODO: if interfaces are not connected to kernel then throw an error
 
     # if already connected, just return
-    connected_pcis = pipe_syscalls(['/opt/bess/bin/dpdk-devbind.py --status',
-                                    'grep drv=uio_pci_generic'])
-    if not (connected_pcis is None or connected_pcis.strip() == '') :
+    #TODO: catch error when grep won't work b/c not connected
+    #connected_pcis = pipe_syscalls(['/opt/bess/bin/dpdk-devbind.py --status',
+    #                                'grep drv=uio_pci_generic'])
+    #if not (connected_pcis is None or connected_pcis.strip() == '') :
         #TODO: remove hardcoded number here
-        return '06:00.0', '06:00.1'
+    #    return '06:00.0', '06:00.1'
             
     server_pci = get_interface_pci(ifname_server)
     client_pci = get_interface_pci(ifname_client)

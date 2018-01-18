@@ -48,7 +48,8 @@ class QueueDelay : public Module {
         size_(),
         high_water_(),
         low_water_(),
-        stats_() {
+        stats_(),
+        delay_() {
     is_task_ = true;
     propagate_workers_ = false;
     max_allowed_workers_ = Worker::kMaxWorkers;
@@ -65,7 +66,7 @@ class QueueDelay : public Module {
 
   CommandResponse CommandSetBurst(const bess::pb::QueueCommandSetBurstArg &arg);
   CommandResponse CommandSetSize(const bess::pb::QueueCommandSetSizeArg &arg);
-  CommandResponse CommandSetDelay(const bess::pb::QueueDelayCommandSetDelay &arg);
+  CommandResponse CommandSetDelay(const bess::pb::QueueDelayCommandSetDelayArg &arg);
   CommandResponse CommandGetStatus(
       const bess::pb::QueueCommandGetStatusArg &arg);
 
@@ -105,6 +106,9 @@ class QueueDelay : public Module {
     uint64_t dequeued;
     uint64_t dropped;
   } stats_;
+
+  // QueueDelay delay
+  uint64_t delay_;
 };
 
 #endif  // BESS_MODULES_QUEUE_DELAY_H_
