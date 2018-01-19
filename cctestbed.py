@@ -17,6 +17,7 @@ ch.setFormatter('[%(asctime)s:%(levelname)s] %(message)s')
 LOG.addHandler(ch)
 click_log.basic_config(LOG)
 
+# TODO: look into using Paramiko for ssh calls in python
 
 #TODO: delete Experiment namedtuple class
 #TODO: add logging and --debug cmdline option
@@ -123,14 +124,14 @@ class Experiment(object):
         #pipe_syscalls([cmd])
         cmd = './cleanup-data.sh {} {} {}'.format(self.server_tcpdump_log,
                                                   self.tarfile,
-                                                  self.tarfile[:-7])
+                                                  os.path.basename(self.tarfile)[:-7])
         os.system(cmd)
         #os.remove(os.path.basename(self.bess_tcpdump_log))
-        os.remove(os.path.basename(self.queue_log))
-        os.remove(os.path.basename(self.server_log))
-        os.remove(os.path.basename(self.client_log))
-        os.remove(os.path.basename(self.server_tcpdump_log))
-        os.remove(os.path.basename(self.client_tcpdump_log))
+        os.remove(self.queue_log)
+        os.remove(self.server_log)
+        os.remove(self.client_log)
+        os.remove(self.server_tcpdump_log)
+        os.remove(self.client_tcpdump_log)
         
     @contextmanager
     def start_bess(self):
@@ -314,7 +315,7 @@ class Experiment(object):
         finally:
             if filepath is not None:
                 # copy remote file to local machine and delete on remote machine
-                run = 'scp rware@{}:{} .'.format(ip, filepath)
+                run = 'scp rware@{}:{} /tmp/'.format(ip, filepath)
                 pipe_syscalls([run], sudo=False)
                 run = 'ssh -p 22 rware@{} sudo rm -f {}'.format(ip, filepath)
                 pipe_syscalls([run], sudo=False)
