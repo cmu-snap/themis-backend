@@ -47,19 +47,35 @@ class Experiment(object):
                  bess_tcpdump_log,
                  queue_log,
                  env,
-                 tarfile):
+                 tarfile,
+                 client_tcpdump_log):
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
         self.queue_speed = queue_speed
         self.flows = flows
+        self.env = env
+        
+        exp_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
+
+        #with tempfile.TemoraryFile(prefix='server-', suffix=exp_time):
+        
+        
         self.server_log = server_log
         self.client_log = client_log
         self.server_tcpdump_log = server_tcpdump_log
         self.bess_tcpdump_log = bess_tcpdump_log
         self.queue_log = queue_log
-        self.env = env
         self.tarfile = tarfile
+        self.client_tcpdump_log = client_tcpdump_log
+
+        # files must be temporary files; use mktemp to make them
+        
+        
+        # connect dpdk if not connected
+        # assumes all experiments use the same environment which, they do
+        # TODO: force above assumption to be true
+        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
@@ -83,8 +99,9 @@ class Experiment(object):
             stack.enter_context(self.set_rtt(self.flows[0].rtt))
             # monitor the queue
             stack.enter_context(self.start_monitor_bess())
-            # tcpdump server
+            # tcpdump server & client
             stack.enter_context(self.start_tcpdump_server())
+            stack.enter_context(self.start_tcpdump_client())
             # start each flow
             for idx, flow in enumerate(self.flows):
                 if flow.duration > max_duration:
@@ -106,13 +123,14 @@ class Experiment(object):
         #pipe_syscalls([cmd])
         cmd = './cleanup-data.sh {} {} {}'.format(self.server_tcpdump_log,
                                                   self.tarfile,
-                                                  os.path.basename(self.tarfile)[:-7])
+                                                  self.tarfile[:-7])
         os.system(cmd)
         #os.remove(os.path.basename(self.bess_tcpdump_log))
         os.remove(os.path.basename(self.queue_log))
         os.remove(os.path.basename(self.server_log))
         os.remove(os.path.basename(self.client_log))
         os.remove(os.path.basename(self.server_tcpdump_log))
+        os.remove(os.path.basename(self.client_tcpdump_log))
         
     @contextmanager
     def start_bess(self):
@@ -181,15 +199,29 @@ class Experiment(object):
                                 filepath=self.server_log)
 
     @contextmanager
+    def start_tcpdump_client(self):
+        cmd = ('ssh -p 22 rware@{} '
+               'sudo tcpdump -n --packet-buffered '
+               '--snapshot-length=65535 '
+               '--interface=enp6s0f0 '
+               '-w {} '
+               '> /dev/null 2> /dev/null < /dev/null & ').format(
+                   self.env.client_ip_wan,
+                   self.client_tcpdump_log)
+        yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                                cmd='tcpdump',
+                                filepath=self.client_tcpdump_log)
+    
+    @contextmanager
     def start_tcpdump_server(self):
         cmd = ('ssh -p 22 rware@{} '
                'sudo tcpdump -n --packet-buffered '
                '--snapshot-length=65535 '
-               '--interface={} '
+               '--interface=enp6s0f0 '
                '-w {} '
                '> /dev/null 2> /dev/null < /dev/null & ').format(
                    self.env.server_ip_wan,
-                   self.env.server_ifname,
                    self.server_tcpdump_log)
         yield pipe_syscalls([cmd], sudo=False)
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
@@ -206,6 +238,7 @@ class Experiment(object):
                '-e tcp.analysis.ack_rtt '
                '> {}.csv').format(self.bess_tcpdump_log, self.bess_tcpdump_log[:-5])
         print('RUNNING CMD: {}'.format(cmd))
+
         subprocess.run(shlex.split(cmd))
         """
         
@@ -283,7 +316,7 @@ class Experiment(object):
                 # copy remote file to local machine and delete on remote machine
                 run = 'scp rware@{}:{} .'.format(ip, filepath)
                 pipe_syscalls([run], sudo=False)
-                run = 'ssh -p 22 rware@{} rm -f {}'.format(ip, filepath)
+                run = 'ssh -p 22 rware@{} sudo rm -f {}'.format(ip, filepath)
                 pipe_syscalls([run], sudo=False)
 
     def cleanup_local_cmd(self, cmd):
@@ -344,17 +377,19 @@ def load_experiment(config_file):
                 queue_size = int(experiment['queue_size']),
                 queue_speed = int(experiment['queue_speed']),
                 flows = flows,
-                server_log = '/users/rware/server-{}-{}.iperf'.format(
+                server_log = '/tmp/server-{}-{}.iperf'.format(
                     experiment_name, experiment_time),
-                client_log = '/users/rware/client-{}-{}.iperf'.format(
+                client_log = '/tmp/client-{}-{}.iperf'.format(
                     experiment_name, experiment_time),
-                server_tcpdump_log= '/users/rware/server-tcpdump-{}-{}.pcap'.format(
+                server_tcpdump_log= '/tmp/server-tcpdump-{}-{}.pcap'.format(
                     experiment_name, experiment_time),
-                bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}-{}.pcap'.format(
+                bess_tcpdump_log= '/tmp/bess-tcpdump-{}-{}.pcap'.format(
                     experiment_name, experiment_time),
-                queue_log= '/opt/15-712/cctestbed/queue-{}-{}.txt'.format(
+                queue_log= '/tmp/queue-{}-{}.txt'.format(
                     experiment_name, experiment_time),
-                tarfile = '/opt/15-712/cctestbed/{}-{}.tar.gz'.format(
+                tarfile = '/tmp/{}-{}.tar.gz'.format(
+                    experiment_name, experiment_time),
+                client_tcpdump_log = '/tmp/client-tcpdump-{}-{}.pcap'.format(
                     experiment_name, experiment_time),
                 env=env)
 
@@ -486,9 +521,12 @@ def connect_dpdk(ifname_server, ifname_client):
     #TODO: catch error when grep won't work b/c not connected
     #connected_pcis = pipe_syscalls(['/opt/bess/bin/dpdk-devbind.py --status',
     #                                'grep drv=uio_pci_generic'])
-    #if not (connected_pcis is None or connected_pcis.strip() == '') :
+    cmd = '/opt/bess/bin/dpdk-devbind.py --status grep drv=uio_pci_generic'
+    proc = subprocess.run(shlex.split(cmd), check=False)
+    if proc.returncode == 0:
         #TODO: remove hardcoded number here
-    #    return '06:00.0', '06:00.1'
+        print('Interfaces already conncted to DPDK')
+        return '06:00.0', '06:00.1'
             
     server_pci = get_interface_pci(ifname_server)
     client_pci = get_interface_pci(ifname_client)

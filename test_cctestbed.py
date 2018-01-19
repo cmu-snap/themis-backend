@@ -209,3 +209,15 @@ class TestExperiment(object):
         experiment.run()
         assert(os.path.isfile(experiment.tarfile))
         os.remove(experiment.tarfile)
+
+    def test_start_tcpdump_client(self, experiment):
+        cmd = 'ssh -p 22 rware@{} pgrep tcpdump'.format(experiment.env.client_ip_wan)
+        with experiment.start_tcpdump_client():
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
+        filename = os.path.basename(experiment.client_tcpdump_log)
+        assert(os.path.isfile(filename))
+        os.remove(filename)
+
