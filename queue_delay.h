@@ -49,7 +49,9 @@ class QueueDelay : public Module {
         high_water_(),
         low_water_(),
         stats_(),
-        delay_() {
+        delay_(),
+        head_(),
+        num_pkts_(){
     is_task_ = true;
     propagate_workers_ = false;
     max_allowed_workers_ = Worker::kMaxWorkers;
@@ -109,6 +111,12 @@ class QueueDelay : public Module {
 
   // QueueDelay delay
   uint64_t delay_;
+
+  // packet waiting to be dequeued
+  bess::Packet *head_;
+
+  // number of processes packets
+  uint64_t num_pkts_;
 };
 
 #endif  // BESS_MODULES_QUEUE_DELAY_H_

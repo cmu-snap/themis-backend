@@ -33,7 +33,11 @@
 #include "../mem_alloc.h"
 #include "../utils/format.h"
 
-#define DEFAULT_QUEUE_SIZE 1024
+#include <inttypes.h> // ONLY NEED FOR DEBUGGING
+
+#define DEFAULT_QUEUE_SIZE 1024 //2**30 //1024
+
+#define MILLISECONDS_TO_NANOSECONDS 1000000
 
 enum {
   ATTR_W_TIMESTAMP,
@@ -94,12 +98,13 @@ int QueueDelay::Resize(int slots) {
 CommandResponse QueueDelay::Init(const bess::pb::QueueDelayArg &arg) {
   using AccessMode = bess::metadata::Attribute::AccessMode;
 
-  AddMetadataAttr("timestamp", 4, AccessMode::kWrite);
+  AddMetadataAttr("timestamp", 8, AccessMode::kRead);
   
   task_id_t tid;
   CommandResponse err;
 
-  
+  head_ = 0;
+  num_pkts_ = 0;
   
   tid = RegisterTask(nullptr);
   if (tid == INVALID_TASK_ID) {
@@ -161,7 +166,7 @@ void QueueDelay::ProcessBatch(bess::PacketBatch *batch) {
   }
 
   stats_.enqueued += queued;
-
+  
   if (queued < batch->cnt()) {
     int to_drop = batch->cnt() - queued;
     stats_.dropped += to_drop;
@@ -178,14 +183,47 @@ struct task_result QueueDelay::RunTask(void *) {
   }
 
   bess::PacketBatch batch;
-
-  const int burst = ACCESS_ONCE(burst_);
+  batch.clear();
+  
   const int pkt_overhead = 24;
 
   uint64_t total_bytes = 0;
 
-  uint32_t cnt = llring_sc_dequeue_burst(queue_, (void **)batch.pkts(), burst);
 
+  //const int burst = ACCESS_ONCE(burst_);
+  //uint32_t cnt = llring_sc_dequeue_burst(queue_, (void **)batch.pkts(), burst);
+
+  
+  uint32_t cnt = 0;
+
+  while (!batch.full()) {
+    if (head_ == 0) {
+      uint32_t deq = llring_sc_dequeue_burst(queue_, (void **)&head_, 1);
+  
+      if (deq == 0) {
+	break;
+      }
+    }
+    uint64_t timestamp = get_attr<uint64_t>(this, ATTR_W_TIMESTAMP, head_);
+    if (ctx.current_ns() - timestamp >= (delay_ * MILLISECONDS_TO_NANOSECONDS)) {
+      batch.add(head_);
+      head_ = 0;
+      cnt++;
+    }
+    else {
+      break;
+    }
+
+    /*
+    if (num_pkts_ <= 100) {
+      printf("timestamp=%" PRIu64 " delta=%" PRIu64 "\n", timestamp, ctx.current_ns() - timestamp); 
+    }
+    */
+  }
+  
+
+  //num_pkts_ = num_pkts_ + cnt; 
+   
   if (cnt == 0) {
     return {.block = true, .packets = 0, .bits = 0};
   }
@@ -288,5 +326,5 @@ CommandResponse QueueDelay::CommandSetDelay(
   return CommandSuccess();
 }
 
-ADD_MODULE(QueueDelay, "queue",
+ADD_MODULE(QueueDelay, "queue_delay",
            "terminates current task and enqueue packets for new task")
