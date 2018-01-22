@@ -230,6 +230,7 @@ class Experiment(object):
         with self.start_iperf_server(flow, affinity):
             cmd = ('ssh -p 22 rware@{} '
                    'nohup iperf3 --client {} '
+                   '--port {} '
                    '--verbose '
                    '--bind {} '
                    '--cport {} '
@@ -245,6 +246,7 @@ class Experiment(object):
                    '> /dev/null 2> /dev/null < /dev/null &').format(
                        self.env.client_ip_wan,
                        self.env.server_ip_lan,
+                       flow.server_port,
                        self.env.client_ip_lan,
                        flow.client_port,
                        flow.ccalg,

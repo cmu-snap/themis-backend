@@ -97,41 +97,48 @@ class TestExperiment(object):
             for idx, flow in enumerate(experiment.flows):
                 stack.enter_context(experiment.start_iperf_server(flow,
                                                                   (idx % 32) + 1))
-                time.sleep(5) # make sure server have time to start
+            time.sleep(5) # make sure server have time to start
             output = subprocess.run(shlex.split(cmd),
                                     stdout=subprocess.PIPE)
             assert(output.returncode==0)
             assert(len(output.stdout.strip().split(b'\n'))==len(experiment.flows))
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
-        #filename = os.path.basename(experiment.server_log)
-        for idx, flow in enumerate(experiment.flows):
-            filename =flow.server_log
+        for flow in experiment.flows:
+            filename = flow.server_log
             assert(os.path.isfile(filename))
             os.remove(filename)
         
     def test_start_iperf_client(self, experiment, bess):
-        with experiment.start_iperf_client(experiment.flows[0], 1):
-            cmd = 'ssh -p 22 rware@{} pgrep iperf3'
+        cmd = 'ssh -p 22 rware@{} pgrep iperf3'
+        with ExitStack() as stack:
+            for idx, flow in enumerate(experiment.flows):
+                stack.enter_context(experiment.start_iperf_client(flow,
+                                                                  (idx % 32) + 1))
+        
+            time.sleep(5) # make sure things have time to start
             output = subprocess.run(shlex.split(cmd.format(
-                experiment.env.server_ip_wan)))
+                experiment.env.server_ip_wan)), stdout=subprocess.PIPE)
             assert(output.returncode==0)
+            assert(len(output.stdout.strip().split(b'\n'))==len(experiment.flows))
             output = subprocess.run(shlex.split(cmd.format(
-                experiment.env.client_ip_wan)))
+                experiment.env.client_ip_wan)), stdout=subprocess.PIPE)
             assert(output.returncode==0)
-        time.sleep(5)
+            assert(len(output.stdout.strip().split(b'\n'))==len(experiment.flows))
+        time.sleep(5) # make sure things have time to shutdown
         output = subprocess.run(shlex.split(cmd.format(
             experiment.env.server_ip_wan)))
         assert(output.returncode==1)
         output = subprocess.run(shlex.split(cmd.format(
             experiment.env.client_ip_wan)))
         assert(output.returncode==1)
-        filename = experiment.flows[0].client_log
-        assert(os.path.isfile(filename))
-        os.remove(filename)
-        filename = experiment.flows[0].server_log
-        assert(os.path.isfile(filename))
-        os.remove(filename)
+        for flow in experiment.flows:
+            filename = flow.client_log
+            assert(os.path.isfile(filename))
+            os.remove(filename)
+            filename = flow.server_log
+            assert(os.path.isfile(filename))
+            os.remove(filename)
 
         
     def test_start_tcpdump_server(self, experiment):
