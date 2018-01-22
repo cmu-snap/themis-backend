@@ -196,7 +196,7 @@ struct task_result QueueDelay::RunTask(void *) {
   
   uint32_t cnt = 0;
 
-  while (!batch.full()) {
+  while (batch.cnt() != 1) {
     if (head_ == 0) {
       uint32_t deq = llring_sc_dequeue_burst(queue_, (void **)&head_, 1);
   
@@ -290,13 +290,14 @@ CommandResponse QueueDelay::CommandSetSize(
 }
 
 CommandResponse QueueDelay::CommandGetStatus(
-    const bess::pb::QueueCommandGetStatusArg &) {
-  bess::pb::QueueCommandGetStatusResponse resp;
+    const bess::pb::QueueDelayCommandGetStatusArg &) {
+  bess::pb::QueueDelayCommandGetStatusResponse resp;
   resp.set_count(llring_count(queue_));
   resp.set_size(size_);
   resp.set_enqueued(stats_.enqueued);
   resp.set_dequeued(stats_.dequeued);
   resp.set_dropped(stats_.dropped);
+  resp.set_delay(delay_);
   return CommandSuccess(resp);
 }
 

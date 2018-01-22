@@ -76,7 +76,8 @@ class Experiment(object):
         # connect dpdk if not connected
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
-        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
+o
+        #connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
@@ -97,7 +98,8 @@ class Experiment(object):
             print(stack.enter_context(self.start_bess()))
             time.sleep(5)
             # set rtt -- for now cannot set RTT per flow so just use first one
-            stack.enter_context(self.set_rtt(self.flows[0].rtt))
+            #stack.enter_context(self.set_rtt(self.flows[0].rtt))
+            self.check_rtt())
             # monitor the queue
             stack.enter_context(self.start_monitor_bess())
             # tcpdump server & client
@@ -116,6 +118,8 @@ class Experiment(object):
             cmd = '/opt/bess/bessctl/bessctl show pipeline'
             print(pipe_syscalls([cmd]))
             cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+            print(pipe_syscalls([cmd]))
+            cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
             print(pipe_syscalls([cmd]))
         print('EXPERIMENT DONE')
         #cmd = 'tar -cvzf {}.tar.gz *{}*'.format(self.name, self.name)
@@ -141,10 +145,12 @@ class Experiment(object):
                "\"BESS_PCI_SERVER='{}', "
                "BESS_PCI_CLIENT='{}', "
                "BESS_QUEUE_SIZE='{}', "
-               "BESS_QUEUE_SPEED='{}'\"").format(self.env.server_pci,
+               "BESS_QUEUE_SPEED='{}', "
+               "BESS_QUEUE_DELAY='{}'\"").format(self.env.server_pci,
                                                  self.env.client_pci,
                                                  self.queue_size,
-                                                 self.queue_speed)
+                                                 self.queue_speed,
+                                                 self.flows[0].rtt)
         yield pipe_syscalls([cmd])
         cmd = '/opt/bess/bessctl/bessctl daemon stop'
         pipe_syscalls([cmd])
@@ -178,6 +184,20 @@ class Experiment(object):
         cmd = 'ssh -p 22 rware@{} sudo tc qdisc del dev enp6s0f0 root netem'.format(
             self.env.client_ip_wan)
         print(pipe_syscalls([cmd], sudo=False))
+
+    def check_rtt(self):
+        print('CHECKING RTT')
+        # get current average RTT from ping
+        cmd_rtt = ("ssh -p 22 rware@{} "
+                   "ping -c 5 -I {} {} "
+                   "| tail -1 "
+                   "| awk '{{print $4}}' "
+                   "| cut -d '/' -f 2").format(self.env.server_ip_wan,
+                                               self.env.server_ip_lan,
+                                               self.env.client_ip_lan)
+        cmd_rtt = cmd_rtt.split('|')
+        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        print('CURRENT AVG RTT = {}'.format(avg_rtt))        
         
     @contextmanager
     def start_iperf_server(self, flow, affinity):
@@ -274,7 +294,7 @@ class Experiment(object):
                    '--time {} '
                    '--length 1024K '
                    '--affinity {} '
-                   '--set-mss 1500 '
+                   #'--set-mss 500 '
                    '--window 100M '
                    '--zerocopy '
                    '--logfile {} '
@@ -514,6 +534,7 @@ def store_env_var(var, value):
     with open('/etc/environment', 'a') as f:
         f.write('{}={}\n'.format(var, value))
 
+# must run with sudo
 def connect_dpdk(ifname_server, ifname_client):
     click.echo('CONNECTING DPDK')
     # TODO: if interfaces are not connected to kernel then throw an error
@@ -522,13 +543,14 @@ def connect_dpdk(ifname_server, ifname_client):
     #TODO: catch error when grep won't work b/c not connected
     #connected_pcis = pipe_syscalls(['/opt/bess/bin/dpdk-devbind.py --status',
     #                                'grep drv=uio_pci_generic'])
+    # TODO: FIX THIS
     cmd = '/opt/bess/bin/dpdk-devbind.py --status grep drv=uio_pci_generic'
     proc = subprocess.run(shlex.split(cmd), check=False)
     if proc.returncode == 0:
         #TODO: remove hardcoded number here
         print('Interfaces already conncted to DPDK')
         return '06:00.0', '06:00.1'
-            
+          
     server_pci = get_interface_pci(ifname_server)
     client_pci = get_interface_pci(ifname_client)
 

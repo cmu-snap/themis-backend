@@ -70,7 +70,7 @@ class QueueDelay : public Module {
   CommandResponse CommandSetSize(const bess::pb::QueueCommandSetSizeArg &arg);
   CommandResponse CommandSetDelay(const bess::pb::QueueDelayCommandSetDelayArg &arg);
   CommandResponse CommandGetStatus(
-      const bess::pb::QueueCommandGetStatusArg &arg);
+      const bess::pb::QueueDelayCommandGetStatusArg &arg);
 
   CheckConstraintResult CheckModuleConstraints() const override;
 

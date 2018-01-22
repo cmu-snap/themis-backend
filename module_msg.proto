@@ -1149,3 +1149,23 @@ message QueueDelayArg {
   bool backpressure = 3; // When backpressure is enabled, the module will notify upstream if it is overloaded.
   uint64 delay = 4;
 }
+
+/**
+ * Modules that are queues or contain queues may contain functions
+ * `get_status()` that take no parameters and returns the queue occupancy and
+ * size.
+ */
+message QueueDelayCommandGetStatusResponse {
+  uint64 count = 1;    /// The number of packets currently in the queue.
+  uint64 size = 2;     /// The maximum number of packets the queue can contain.
+  uint64 enqueued = 3; /// total enqueued
+  uint64 dequeued = 4; /// total dequeued
+  uint64 dropped = 5;  /// total dropped
+  uint64 delay = 6; /// delay
+}
+
+/**
+ * Modules that are queues or contain queues may contain functions
+ * `get_status()` that return QueueCommandGetStatusResponse.
+ */
+message QueueDelayCommandGetStatusArg {}
