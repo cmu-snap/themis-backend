@@ -40,13 +40,11 @@ class Experiment(object):
                  name,
                  btlbw,
                  queue_size,
-                 queue_speed,
                  flows,
                  env):
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
-        self.queue_speed = queue_speed
         #self.flows = flows
         self.env = env
         
@@ -82,7 +80,7 @@ class Experiment(object):
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
 
-        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
+        #connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
@@ -142,7 +140,8 @@ class Experiment(object):
         for flow in self.flows:
             os.remove(flow.client_log)
             os.remove(flow.server_log)
-        
+        os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
+            
     @contextmanager
     def start_bess(self):
         cmd = '/opt/bess/bessctl/bessctl daemon start'
@@ -155,7 +154,7 @@ class Experiment(object):
                "BESS_QUEUE_DELAY='{}'\"").format(self.env.server_pci,
                                                  self.env.client_pci,
                                                  self.queue_size,
-                                                 self.queue_speed,
+                                                 self.btlbw,
                                                  self.flows[0].rtt)
         yield pipe_syscalls([cmd])
         cmd = '/opt/bess/bessctl/bessctl daemon stop'
@@ -406,7 +405,6 @@ def load_experiment(config_file):
                 name = experiment_name,
                 btlbw = int(experiment['btlbw']),
                 queue_size = int(experiment['queue_size']),
-                queue_speed = int(experiment['queue_speed']),
                 flows = flows,
                 env = env)
 
