@@ -1,0 +1,39 @@
+import os
+
+server = PMDPort(pci=($BESS_PCI_SERVER!'06:00.0')) 
+client = PMDPort(pci=($BESS_PCI_CLIENT!'06:00.1'))
+
+# check if environment variables to say how to use Queue
+server_in = PortInc(port=server.name)
+client_in = PortInc(port=client.name)
+server_out = PortOut(port=server.name)
+client_out = PortOut(port=client.name)
+
+if int($BESS_QUEUE_SIZE!'0') > 0:
+    btl_queue = Queue(size=int($BESS_QUEUE_SIZE))
+    btl_queue.set_burst(burst=1)
+    bess.add_tc('bit_limit',
+                policy='rate_limit',
+                resource='bit',
+                limit={'bit': 1000000*int($BESS_QUEUE_SPEED!'1')}) # how many mbits, default is 1
+    btl_queue.attach_task(parent='bit_limit')
+    #server_in -> btl_queue -> client_out
+    #client_in -> server_out
+    delay_queue = QueueDelay(delay=int($BESS_QUEUE_DELAY!'1'))
+    server_in -> Timestamp() -> delay_queue -> client_out
+    client_in -> btl_queue -> server_out
+else:
+    server_in -> client_out
+    client_in -> server_out
+
+print('BESS_PCI_SERVER=', $BESS_PCI_SERVER)
+print('BESS_PCI_CLIENT=', $BESS_PCI_CLIENT)
+print('BESS_QUEUE_SIZE=', $BESS_QUEUE_SIZE)
+print('BESS_QUEUE_SPEED=', $BESS_QUEUE_SPEED)
+print('BESS_QUEUE_DELAY=', $BESS_QUEUE_DELAY)
+
+#os.system('sudo ifconfig {} broadcast {}'.format($BESS_IFNAME, $BESS_BCAST))
+
+#os.system('sudo route add default gw 130.127.132.1')
+
+
