@@ -82,10 +82,12 @@ class TestExperiment(object):
                "\"BESS_PCI_SERVER='{}', "
                "BESS_PCI_CLIENT='{}', "
                "BESS_QUEUE_SIZE='{}', "
-               "BESS_QUEUE_SPEED='{}'\"").format(experiment.env.server_pci,
+               "BESS_QUEUE_SPEED='{}',"
+               "BESS_QUEUE_DELAY='{}'\"").format(experiment.env.server_pci,
                                                  experiment.env.client_pci,
                                                  experiment.queue_size,
-                                                 experiment.queue_speed)
+                                                 experiment.queue_speed,
+                                                 experiment.flows[0].rtt)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==0)
         request.addfinalizer(bess_close)
@@ -101,11 +103,32 @@ class TestExperiment(object):
         #filename = os.path.basename(experiment.server_log)
         filename = experiment.flows[0].server_log
         assert(os.path.isfile(filename))
-        with open(filename) as f:
-            print("SERVER FILE:")
-            print(f.read())
+        os.remove(filename)
+        
+    def test_start_iperf_client(self, experiment, bess):
+        with experiment.start_iperf_client(experiment.flows[0], 1):
+            cmd = 'ssh -p 22 rware@{} pgrep iperf3'
+            output = subprocess.run(shlex.split(cmd.format(
+                experiment.env.server_ip_wan)))
+            assert(output.returncode==0)
+            output = subprocess.run(shlex.split(cmd.format(
+                experiment.env.client_ip_wan)))
+            assert(output.returncode==0)
+        time.sleep(5)
+        output = subprocess.run(shlex.split(cmd.format(
+            experiment.env.server_ip_wan)))
+        assert(output.returncode==1)
+        output = subprocess.run(shlex.split(cmd.format(
+            experiment.env.client_ip_wan)))
+        assert(output.returncode==1)
+        filename = experiment.flows[0].client_log
+        assert(os.path.isfile(filename))
+        os.remove(filename)
+        filename = experiment.flows[0].server_log
+        assert(os.path.isfile(filename))
         os.remove(filename)
 
+        
     def test_start_tcpdump_server(self, experiment):
         cmd = 'ssh -p 22 rware@{} pgrep tcpdump'.format(experiment.env.server_ip_wan)
         with experiment.start_tcpdump_server():
@@ -139,29 +162,6 @@ class TestExperiment(object):
         assert(os.path.isfile(experiment.bess_tcpdump_log))
         os.remove(experiment.bess_tcpdump_log)
         os.remove('nohup.out')
-        
-    def test_start_iperf_client(self, experiment, bess):
-        with experiment.start_iperf_client(experiment.flows[0], 1):
-            cmd = 'ssh -p 22 rware@{} pgrep iperf3'
-            output = subprocess.run(shlex.split(cmd.format(
-                experiment.env.server_ip_wan)))
-            assert(output.returncode==0)
-            output = subprocess.run(shlex.split(cmd.format(
-                experiment.env.client_ip_wan)))
-            assert(output.returncode==0)
-        time.sleep(5)
-        output = subprocess.run(shlex.split(cmd.format(
-            experiment.env.server_ip_wan)))
-        assert(output.returncode==1)
-        output = subprocess.run(shlex.split(cmd.format(
-            experiment.env.client_ip_wan)))
-        assert(output.returncode==1)
-        filename = os.path.basename(client_log)
-        assert(os.path.isfile(filename))
-        os.remove(filename)
-        filename = os.path.basename(server_log)
-        assert(os.path.isfile(filename))
-        os.remove(filename)
 
     def test_set_rtt(self, experiment, bess):
         target_rtt = experiment.flows[0].rtt
