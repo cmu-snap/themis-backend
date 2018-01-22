@@ -31,7 +31,7 @@ click_log.basic_config(LOG)
 
 Environment = namedtuple('Environment', ['client_ifname', 'server_ifname', 'client_ip_wan', 'server_ip_wan', 'client_ip_lan', 'server_ip_lan', 'server_pci', 'client_pci'])
 #Experiment = namedtuple('Experiment', ['name', 'btlbw', 'queue_size', 'queue_speed', 'flows', 'server_log', 'client_log', 'server_tcpdump_log', 'bess_tcpdump_log', 'queue_log'])
-Flow = namedtuple('Flow', ['ccalg', 'duration', 'rtt', 'client_port', 'server_port'])
+Flow = namedtuple('Flow', ['ccalg', 'duration', 'rtt', 'client_port', 'server_port', 'client_log', 'server_log'])
 
 #note: currently's RTT's are set per machine so we can't have different RTT per flow
 
@@ -42,42 +42,47 @@ class Experiment(object):
                  queue_size,
                  queue_speed,
                  flows,
-                 server_log,
-                 client_log,
-                 server_tcpdump_log,
-                 bess_tcpdump_log,
-                 queue_log,
-                 env,
-                 tarfile,
-                 client_tcpdump_log):
+                 env):
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
         self.queue_speed = queue_speed
-        self.flows = flows
+        #self.flows = flows
         self.env = env
         
-        exp_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
+        self.exp_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]   
+        self.server_tcpdump_log = '/tmp/server-tcpdump-{}-{}.pcap'.format(self.name,
+                                                                        self.exp_time)
+        self.bess_tcpdump_log = '/tmp/bess-tcpdump-{}-{}.pcap'.format(self.name,
+                                                                     self.exp_time)
+        self.queue_log = '/tmp/queue-{}-{}.txt'.format(self.name, self.exp_time)
+        self.tarfile = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
+        self.client_tcpdump_log = '/tmp/client-tcpdump-{}-{}.pcap'.format(self.name,
+                                                                        self.exp_time)
 
-        #with tempfile.TemoraryFile(prefix='server-', suffix=exp_time):
-        
-        
-        self.server_log = server_log
-        self.client_log = client_log
-        self.server_tcpdump_log = server_tcpdump_log
-        self.bess_tcpdump_log = bess_tcpdump_log
-        self.queue_log = queue_log
-        self.tarfile = tarfile
-        self.client_tcpdump_log = client_tcpdump_log
-
+        # must make new flow objects since named tuples are immutable; a bit hacky
+        self.flows = []
+        for flow in flows:
+            client_log = '/tmp/server-{}-{}-{}.iperf'.format(
+                flow.client_port, self.name, self.exp_time)
+            server_log = '/tmp/client-{}-{}-{}.iperf'.format(
+                flow.server_port, self.name, self.exp_time)
+            self.flows.append(Flow(ccalg=flow.ccalg,
+                                   duration=flow.duration,
+                                   rtt=flow.rtt,
+                                   client_port=flow.client_port,
+                                   server_port=flow.server_port,
+                                   client_log=client_log,
+                                   server_log=server_log))
+    
         # files must be temporary files; use mktemp to make them
         
         
         # connect dpdk if not connected
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
-o
-        #connect_dpdk(self.env.server_ifname, self.env.client_ifname)
+
+        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
@@ -99,7 +104,7 @@ o
             time.sleep(5)
             # set rtt -- for now cannot set RTT per flow so just use first one
             #stack.enter_context(self.set_rtt(self.flows[0].rtt))
-            self.check_rtt())
+            self.check_rtt()
             # monitor the queue
             stack.enter_context(self.start_monitor_bess())
             # tcpdump server & client
@@ -132,10 +137,11 @@ o
         os.system(cmd)
         #os.remove(os.path.basename(self.bess_tcpdump_log))
         os.remove(self.queue_log)
-        os.remove(self.server_log)
-        os.remove(self.client_log)
         os.remove(self.server_tcpdump_log)
         os.remove(self.client_tcpdump_log)
+        for flow in self.flows:
+            os.remove(flow.client_log)
+            os.remove(flow.server_log)
         
     @contextmanager
     def start_bess(self):
@@ -213,11 +219,43 @@ o
                    self.env.server_ip_lan,
                    flow.server_port,
                    affinity,
-                   self.server_log)
+                   flow.server_log)
         yield pipe_syscalls([cmd], sudo=False)
         self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
                                 cmd='iperf3',
-                                filepath=self.server_log)
+                                filepath=flow.server_log)
+
+    @contextmanager
+    def start_iperf_client(self, flow, affinity):
+        with self.start_iperf_server(flow, affinity):
+            cmd = ('ssh -p 22 rware@{} '
+                   'nohup iperf3 --client {} '
+                   '--verbose '
+                   '--bind {} '
+                   '--cport {} '
+                   '--linux-congestion {} '
+                   '--interval 0.5 '
+                   '--time {} '
+                   '--length 1024K '
+                   '--affinity {} '
+                   #'--set-mss 500 ' # default is 1448
+                   '--window 100M '
+                   '--zerocopy '
+                   '--logfile {} '
+                   '> /dev/null 2> /dev/null < /dev/null &').format(
+                       self.env.client_ip_wan,
+                       self.env.server_ip_lan,
+                       self.env.client_ip_lan,
+                       flow.client_port,
+                       flow.ccalg,
+                       flow.duration,
+                       affinity,
+                       flow.client_log)
+            yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                                cmd='iperf3',
+                                filepath=flow.client_log)
+
 
     @contextmanager
     def start_tcpdump_client(self):
@@ -280,37 +318,6 @@ o
                '-w {} &> /dev/null &').format(self.bess_tcpdump_log)
         yield subprocess.run(shlex.split(cmd)) 
         self.cleanup_local_cmd(cmd=self.bess_tcpdump_log)
-
-    @contextmanager
-    def start_iperf_client(self, flow, affinity):
-        with self.start_iperf_server(flow, affinity):
-            cmd = ('ssh -p 22 rware@{} '
-                   'nohup iperf3 --client {} '
-                   '--verbose '
-                   '--bind {} '
-                   '--cport {} '
-                   '--linux-congestion {} '
-                   '--interval 0.5 '
-                   '--time {} '
-                   '--length 1024K '
-                   '--affinity {} '
-                   #'--set-mss 500 '
-                   '--window 100M '
-                   '--zerocopy '
-                   '--logfile {} '
-                   '> /dev/null 2> /dev/null < /dev/null &').format(
-                       self.env.client_ip_wan,
-                       self.env.server_ip_lan,
-                       self.env.client_ip_lan,
-                       flow.client_port,
-                       flow.ccalg,
-                       flow.duration,
-                       affinity,
-                       self.client_log)
-            yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
-                                cmd='iperf3',
-                                filepath=self.client_log)
         
     def cleanup_remote_cmd(self, ip, cmd, filepath=None):
         """Kill remote commands and copy over files.
@@ -380,7 +387,6 @@ def load_experiment(config_file):
     with open(config_file) as f:
         config = json.load(f)
 
-    experiment_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
     experiments = {}
     
     for experiment_name, experiment in config.items():
@@ -391,28 +397,16 @@ def load_experiment(config_file):
                               duration=int(flow['duration']),
                               rtt=int(flow['rtt']),
                               client_port=5555+idx,
-                              server_port=5201+idx))
+                              server_port=5201+idx,
+                              client_log=None,
+                              server_log=None))
             experiments[experiment_name] = Experiment(
                 name = experiment_name,
                 btlbw = int(experiment['btlbw']),
                 queue_size = int(experiment['queue_size']),
                 queue_speed = int(experiment['queue_speed']),
                 flows = flows,
-                server_log = '/tmp/server-{}-{}.iperf'.format(
-                    experiment_name, experiment_time),
-                client_log = '/tmp/client-{}-{}.iperf'.format(
-                    experiment_name, experiment_time),
-                server_tcpdump_log= '/tmp/server-tcpdump-{}-{}.pcap'.format(
-                    experiment_name, experiment_time),
-                bess_tcpdump_log= '/tmp/bess-tcpdump-{}-{}.pcap'.format(
-                    experiment_name, experiment_time),
-                queue_log= '/tmp/queue-{}-{}.txt'.format(
-                    experiment_name, experiment_time),
-                tarfile = '/tmp/{}-{}.tar.gz'.format(
-                    experiment_name, experiment_time),
-                client_tcpdump_log = '/tmp/client-tcpdump-{}-{}.pcap'.format(
-                    experiment_name, experiment_time),
-                env=env)
+                env = env)
 
     return experiments
 

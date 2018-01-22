@@ -35,33 +35,6 @@ def environment():
 @pytest.fixture()
 def experiment(environment):
     experiments = mut.load_experiment('experiments.json')
-    """
-    with open('experiments.json') as f:
-        config = json.load(f)
-
-    experiments = []
-    for experiment_name, experiment in config.items():
-        flows = []
-        for idx, flow in enumerate(experiment['flows']):
-            flows.append(mut.Flow(ccalg=flow['ccalg'],
-                              duration=int(flow['duration']),
-                              rtt=int(flow['rtt']),
-                              client_port=5555+idx,
-                              server_port=5201+idx))
-        
-            experiments.append(mut.Experiment(name = experiment_name,
-                                          btlbw = int(experiment['btlbw']),
-                                          queue_size = int(experiment['queue_size']),
-                                          queue_speed = int(experiment['queue_speed']),
-                                          flows = flows,
-                                          server_log = '/users/rware/server-{}.iperf'.format(experiment_name),
-                                          client_log = '/users/rware/client-{}.iperf'.format(experiment_name),
-                                          server_tcpdump_log= '/users/rware/server-tcpdump-{}.pcap'.format(experiment_name),
-                                          bess_tcpdump_log= '/opt/15-712/cctestbed/bess-tcpdump-{}.pcap'.format(experiment_name),
-                                              queue_log= '/opt/15-712/cctestbed/queue-{}.txt'.format(experiment_name),
-                                              env=environment,
-                                              tarfile='{}.tar.gz'.format(experiment_name)))
-    """
     return experiments['cubic']
     
         
@@ -125,7 +98,8 @@ class TestExperiment(object):
             assert(output.returncode==0)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
-        filename = os.path.basename(experiment.server_log)
+        #filename = os.path.basename(experiment.server_log)
+        filename = experiment.flows[0].server_log
         assert(os.path.isfile(filename))
         with open(filename) as f:
             print("SERVER FILE:")
