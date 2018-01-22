@@ -32,9 +32,9 @@ def environment():
                           client_pci = '06:00.1')
     return env
 
-@pytest.fixture()
-def experiment(environment):
-    experiments = mut.load_experiment('experiments.json')
+@pytest.fixture(params=['experiments.json', 'experiments-20180122.json'], ids=['one-flow', 'two-flow'])
+def experiment(environment, request):
+    experiments = mut.load_experiment(request.config_file)
     return experiments['cubic']
     
         
