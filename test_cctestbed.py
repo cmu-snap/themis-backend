@@ -32,11 +32,10 @@ def environment():
                           client_pci = '06:00.1')
     return env
 
-@pytest.fixture(params=['experiments.json', 'experiments-20180122.json'], ids=['one-flow', 'two-flow'])
+@pytest.fixture(params=['experiments.json', 'experiments-20180122.json'], ids=['oneflow', 'twoflow'])
 def experiment(environment, request):
-    experiments = mut.load_experiment(request.config_file)
-    return experiments['cubic']
-    
+    experiments = mut.load_experiment(request.param)
+    return experiments.popitem()[1]    
         
 def test_get_interface_pci():
     pci = mut.get_interface_pci(SERVER_IFNAME)
@@ -94,16 +93,22 @@ class TestExperiment(object):
 
     def test_start_iperf_server(self, experiment):
         cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
-        with experiment.start_iperf_server(experiment.flows[0], affinity=1):
-            time.sleep(10)
-            output = subprocess.run(shlex.split(cmd))
+        with ExitStack() as stack:
+            for idx, flow in enumerate(experiment.flows):
+                stack.enter_context(experiment.start_iperf_server(flow,
+                                                                  (idx % 32) + 1))
+                time.sleep(5) # make sure server have time to start
+            output = subprocess.run(shlex.split(cmd),
+                                    stdout=subprocess.PIPE)
             assert(output.returncode==0)
+            assert(len(output.stdout.strip().split(b'\n'))==len(experiment.flows))
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==1)
         #filename = os.path.basename(experiment.server_log)
-        filename = experiment.flows[0].server_log
-        assert(os.path.isfile(filename))
-        os.remove(filename)
+        for idx, flow in enumerate(experiment.flows):
+            filename =flow.server_log
+            assert(os.path.isfile(filename))
+            os.remove(filename)
         
     def test_start_iperf_client(self, experiment, bess):
         with experiment.start_iperf_client(experiment.flows[0], 1):
