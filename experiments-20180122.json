@@ -1,0 +1,16 @@
+{
+    "cubic-bbr" : {
+	"btlbw" : "30",
+	"queue_size" : "128",
+	"queue_speed" : "30", 
+	"flows" : [{
+	    "ccalg" : "cubic",
+	    "duration" : "30",
+	    "rtt": "50"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "30",
+	  "rtt": "50"
+	}]
+    }
+}
