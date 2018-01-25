@@ -232,7 +232,7 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
   }
   
     if (queued < batch->cnt()) {
-      //int to_drop = batch->cnt() - queued;
+      to_drop = batch->cnt() - queued;
       stats_.dropped += to_drop;    
       bess::Packet::Free(batch->pkts() + queued, to_drop);
     }

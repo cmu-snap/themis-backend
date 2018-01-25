@@ -80,7 +80,7 @@ class Experiment(object):
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
 
-        #connect_dpdk(self.env.server_ifname, self.env.client_ifname)
+        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attribs = json.dumps(self.__dict__,
@@ -365,11 +365,6 @@ def main():
 def run_experiment(config_file, name):
     experiments = load_experiment(config_file)
 
-    # assumes every experiment will use the same environment
-    # TODO: enforce this somehow with classes
-    server_ifname = experiments[0].env.server_ifname
-    client_ifname = experiments[0].env.client_ifname
-    connect_dpdk(server_ifname, client_ifname)
     
     if len(name) == 0:
         # run all the experiments
@@ -488,7 +483,7 @@ def pipe_syscalls(cmds, sudo=True):
             proc.kill()
         click.echo('Process took longer than 5 seconds to finish: {}'.format(procs[-1].args))
         raise e
-    if procs[-1].returncode != 0 or stderr is not None:
+    if procs[-1].returncode != 0:
         raise RuntimeError('Encountered error running cmd: {}\n{}'.format(procs[-1].args, stderr))
     return stdout.decode('utf-8')
 

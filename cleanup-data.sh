@@ -6,4 +6,7 @@ EXP_NAME=$3
 tshark -T fields -E separator=, -E quote=d -r $TCPDUMP_LOG -e frame.time_relative -e tcp.len -e tcp.analysis.ack_rtt > /tmp/$EXP_NAME.csv
 
 # tar results
-tar -cvzf $TARFILE -C /tmp /tmp/*$EXP_NAME*
+DIR=$(pwd)
+cd /tmp/
+tar -cvzf $TARFILE *$EXP_NAME*
+cd $DIR
