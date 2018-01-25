@@ -364,6 +364,12 @@ def main():
 @click_log.simple_verbosity_option(LOG)
 def run_experiment(config_file, name):
     experiments = load_experiment(config_file)
+
+    # assumes every experiment will use the same environment
+    # TODO: enforce this somehow with classes
+    server_ifname = experiments[0].env.server_ifname
+    client_ifname = experiments[0].env.client_ifname
+    connect_dpdk(server_ifname, client_ifname)
     
     if len(name) == 0:
         # run all the experiments
@@ -375,7 +381,7 @@ def run_experiment(config_file, name):
         for n in name:
             experiments[n].run()
 
-def load_experiment(config_file):
+def load_experiment(config_file):    
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -472,7 +478,7 @@ def pipe_syscalls(cmds, sudo=True):
     procs = []
     procs.append(subprocess.Popen(shlex.split(cmds[0]), stdout=subprocess.PIPE))
     for idx, cmd in enumerate(cmds[1:]):
-        procs.append(subprocess.Popen(shlex.split(cmd), stdin=procs[idx].stdout, stdout=subprocess.PIPE))
+        procs.append(subprocess.Popen(shlex.split(cmd), stdin=procs[idx].stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
         #procs[idx-1].stdout.close()
     try:
         stdout, stderr = procs[-1].communicate(timeout=30)
@@ -497,12 +503,15 @@ def get_interface_pci(ifname):
 
     Raise: ValueError if there is no interface with given name
     """
-    cmds = ['/opt/bess/bin/dpdk-devbind.py --status', 'grep {}'.format(ifname)]
-    pci = pipe_syscalls(cmds)
+    cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep {}'.format(ifname)
+    #cmds = ['/opt/bess/bin/dpdk-devbind.py --status', 'grep {}'.format(ifname)]
+    proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    pci = proc.stdout
+    #pci = pipe_syscalls(cmd.split('|'))
     pci = pci.split()[0][-7:]
     if pci.strip() == '':
         raise ValueError('There is no interface with name {}.'.format(ifname))
-    return pci
+    return pci.decode('utf-8')
 
 
 def get_interface_ip(ifname):
@@ -515,8 +524,10 @@ def get_interface_ip(ifname):
 
     Raise: ValueError there is no interface with given name
     """
-    cmd = ['ip addr', 'grep {}'.format(ifname), 'grep inet']
-    ip = pipe_syscalls(cmd)
+    #cmd = ['ip addr', 'grep {}'.format(ifname), 'grep inet']
+    #ip = pipe_syscalls(cmd)
+    cmd = 'ip addr | grep {} | grep inet'.format(ifname)
+    ip = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8')
     if ip is None or ip.strip() == '':
         raise ValueError('There is no interface with name {}.'.format(ifname))
     ip, mask = ip.split()[1].split('/')
@@ -538,13 +549,17 @@ def connect_dpdk(ifname_server, ifname_client):
     #connected_pcis = pipe_syscalls(['/opt/bess/bin/dpdk-devbind.py --status',
     #                                'grep drv=uio_pci_generic'])
     # TODO: FIX THIS
-    cmd = '/opt/bess/bin/dpdk-devbind.py --status grep drv=uio_pci_generic'
-    proc = subprocess.run(shlex.split(cmd), check=False)
+    #cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep drv=uio_pci_generic'
+    #proc = subprocess.run(shlex.split(cmd), check=False)
+
+    # super hacky
+    cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep drv=uio_pci_generic'
+    proc = subprocess.run(cmd, check=False, shell=True, stdout=subprocess.PIPE)
     if proc.returncode == 0:
         #TODO: remove hardcoded number here
         print('Interfaces already conncted to DPDK')
         return '06:00.0', '06:00.1'
-          
+        
     server_pci = get_interface_pci(ifname_server)
     client_pci = get_interface_pci(ifname_client)
 

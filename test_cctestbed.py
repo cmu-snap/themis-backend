@@ -228,3 +228,9 @@ class TestExperiment(object):
             os.system('tail {}'.format(filename))
             os.remove(filename)
 
+
+    def test_connect_dpdk(self, experiment):
+        server_pci, client_pci = mut.connect_dpdk(experiment.env.server_ifname,
+                                              experiment.env.client_ifname)
+        assert(server_pci == '06:00.0')
+        assert(client_pci == '06:00.1')
