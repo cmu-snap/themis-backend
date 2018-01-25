@@ -85,7 +85,7 @@ class TestExperiment(object):
                "BESS_QUEUE_DELAY='{}'\"").format(experiment.env.server_pci,
                                                  experiment.env.client_pci,
                                                  experiment.queue_size,
-                                                 experiment.queue_speed,
+                                                 experiment.btlbw,
                                                  experiment.flows[0].rtt)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==0)
@@ -206,4 +206,25 @@ class TestExperiment(object):
         filename = os.path.basename(experiment.client_tcpdump_log)
         assert(os.path.isfile(filename))
         os.remove(filename)
+
+    def test_queue_module(self, experiment, bess):
+        with ExitStack() as stack: # look at queue module
+            stack.enter_context(experiment.start_monitor_bess())
+            for idx, flow in enumerate(experiment.flows):
+                stack.enter_context(experiment.start_iperf_client(flow,
+                                                                  (idx % 32) + 1))
+            time.sleep(40) # let experiment run for some short time
+        time.sleep(5)
+        assert(os.path.isfile(experiment.queue_log))
+        os.system('tail {}'.format(experiment.queue_log))
+        os.remove(experiment.queue_log)
+        for flow in experiment.flows:
+            filename = flow.client_log
+            assert(os.path.isfile(filename))
+            os.system('tail {}'.format(filename))
+            os.remove(filename)
+            filename = flow.server_log
+            assert(os.path.isfile(filename))
+            os.system('tail {}'.format(filename))
+            os.remove(filename)
 
