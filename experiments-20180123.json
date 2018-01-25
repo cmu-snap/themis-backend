@@ -115,5 +115,18 @@
 	  "duration": "240",
 	  "rtt": "40"
 	}]
+    },
+    "cubic-bbr-4096q" : {
+	"btlbw" : "10",
+	"queue_size" : "4096",
+	"flows" : [{
+	    "ccalg" : "cubic",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
     }    
 }

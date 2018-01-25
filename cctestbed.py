@@ -115,8 +115,8 @@ class Experiment(object):
                 stack.enter_context(self.start_iperf_client(flow, (idx % 32) + 1))
             # TODO: change this to check if iperf done
             # wait until flows finish
-            print('SLEEPING FOR {}s'.format(max_duration))
-            time.sleep(max_duration)
+            print('SLEEPING FOR {}s'.format(max_duration + 30))
+            time.sleep(max_duration + 30)
             # show pipeline
             cmd = '/opt/bess/bessctl/bessctl show pipeline'
             print(pipe_syscalls([cmd]))
