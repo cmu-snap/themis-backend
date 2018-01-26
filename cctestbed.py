@@ -57,7 +57,8 @@ class Experiment(object):
         self.tarfile = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         self.client_tcpdump_log = '/tmp/client-tcpdump-{}-{}.pcap'.format(self.name,
                                                                         self.exp_time)
-
+        self.description_log = '/tmp/{}-{}.json'.format(self.name, self.exp_time)
+        
         # must make new flow objects since named tuples are immutable; a bit hacky
         self.flows = []
         for flow in flows:
@@ -83,14 +84,15 @@ class Experiment(object):
         connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
+        attrs = self.__str__()
+        return 'Experiment({})'.format(attribs)
+
+    def __str__(self):
         attribs = json.dumps(self.__dict__,
                              sort_keys=True,
                              indent=4,
                              separators=(',','='))
-        return 'Experiment({})'.format(attribs)
-
-    def __str__(self):
-        return repr(self) 
+        return attribs
         
     def run(self):
         print('STARTING EXPERIMENT')
@@ -115,8 +117,8 @@ class Experiment(object):
                 stack.enter_context(self.start_iperf_client(flow, (idx % 32) + 1))
             # TODO: change this to check if iperf done
             # wait until flows finish
-            print('SLEEPING FOR {}s'.format(max_duration + 30))
-            time.sleep(max_duration + 30)
+            print('SLEEPING FOR {}s'.format(max_duration + 20))
+            time.sleep(max_duration + 20)
             # show pipeline
             cmd = '/opt/bess/bessctl/bessctl show pipeline'
             print(pipe_syscalls([cmd]))
@@ -129,6 +131,8 @@ class Experiment(object):
         #pipe_syscalls([cmd])
         #cmd = 'rm -f *{}*'.format(self.name)
         #pipe_syscalls([cmd])
+        with open(self.description_log, 'w') as f:
+            json.dump(str(self), f)
         cmd = './cleanup-data.sh {} {} {}'.format(self.server_tcpdump_log,
                                                   self.tarfile,
                                                   os.path.basename(self.tarfile)[:-7])
@@ -141,7 +145,8 @@ class Experiment(object):
             os.remove(flow.client_log)
             os.remove(flow.server_log)
         os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
-            
+        os.remove(self.description_log)
+        
     @contextmanager
     def start_bess(self):
         cmd = '/opt/bess/bessctl/bessctl daemon start'

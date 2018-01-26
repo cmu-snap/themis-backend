@@ -234,3 +234,12 @@ class TestExperiment(object):
                                               experiment.env.client_ifname)
         assert(server_pci == '06:00.0')
         assert(client_pci == '06:00.1')
+
+    def test_print_description(self, experiment):
+        with open(experiment.description_log, 'w') as f:
+            json.dump(str(experiment), f, sort_keys=True, indent=4, separators=(',','='))
+        assert(os.path.isfile(experiment.description_log))
+        with open(experiment.description_log, 'r') as f:
+            data = json.load(f)
+        print(data)
+        os.remove(experiment.description_log)

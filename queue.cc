@@ -193,20 +193,34 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
 	//if (! (dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << std::endl) ) {
 	//  printf("FAILED TO WRITE SOME VALUES!");
 	//}
-	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt();
+	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
+	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
-	  dump_ << ",{'" << n.first << "':'" << n.second << "'}";
+	  if (j == 1) {
+	    dump_ << "'" << n.first << "':" << n.second;
+	  }
+	  else {
+	    dump_ << "'" << n.first << "':" << n.second << ",";
+	    j--;
+	  }
 	}
-	dump_ << std::endl;
+	dump_ << "}" << std::endl;
       }
       else {  // packet isn't dropped
 	// update per flow stats
 	flow_stats_[tcp->src_port]++;
-	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt();
+	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
+	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
-	  dump_ << ",{'" << n.first << "':'" << n.second << "'}";
+	  if (j == 1) {
+	    dump_ << "'" << n.first << "':" << n.second;
+	  }
+	  else {
+	    dump_ << "'" << n.first << "':" << n.second << ",";
+	    j--;
+	  }
 	}
-	dump_ << std::endl;
+	dump_ << "}" << std::endl;
 	  
 	// print out dump when you see FIN packet that's not dropped
 	if (num_pkts_ < 256) {
