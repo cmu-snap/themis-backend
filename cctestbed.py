@@ -62,9 +62,9 @@ class Experiment(object):
         # must make new flow objects since named tuples are immutable; a bit hacky
         self.flows = []
         for flow in flows:
-            client_log = '/tmp/server-{}-{}-{}.iperf'.format(
+            client_log = '/tmp/client-{}-{}-{}.iperf'.format(
                 flow.client_port, self.name, self.exp_time)
-            server_log = '/tmp/client-{}-{}-{}.iperf'.format(
+            server_log = '/tmp/server-{}-{}-{}.iperf'.format(
                 flow.server_port, self.name, self.exp_time)
             self.flows.append(Flow(ccalg=flow.ccalg,
                                    duration=flow.duration,
