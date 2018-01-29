@@ -189,11 +189,7 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
       
       // output flow stats src port, seq num, datalen, queue size, dropped, queued, batch size
       if ( i < to_drop ) {   // packet is dropped
-	//if (! (dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << std::endl) ) {
-	//if (! (dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << std::endl) ) {
-	//  printf("FAILED TO WRITE SOME VALUES!");
-	//}
-	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
+	dump_ << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
 	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
 	  if (j == 1) {
@@ -209,7 +205,7 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
       else {  // packet isn't dropped
 	// update per flow stats
 	flow_stats_[tcp->src_port]++;
-	dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
+	dump_ << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
 	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
 	  if (j == 1) {
@@ -250,78 +246,6 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
       stats_.dropped += to_drop;    
       bess::Packet::Free(batch->pkts() + queued, to_drop);
     }
-
-  
-  /* RAY - Record sequence number of incoming packet and size of queue 
-  // assume batch size of 1
-  if (queued < batch->cnt()) {
-    int to_drop = batch->cnt() - queued;
-    stats_.dropped += to_drop;
-
-    int cnt = batch->cnt();
-
-    for (int i = 0; i < cnt; i++) {  // possible there is more than one packet in batch
-      bess::Packet *pkt = batch->pkts()[i];
-      Ethernet *eth = pkt->head_data<Ethernet *>();
-      Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
-
-      // don't do anything if this isn't a TCP packet
-      if (ip->protocol == Ipv4::Proto::kTcp) {
-	int ip_bytes = ip->header_length << 2;
-	Tcp *tcp = reinterpret_cast<Tcp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
-	uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
-	// actually should only print 1 if this cnt is  within number of pkts that was queued
-	if (! (dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << std::endl) ) {
-	  printf("FAILED TO WRITE SOME VALUES!");
-	}
-     
-	num_pkts_ = num_pkts_ + 1;
-      }
-    }
-    bess::Packet::Free(batch->pkts() + queued, to_drop);
-  }
-  
-  else { // packet wasn't dropped
-    int cnt = batch->cnt();
-
-    for (int i = 0; i < cnt; i++) {  // possible there is more than one packet in batch
-      bess::Packet *pkt = batch->pkts()[i];
-      Ethernet *eth = pkt->head_data<Ethernet *>();
-      Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
-    
-      // don't do anything if this isn't a TCP packet
-      if (ip->protocol == Ipv4::Proto::kTcp) {
-	int ip_bytes = ip->header_length << 2;
-	Tcp *tcp = reinterpret_cast<Tcp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
-	uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
-	if (! (dump_ << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << std::endl)) {
-	  printf("FAILED TO WRITE SOME VALUES!");
-	}
-	num_pkts_ = num_pkts_ + 1;
-      
-	// print out dump when you see FIN packet that's not dropped
-	if (num_pkts_ < 256) {
-	  if (datalen == 0) {
-	    if (tcp->flags & Tcp::Flag::kFin) {
-	      num_pkts_ = 0;
-	      std::cout << dump_.str();
-	      dump_.str("");
-	      dump_.clear();
-	      dump_ << std::endl;
-	    }
-	  }
-	}
-	else { // output dump and clear
-	  num_pkts_ = 0;
-	  std::cout << dump_.str();
-	  dump_.str("");
-	  dump_.clear();
-	  dump_ << std::endl;
-	}
-      }
-    }
-  }
-  */
 }
 
 /* to downstream */
