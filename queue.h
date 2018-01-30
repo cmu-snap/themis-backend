@@ -55,7 +55,8 @@ class Queue : public Module {
         high_water_(),
         low_water_(),
         stats_(),
-    dump_(),
+    dump_enq_(),
+    dump_deq_(),
     num_pkts_() {
     is_task_ = true;
     propagate_workers_ = false;
@@ -113,7 +114,8 @@ class Queue : public Module {
     uint64_t dropped;
   } stats_;
 
-  std::ostringstream dump_; 
+  std::ostringstream dump_enq_;
+  std::ostringstream dump_deq_;
   uint32_t num_pkts_;
 
   std::unordered_map<be16_t, uint64_t> flow_stats_;

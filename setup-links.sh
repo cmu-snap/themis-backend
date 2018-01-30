@@ -44,3 +44,16 @@ ln --symbolic \
    --verbose \
    --target-directory=/opt/bess/core/modules/ \
    /opt/15-712/cctestbed/queue.h
+ 
+# setup links for timestamp module (can use built in header file)
+ln --symbolic \
+   --force \
+   --verbose \
+   --target-directory=/opt/bess/core/modules/ \
+   /opt/15-712/cctestbed/timestamp.cc
+
+ln --symbolic \
+   --force \
+   --verbose \
+   --target-directory=/opt/bess/core/modules/ \
+   /opt/15-712/cctestbed/timestamp.h

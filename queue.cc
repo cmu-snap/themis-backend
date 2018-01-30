@@ -129,7 +129,8 @@ CommandResponse Queue::Init(const bess::pb::QueueArg &arg) {
   }
  
   // ADDED BY RAY -- start dump with blank line
-  dump_ << std::endl;
+  dump_enq_ << std::endl;
+  dump_deq_ << std::endl;
   flow_stats_ = {};
   
   return CommandSuccess();
@@ -137,7 +138,8 @@ CommandResponse Queue::Init(const bess::pb::QueueArg &arg) {
 
 void Queue::DeInit() {
   // ADDED BY RAY
-  std::cout << dump_.str();
+  std::cout << dump_enq_.str();
+  std::cout << dump_deq_.str();
   
   bess::Packet *pkt;
 
@@ -184,68 +186,47 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
       int ip_bytes = ip->header_length << 2;
       Tcp *tcp = reinterpret_cast<Tcp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
       uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
-      
-      num_pkts_ = num_pkts_ + 1;
-      
-      // output flow stats src port, seq num, datalen, queue size, dropped, queued, batch size
+            
+      // output flow stats:
+      // enqueued, timestamp, src port, seq num, datalen, queue size, dropped, queued, batch size
       if ( i < to_drop ) {   // packet is dropped
-	dump_ << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
+	dump_enq_ << "0," << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
 	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
 	  if (j == 1) {
-	    dump_ << "'" << n.first << "':" << n.second;
+	    dump_enq_ << "'" << n.first << "':" << n.second;
 	  }
 	  else {
-	    dump_ << "'" << n.first << "':" << n.second << ",";
+	    dump_enq_ << "'" << n.first << "':" << n.second << ",";
 	    j--;
 	  }
 	}
-	dump_ << "}" << std::endl;
+	dump_enq_ << "}" << std::endl;
       }
       else {  // packet isn't dropped
 	// update per flow stats
 	flow_stats_[tcp->src_port]++;
-	dump_ << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
+	dump_enq_ << "0," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
 	int j = flow_stats_.size();
 	for( const auto& n : flow_stats_ ) {
 	  if (j == 1) {
-	    dump_ << "'" << n.first << "':" << n.second;
+	    dump_enq_ << "'" << n.first << "':" << n.second;
 	  }
 	  else {
-	    dump_ << "'" << n.first << "':" << n.second << ",";
+	    dump_enq_ << "'" << n.first << "':" << n.second << ",";
 	    j--;
 	  }
 	}
-	dump_ << "}" << std::endl;
-	  
-	// print out dump when you see FIN packet that's not dropped
-	if (num_pkts_ < 256) {
-	  if (datalen == 0) {
-	    if (tcp->flags & Tcp::Flag::kFin) {
-	      num_pkts_ = 0;
-	      std::cout << dump_.str();
-	      dump_.str("");
-	      dump_.clear();
-	      dump_ << std::endl;
-	    }
-	  }
-	}
-	else { // output dump and clear
-	  num_pkts_ = 0;
-	  std::cout << dump_.str();
-	  dump_.str("");
-	  dump_.clear();
-	  dump_ << std::endl;
-	}
+	dump_enq_ << "}" << std::endl;
       }	
     }
   }
   
-    if (queued < batch->cnt()) {
-      to_drop = batch->cnt() - queued;
-      stats_.dropped += to_drop;    
-      bess::Packet::Free(batch->pkts() + queued, to_drop);
-    }
+  if (queued < batch->cnt()) {
+    to_drop = batch->cnt() - queued;
+    stats_.dropped += to_drop;    
+    bess::Packet::Free(batch->pkts() + queued, to_drop);
+  }
 }
 
 /* to downstream */
@@ -283,10 +264,53 @@ struct task_result Queue::RunTask(void *) {
     if (ip->protocol == Ipv4::Proto::kTcp) {
       int ip_bytes = ip->header_length << 2;
       Tcp *tcp = reinterpret_cast<Tcp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
+      uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
       flow_stats_[tcp->src_port]--;
+      num_pkts_ = num_pkts_ + 1;
+      
+      dump_deq_ << "1," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << cnt << "," << batch.cnt() << ",{";
+      int j = flow_stats_.size();
+      for( const auto& n : flow_stats_ ) {
+	if (j == 1) {
+	  dump_deq_ << "'" << n.first << "':" << n.second;
+	}
+	else {
+	  dump_deq_ << "'" << n.first << "':" << n.second << ",";
+	  j--;
+	}
+      }
+      dump_deq_ << "}" << std::endl;
+    
+      // output flow stats for every 256 packets dequeued or when we see a FIN packet
+
+      if (datalen == 0) {
+	if (tcp->flags & Tcp::Flag::kFin) {
+	  num_pkts_ = 0;
+	  std::cout << dump_deq_.str();
+	  std::cout << dump_enq_.str();
+	  dump_deq_.str("");
+	  dump_enq_.str("");
+	  dump_deq_.clear();
+	  dump_enq_.clear();
+	  dump_deq_ << std::endl;
+	  dump_enq_ << std::endl;
+	}
+      }
+    }
+    // output dump and clear
+    if (num_pkts_ >= 256) {
+      num_pkts_ = 0;
+      std::cout << dump_deq_.str();
+      std::cout << dump_enq_.str();
+      dump_deq_.str("");
+      dump_enq_.str("");
+      dump_deq_.clear();
+      dump_enq_.clear();
+      dump_deq_ << std::endl;
+      dump_enq_ << std::endl;
     }
   }
-  
+    
   if (prefetch_) {
     for (uint32_t i = 0; i < cnt; i++) {
       total_bytes += batch.pkts()[i]->total_len();
