@@ -190,34 +190,12 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
       // output flow stats:
       // enqueued, timestamp, src port, seq num, datalen, queue size, dropped, queued, batch size
       if ( i < to_drop ) {   // packet is dropped
-	dump_enq_ << "0," << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << ",{";
-	int j = flow_stats_.size();
-	for( const auto& n : flow_stats_ ) {
-	  if (j == 1) {
-	    dump_enq_ << "'" << n.first << "':" << n.second;
-	  }
-	  else {
-	    dump_enq_ << "'" << n.first << "':" << n.second << ",";
-	    j--;
-	  }
-	}
-	dump_enq_ << "}" << std::endl;
+	dump_enq_ << "0," << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << "\n";
       }
       else {  // packet isn't dropped
 	// update per flow stats
 	flow_stats_[tcp->src_port]++;
-	dump_enq_ << "0," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << ",{";
-	int j = flow_stats_.size();
-	for( const auto& n : flow_stats_ ) {
-	  if (j == 1) {
-	    dump_enq_ << "'" << n.first << "':" << n.second;
-	  }
-	  else {
-	    dump_enq_ << "'" << n.first << "':" << n.second << ",";
-	    j--;
-	  }
-	}
-	dump_enq_ << "}" << std::endl;
+	dump_enq_ << "0," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << "\n";
       }	
     }
   }
@@ -268,18 +246,7 @@ struct task_result Queue::RunTask(void *) {
       flow_stats_[tcp->src_port]--;
       num_pkts_ = num_pkts_ + 1;
       
-      dump_deq_ << "1," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << cnt << "," << batch.cnt() << ",{";
-      int j = flow_stats_.size();
-      for( const auto& n : flow_stats_ ) {
-	if (j == 1) {
-	  dump_deq_ << "'" << n.first << "':" << n.second;
-	}
-	else {
-	  dump_deq_ << "'" << n.first << "':" << n.second << ",";
-	  j--;
-	}
-      }
-      dump_deq_ << "}" << std::endl;
+      dump_deq_ << "1," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << cnt << "," << batch.cnt() << "\n";
     
       // output flow stats for every 256 packets dequeued or when we see a FIN packet
 
@@ -298,7 +265,7 @@ struct task_result Queue::RunTask(void *) {
       }
     }
     // output dump and clear
-    if (num_pkts_ >= 256) {
+    if (num_pkts_ >= 10) {
       num_pkts_ = 0;
       std::cout << dump_deq_.str();
       std::cout << dump_enq_.str();
