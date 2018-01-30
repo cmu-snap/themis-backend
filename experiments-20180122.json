@@ -1,15 +1,11 @@
 {
-    "cubic-bbr" : {
+    "reno" : {
 	"btlbw" : "10",
-	"queue_size" : "128",
+	"queue_size" : "32",
 	"flows" : [{
-	    "ccalg" : "cubic",
+	    "ccalg" : "reno",
 	    "duration" : "30",
 	    "rtt": "40"
-	},
-	{ "ccalg": "bbr",
-	  "duration": "30",
-	  "rtt": "40"
 	}]
     }
 }

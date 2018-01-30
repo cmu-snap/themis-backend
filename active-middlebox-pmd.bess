@@ -19,7 +19,7 @@ if int($BESS_QUEUE_SIZE!'0') > 0:
     btl_queue.attach_task(parent='bit_limit')
     #server_in -> btl_queue -> client_out
     #client_in -> server_out
-    delay_queue = QueueDelay(delay=int($BESS_QUEUE_DELAY!'1'))
+    delay_queue = QueueDelay(size=4096, delay=int($BESS_QUEUE_DELAY!'1'))
     server_in -> Timestamp() -> delay_queue -> client_out
     client_in -> btl_queue -> server_out
 else:
