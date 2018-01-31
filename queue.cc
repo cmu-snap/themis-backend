@@ -138,8 +138,14 @@ CommandResponse Queue::Init(const bess::pb::QueueArg &arg) {
 
 void Queue::DeInit() {
   // ADDED BY RAY
-  std::cout << dump_enq_.str();
   std::cout << dump_deq_.str();
+  std::cout << dump_enq_.str();
+  dump_deq_.str("");
+  dump_enq_.str("");
+  dump_deq_.clear();
+  dump_enq_.clear();
+  dump_deq_ << "\n";
+  dump_enq_ << "\n";
   
   bess::Packet *pkt;
 
@@ -259,8 +265,8 @@ struct task_result Queue::RunTask(void *) {
 	  dump_enq_.str("");
 	  dump_deq_.clear();
 	  dump_enq_.clear();
-	  dump_deq_ << std::endl;
-	  dump_enq_ << std::endl;
+	  dump_deq_ << "\n";
+	  dump_enq_ << "\n";
 	}
       }
     }
@@ -273,8 +279,8 @@ struct task_result Queue::RunTask(void *) {
       dump_enq_.str("");
       dump_deq_.clear();
       dump_enq_.clear();
-      dump_deq_ << std::endl;
-      dump_enq_ << std::endl;
+      dump_deq_ << "\n";
+      dump_enq_ << "\n";
     }
   }
     
