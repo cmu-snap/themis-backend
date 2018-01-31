@@ -102,6 +102,7 @@ class Experiment(object):
             # start bess -- give bess time to start
             print(stack.enter_context(self.start_bess()))
             time.sleep(5)
+            self.show_pipeline()
             # set rtt -- for now cannot set RTT per flow so just use first one
             #stack.enter_context(self.set_rtt(self.flows[0].rtt))
             self.check_rtt()
@@ -119,13 +120,7 @@ class Experiment(object):
             # wait until flows finish
             print('SLEEPING FOR {}s'.format(max_duration + 25))
             time.sleep(max_duration + 25)
-            # show pipeline
-            cmd = '/opt/bess/bessctl/bessctl show pipeline'
-            print(pipe_syscalls([cmd]))
-            cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-            print(pipe_syscalls([cmd]))
-            cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
-            print(pipe_syscalls([cmd]))
+            self.show_pipeline()
         print('EXPERIMENT DONE')
         #cmd = 'tar -cvzf {}.tar.gz *{}*'.format(self.name, self.name)
         #pipe_syscalls([cmd])
@@ -146,6 +141,14 @@ class Experiment(object):
             os.remove(flow.server_log)
         os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
         os.remove(self.description_log)
+
+    def show_pipeline(self):
+        cmd = '/opt/bess/bessctl/bessctl show pipeline'
+        print(pipe_syscalls([cmd]))
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(pipe_syscalls([cmd]))
+        cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
+        print(pipe_syscalls([cmd]))
         
     @contextmanager
     def start_bess(self):
@@ -386,10 +389,10 @@ def load_experiment(config_file):
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
                       server_ip_lan = '192.0.0.1',
-                      client_ip_wan = '128.104.222.54',
-                      server_ip_wan = '128.104.222.70',
-                      server_pci = '06:00.0',
-                      client_pci = '06:00.1')
+                      client_ip_wan = '128.104.222.172',
+                      server_ip_wan = '128.104.222.187',
+                      server_pci = '06:00.1',
+                      client_pci = '06:00.0')
 
     with open(config_file) as f:
         config = json.load(f)
