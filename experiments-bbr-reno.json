@@ -1,0 +1,132 @@
+{
+    "reno-bbr-8q" : {
+	"btlbw" : "10",
+	"queue_size" : "8",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-16q" : {
+	"btlbw" : "10",
+	"queue_size" : "16",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-32q" : {
+	"btlbw" : "10",
+	"queue_size" : "32",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-64q" : {
+	"btlbw" : "10",
+	"queue_size" : "64",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-128q" : {
+	"btlbw" : "10",
+	"queue_size" : "128",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-256q" : {
+	"btlbw" : "10",
+	"queue_size" : "256",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-512q" : {
+	"btlbw" : "10",
+	"queue_size" : "512",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-1024q" : {
+	"btlbw" : "10",
+	"queue_size" : "1024",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-2048q" : {
+	"btlbw" : "10",
+	"queue_size" : "2048",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    },
+    "reno-bbr-4096q" : {
+	"btlbw" : "10",
+	"queue_size" : "4096",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "240",
+	    "rtt": "40"
+	},
+	{ "ccalg": "bbr",
+	  "duration": "240",
+	  "rtt": "40"
+	}]
+    }    
+}
