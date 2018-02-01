@@ -102,10 +102,10 @@ class Experiment(object):
             # start bess -- give bess time to start
             print(stack.enter_context(self.start_bess()))
             time.sleep(5)
-            self.show_pipeline()
             # set rtt -- for now cannot set RTT per flow so just use first one
             #stack.enter_context(self.set_rtt(self.flows[0].rtt))
             self.check_rtt()
+            self.show_pipeline()
             # monitor the queue
             stack.enter_context(self.start_monitor_bess())
             # tcpdump server & client

@@ -39,6 +39,8 @@
 #include "../utils/ether.h"
 #include "../utils/tcp.h"
 
+#include "../utils/time.h"
+
 using bess::utils::Ethernet;
 using bess::utils::Ipv4;
 using bess::utils::Tcp;
@@ -169,15 +171,18 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
   int queued =
       llring_mp_enqueue_burst(queue_, (void **)batch->pkts(), batch->cnt());
   if (backpressure_ && llring_count(queue_) > high_water_) {
-    printf("QUEUE DETECTED BACKPRESSURE");
+
     SignalOverload();
   }
 
+  uint64_t now_ns = tsc_to_ns(rdtsc()); // get time at beginning - fine pkts in same batch have same timestamp
+  uint32_t qsize = llring_count(queue_);
+  
   stats_.enqueued += queued;
 
   int to_drop = 0;
   //int pkt_dropped = 0;
-
+  
   if (queued < batch->cnt()) {
     to_drop = batch->cnt() - queued;
   }
@@ -195,13 +200,13 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
             
       // output flow stats:
       // enqueued, timestamp, src port, seq num, datalen, queue size, dropped, queued, batch size
-      if ( i < to_drop ) {   // packet is dropped
-	dump_enq_ << "0," << ctx.current_ns() << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",1," << queued << "," << batch->cnt() << "\n";
+      if ( i < to_drop ) {   // packet is dropped ctx.current_ns()
+	dump_enq_ << "0," << now_ns << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",1," << queued << "," << batch->cnt() << "\n";
       }
       else {  // packet isn't dropped
 	// update per flow stats
 	flow_stats_[tcp->src_port]++;
-	dump_enq_ << "0," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << queued << "," << batch->cnt() << "\n";
+	dump_enq_ << "0," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << queued << "," << batch->cnt() << "\n";
       }	
     }
   }
@@ -216,7 +221,6 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
 /* to downstream */
 struct task_result Queue::RunTask(void *) {
   if (children_overload_ > 0) {
-    printf("QUEUE DETECTED OVERLOAD");
     return {
         .block = true, .packets = 0, .bits = 0,
     };
@@ -230,10 +234,13 @@ struct task_result Queue::RunTask(void *) {
   uint64_t total_bytes = 0;
 
   uint32_t cnt = llring_sc_dequeue_burst(queue_, (void **)batch.pkts(), burst);
-
+  
   if (cnt == 0) {
     return {.block = true, .packets = 0, .bits = 0};
-  }  
+  }
+  
+  uint64_t now_ns = tsc_to_ns(rdtsc()); // get time at beginning - fine pkts in same batch have same timestamp
+  uint32_t qsize = llring_count(queue_);
   
   stats_.dequeued += cnt;
   batch.set_cnt(cnt);
@@ -252,9 +259,9 @@ struct task_result Queue::RunTask(void *) {
       flow_stats_[tcp->src_port]--;
       num_pkts_ = num_pkts_ + 1;
       
-      dump_deq_ << "1," << ctx.current_ns() << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << llring_count(queue_) << ",0," << cnt << "," << batch.cnt() << "\n";
+      dump_deq_ << "1," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << cnt << "," << batch.cnt() << "\n";
     
-      // output flow stats for every 256 packets dequeued or when we see a FIN packet
+      // output flow stats for every 10 packets dequeued or when we see a FIN packet
 
       if (datalen == 0) {
 	if (tcp->flags & Tcp::Flag::kFin) {
