@@ -484,12 +484,12 @@ def pipe_syscalls(cmds, sudo=True):
         procs.append(subprocess.Popen(shlex.split(cmd), stdin=procs[idx].stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
         #procs[idx-1].stdout.close()
     try:
-        stdout, stderr = procs[-1].communicate(timeout=30)
+        stdout, stderr = procs[-1].communicate(timeout=300)
     except subprocess.TimeoutExpired as e:
         # need to kill all the processes if a timeout occurs
         for proc in procs:
             proc.kill()
-        click.echo('Process took longer than 5 seconds to finish: {}'.format(procs[-1].args))
+        click.echo('Process took longer than 5 minutes to finish: {}'.format(procs[-1].args))
         raise e
     if procs[-1].returncode != 0:
         raise RuntimeError('Encountered error running cmd: {}\n{}'.format(procs[-1].args, stderr))
