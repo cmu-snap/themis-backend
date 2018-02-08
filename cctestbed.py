@@ -369,10 +369,15 @@ def main():
 @click.command()
 @click.argument('config_file')
 @click.option('--name', '-n', multiple=True)
+@click.option('--rtt', '-r')
 @click_log.simple_verbosity_option(LOG)
-def run_experiment(config_file, name):
-    experiments = load_experiment(config_file)
+def run_experiment(config_file, name, rtt):
 
+    if rtt:
+        # override the rtt for all flows in the config file
+        print('OVERRIDING RTT TO {}'.format(rtt))
+
+    experiments = load_experiment(config_file, rtt)
     
     if len(name) == 0:
         # run all the experiments
@@ -384,7 +389,7 @@ def run_experiment(config_file, name):
         for n in name:
             experiments[n].run()
 
-def load_experiment(config_file):    
+def load_experiment(config_file, rtt):    
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -403,9 +408,13 @@ def load_experiment(config_file):
         flows = []
 
         for idx, flow in enumerate(experiment['flows']):
+            if rtt:
+                flow_rtt = int(rtt)
+            else:
+                flow_rtt = int(flow['rtt'])
             flows.append(Flow(ccalg=flow['ccalg'],
                               duration=int(flow['duration']),
-                              rtt=int(flow['rtt']),
+                              rtt=flow_rtt,
                               client_port=5555+idx,
                               server_port=5201+idx,
                               client_log=None,
