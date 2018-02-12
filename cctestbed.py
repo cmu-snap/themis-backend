@@ -87,7 +87,7 @@ class Experiment(object):
         
     def __repr__(self):
         attrs = self.__str__()
-        return 'Experiment({})'.format(attribs)
+        return 'Experiment({})'.format(attrs)
 
     def __str__(self):
         attribs = json.dumps(self.__dict__,
@@ -130,8 +130,6 @@ class Experiment(object):
         #pipe_syscalls([cmd])
         #cmd = 'rm -f *{}*'.format(self.name)
         #pipe_syscalls([cmd])
-        with open(self.description_log, 'w') as f:
-            json.dump(str(self), f)
         cmd = './cleanup-data.sh {} {} {}'.format(self.server_tcpdump_log,
                                                   self.tarfile,
                                                   os.path.basename(self.tarfile)[:-7])
@@ -160,6 +158,7 @@ class Experiment(object):
     def start_bess(self):
         cmd = '/opt/bess/bessctl/bessctl daemon start'
         pipe_syscalls([cmd])
+        """
         cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
                "\"BESS_PCI_SERVER='{}', "
                "BESS_PCI_CLIENT='{}', "
@@ -170,6 +169,9 @@ class Experiment(object):
                                                  self.queue_size,
                                                  self.btlbw,
                                                  self.flows[0].rtt)
+        """
+        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+               "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(self.description_log)
         yield pipe_syscalls([cmd])
         cmd = '/opt/bess/bessctl/bessctl daemon stop'
         pipe_syscalls([cmd])
@@ -405,8 +407,12 @@ def run_experiment(config_file, name, rtt):
         # override the rtt for all flows in the config file
         print('OVERRIDING RTT TO {}'.format(rtt))
 
-    experiments = load_experiment(config_file, rtt)
+    experiments = load_experiment(config_file, names=name, rtt=rtt)
+
+    for experiment in experiments.values():
+        experiment.run()
     
+    """
     if len(name) == 0:
         # run all the experiments
         for experiment in experiments.values():
@@ -416,8 +422,12 @@ def run_experiment(config_file, name, rtt):
     else:
         for n in name:
             experiments[n].run()
+    """
 
-def load_experiment(config_file, rtt=None):    
+def load_experiment(config_file, names=None, rtt=None):
+
+    
+    
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -433,6 +443,11 @@ def load_experiment(config_file, rtt=None):
     experiments = {}
     
     for experiment_name, experiment in config.items():
+        if names:
+            # skip over any experiments not in given list we want to run
+            if experiment_name not in names:
+                continue
+            
         flows = []
 
         for idx, flow in enumerate(experiment['flows']):
@@ -453,6 +468,9 @@ def load_experiment(config_file, rtt=None):
                 queue_size = int(experiment['queue_size']),
                 flows = flows,
                 env = env)
+            # create description log
+            with open(experiments[experiment_name].description_log, 'w') as f:
+                json.dump(str(experiments[experiment_name]), f)
 
     return experiments
 
@@ -597,7 +615,7 @@ def connect_dpdk(ifname_server, ifname_client):
     proc = subprocess.run(cmd, check=False, shell=True, stdout=subprocess.PIPE)
     if proc.returncode == 0:
         #TODO: remove hardcoded number here
-        print('Interfaces already conncted to DPDK')
+        print('Interfaces already connected to DPDK')
         return '06:00.0', '06:00.1'
         
     server_pci = get_interface_pci(ifname_server)

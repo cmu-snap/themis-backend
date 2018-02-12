@@ -1,7 +1,25 @@
+import json
 import os
 
-server = PMDPort(pci=($BESS_PCI_SERVER!'06:00.0')) 
-client = PMDPort(pci=($BESS_PCI_CLIENT!'06:00.1'))
+# TODO: replace environment variables with json file; pass only experiment name
+
+# get variables i need from experiment json file
+exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
+with open(exp_description) as f:
+     exp_info = json.loads(json.load(f).replace('=', ':').replace('\n',''))
+pci_server = exp_info['env'][-2]
+pci_client = exp_info['env'][-1]
+queue_size = int(exp_info['queue_size'])
+btlbw = int(exp_info['btlbw'])
+
+print('exp_description =', exp_description)
+print('pci_server =', pci_server)
+print('pci_client =', pci_client)
+print('queue_size =', queue_size)
+print('btlbw =', btlbw)	
+
+server = PMDPort(pci=pci_server)
+client = PMDPort(pci=pci_client)
 
 # check if environment variables to say how to use Queue
 server_in = PortInc(port=server.name)
@@ -9,31 +27,44 @@ client_in = PortInc(port=client.name)
 server_out = PortOut(port=server.name)
 client_out = PortOut(port=client.name)
 
-if int($BESS_QUEUE_SIZE!'0') > 0:
-    btl_queue = Queue(size=int($BESS_QUEUE_SIZE))
-    btl_queue.set_burst(burst=1)
-    bess.add_tc('bit_limit',
-                policy='rate_limit',
-                resource='bit',
-                limit={'bit': 1000000*int($BESS_QUEUE_SPEED!'1')}) # how many mbits, default is 1
-    btl_queue.attach_task(parent='bit_limit')
-    #server_in -> btl_queue -> client_out
-    #client_in -> server_out
-    delay_queue = QueueDelay(size=4096, delay=int($BESS_QUEUE_DELAY!'1'))
-    server_in -> Timestamp() -> delay_queue -> client_out
-    client_in -> btl_queue -> server_out
+btl_queue = Queue(size=queue_size)
+btl_queue.set_burst(burst=1)
+bess.add_tc('bit_limit',	
+	policy='rate_limit',
+	resource='bit',
+	limit={'bit': 1000000*btlbw}) # how many mbits, default is 1
+btl_queue.attach_task(parent='bit_limit')
+
+client_in -> btl_queue -> server_out
+if len(exp_info['flows']) == 1:
+     flow_delay = exp_info['flows'][0][2]
+     server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
 else:
-    server_in -> client_out
-    client_in -> server_out
+     # exact match on destination port number; destinations will be destinations on port
+     port_match = ExactMatch(fields=[{'offset':36, 'num_bytes': 2}])
+     merge = Merge()
 
-print('BESS_PCI_SERVER=', $BESS_PCI_SERVER)
-print('BESS_PCI_CLIENT=', $BESS_PCI_CLIENT)
-print('BESS_QUEUE_SIZE=', $BESS_QUEUE_SIZE)
-print('BESS_QUEUE_SPEED=', $BESS_QUEUE_SPEED)
-print('BESS_QUEUE_DELAY=', $BESS_QUEUE_DELAY)
+     server_in -> port_match
 
-#os.system('sudo ifconfig {} broadcast {}'.format($BESS_IFNAME, $BESS_BCAST))
+     for idx, flow in enumerate(exp_info['flows']):
+          flow_name = flow[0]
+          flow_delay = flow[2]
+          flow_dst_port = flow[4]
+          #queue_delay = QueueDelay(size=4096, delay=flow_delay)
+          print('flow=name:{}, delay:{}, dst_port:{}'.format(flow_name,
+							     flow_delay,
+							     flow_dst_port))
+          port_match.add(fields=[{'value_int':flow_dst_port}], gate=idx)
+          port_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay)  -> merge
+     # default gate skips any QueueDelay module and sends right to client
+     port_match.set_default_gate(gate=len(exp_info['flows']))
+     port_match:len(exp_info['flows']) -> merge
+     merge -> client_out
 
-#os.system('sudo route add default gw 130.127.132.1')
+#delay_queue = QueueDelay(size=4096, delay=int($BESS_QUEUE_DELAY!'1'))    
+#server_in -> Timestamp() -> delay_queue -> client_out
+#client_in -> btl_queue -> server_out
+
+
 
 

@@ -34,7 +34,10 @@ def environment():
 
 @pytest.fixture(params=['experiments.json', 'experiments-20180122.json'], ids=['oneflow', 'twoflow'])
 def experiment(environment, request):
+    def experiment_close():
+        os.system('rm /tmp/*.json') # will remove all experiment description files
     experiments = mut.load_experiment(request.param)
+    request.addfinalizer(experiment_close)
     return experiments.popitem()[1]    
         
 def test_get_interface_pci():
@@ -77,6 +80,7 @@ class TestExperiment(object):
         cmd = '/opt/bess/bessctl/bessctl daemon start'
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode == 0)
+        """
         cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
                "\"BESS_PCI_SERVER='{}', "
                "BESS_PCI_CLIENT='{}', "
@@ -87,10 +91,16 @@ class TestExperiment(object):
                                                  experiment.queue_size,
                                                  experiment.btlbw,
                                                  experiment.flows[0].rtt)
+        """
+        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+               "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(experiment.description_log)
         output = subprocess.run(shlex.split(cmd))
         assert(output.returncode==0)
         request.addfinalizer(bess_close)
 
+    def test_start_bess(self, bess):
+        os.system('/opt/bess/bessctl/bessctl show pipeline')
+        
     def test_start_iperf_server(self, experiment):
         cmd = 'ssh -p 22 rware@{} pgrep iperf3'.format(experiment.env.server_ip_wan)
         with ExitStack() as stack:
