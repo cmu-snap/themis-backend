@@ -243,3 +243,15 @@ class TestExperiment(object):
             data = json.load(f)
         print(data)
         os.remove(experiment.description_log)
+
+    def test_start_tcpprobe(self, experiment):
+        cmd = 'ssh -p 22 rware@{} "grep tcp_probe /proc/modules"'.format(
+            experiment.env.client_ip_wan)
+        with experiment.start_tcpprobe():
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==0)
+        output = subprocess.run(shlex.split(cmd))
+        assert(output.returncode==1)
+        filename = experiment.tcpprobe_log
+        assert(os.path.isfile(filename))
+        os.remove(filename)

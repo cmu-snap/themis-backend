@@ -47,7 +47,8 @@ class Experiment(object):
         self.queue_size = queue_size
         #self.flows = flows
         self.env = env
-        
+
+        # files that the experiment will generate
         self.exp_time = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]   
         self.server_tcpdump_log = '/tmp/server-tcpdump-{}-{}.pcap'.format(self.name,
                                                                         self.exp_time)
@@ -58,6 +59,7 @@ class Experiment(object):
         self.client_tcpdump_log = '/tmp/client-tcpdump-{}-{}.pcap'.format(self.name,
                                                                         self.exp_time)
         self.description_log = '/tmp/{}-{}.json'.format(self.name, self.exp_time)
+        self.tcpprobe_log = '/tmp/tcpprobe-{}-{}.txt'.format(self.name, self.exp_time)
         
         # must make new flow objects since named tuples are immutable; a bit hacky
         self.flows = []
@@ -111,6 +113,8 @@ class Experiment(object):
             # tcpdump server & client
             stack.enter_context(self.start_tcpdump_server())
             stack.enter_context(self.start_tcpdump_client())
+            # tcpprobe on the client (which is the sender)
+            stack.enter_context(self.start_tcpprobe())
             # start each flow
             for idx, flow in enumerate(self.flows):
                 if flow.duration > max_duration:
@@ -141,6 +145,8 @@ class Experiment(object):
             os.remove(flow.server_log)
         os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
         os.remove(self.description_log)
+        os.remove(self.tcpprobe_log)
+        
 
     def show_pipeline(self):
         cmd = '/opt/bess/bessctl/bessctl show pipeline'
@@ -320,6 +326,7 @@ class Experiment(object):
         subprocess.run(['pkill','-9','tail'])
         #self.cleanup_local_cmd(cmd='tail')
 
+    """
     @contextmanager
     def start_tcpdump_bess(self):
         cmd = ('nohup /opt/bess/bessctl/bessctl tcpdump port_inc1 out 0 -n '
@@ -327,6 +334,27 @@ class Experiment(object):
                '-w {} &> /dev/null &').format(self.bess_tcpdump_log)
         yield subprocess.run(shlex.split(cmd)) 
         self.cleanup_local_cmd(cmd=self.bess_tcpdump_log)
+    """
+    
+    @contextmanager
+    def start_tcpprobe(self):
+        cmd = 'ssh -p 22 rware@{} sudo modprobe tcp_probe port=0 full=1'.format(
+            self.env.client_ip_wan)
+        pipe_syscalls([cmd], sudo=False)
+        cmd = 'ssh -p 22 rware@{} sudo chmod 444 /proc/net/tcpprobe'.format(
+            self.env.client_ip_wan)
+        pipe_syscalls([cmd], sudo=False)
+        cmd = ('ssh -p 22 rware@{} '
+               '"cat /proc/net/tcpprobe > {} 2> {} < /dev/null &"').format(
+                   self.env.client_ip_wan, self.tcpprobe_log, self.tcpprobe_log)
+        yield pipe_syscalls([cmd], sudo=False)
+        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                               cmd='cat',
+                               filepath=self.tcpprobe_log)
+        cmd = ('ssh -p 22 rware@{} '
+               'sudo modprobe -r tcp_probe ').format(self.env.client_ip_wan)
+        pipe_syscalls([cmd], sudo=False)
+
         
     def cleanup_remote_cmd(self, ip, cmd, filepath=None):
         """Kill remote commands and copy over files.
@@ -389,7 +417,7 @@ def run_experiment(config_file, name, rtt):
         for n in name:
             experiments[n].run()
 
-def load_experiment(config_file, rtt):    
+def load_experiment(config_file, rtt=None):    
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
