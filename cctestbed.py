@@ -340,7 +340,7 @@ class Experiment(object):
     
     @contextmanager
     def start_tcpprobe(self):
-        cmd = 'ssh -p 22 rware@{} sudo modprobe tcp_probe port=0 full=1'.format(
+        cmd = 'ssh -p 22 rware@{}  sudo insmod ~/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1'.format(
             self.env.client_ip_wan)
         pipe_syscalls([cmd], sudo=False)
         cmd = 'ssh -p 22 rware@{} sudo chmod 444 /proc/net/tcpprobe'.format(
@@ -354,7 +354,7 @@ class Experiment(object):
                                cmd='cat',
                                filepath=self.tcpprobe_log)
         cmd = ('ssh -p 22 rware@{} '
-               'sudo modprobe -r tcp_probe ').format(self.env.client_ip_wan)
+               'sudo rmmod tcp_probe_ray ').format(self.env.client_ip_wan)
         pipe_syscalls([cmd], sudo=False)
 
         
