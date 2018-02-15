@@ -1169,3 +1169,33 @@ message QueueDelayCommandGetStatusResponse {
  * `get_status()` that return QueueCommandGetStatusResponse.
  */
 message QueueDelayCommandGetStatusArg {}
+
+message PortMatchCommandAddArg {
+  uint64 gate = 1; /// The gate to forward out packets that match this dst_port
+  uint32 dst_port = 2;  /// TCP/UDP Destination port. Wildcard if 0.
+}
+
+/**
+ * The PortMatch module has a command `clear()` which takes no parameters.
+ * This command removes all rules from the ExactMatch module.
+ */
+message PortMatchCommandClearArg {
+}
+
+/**
+ * The PortMatch module has a command `set_default_gate(...)` which takes one parameter.
+ * This command routes all traffic which does _not_ match a rule to a specified gate.
+ * Example use in bessctl: `setDefaultGate(gate=2)`
+ */
+message PortMatchCommandSetDefaultGateArg {
+  uint64 gate = 1; /// The gate number to send the default traffic out.
+}
+
+/**
+ * The PortMatch module matches on the destination port.
+ *
+ * __Input Gates__: 1
+ * __Output Gates__: many (configurable)
+ */
+message PortMatchArg {
+}

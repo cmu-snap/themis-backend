@@ -41,7 +41,7 @@ if len(exp_info['flows']) == 1:
      server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
 else:
      # exact match on destination port number; destinations will be destinations on port
-     port_match = ExactMatch(fields=[{'offset':36, 'num_bytes': 2}])
+     port_match = PortMatch()
      merge = Merge()
 
      server_in -> port_match
@@ -49,12 +49,12 @@ else:
      for idx, flow in enumerate(exp_info['flows']):
           flow_name = flow[0]
           flow_delay = flow[2]
-          flow_dst_port = flow[4]
+          flow_dst_port = flow[3]
           #queue_delay = QueueDelay(size=4096, delay=flow_delay)
           print('flow=name:{}, delay:{}, dst_port:{}'.format(flow_name,
 							     flow_delay,
 							     flow_dst_port))
-          port_match.add(fields=[{'value_int':flow_dst_port}], gate=idx)
+	  port_match.add(dst_port=flow_dst_port, gate=idx) 
           port_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay)  -> merge
      # default gate skips any QueueDelay module and sends right to client
      port_match.set_default_gate(gate=len(exp_info['flows']))

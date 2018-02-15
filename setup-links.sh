@@ -57,3 +57,17 @@ ln --symbolic \
    --verbose \
    --target-directory=/opt/bess/core/modules/ \
    /opt/15-712/cctestbed/timestamp.h
+
+# setup links for the port match module
+ln --symbolic \
+   --force \
+   --verbose \
+   --target-directory=/opt/bess/core/modules/ \
+   /opt/15-712/cctestbed/port_match.h
+
+ln --symbolic \
+   --force \
+   --verbose \
+   --target-directory=/opt/bess/core/modules/ \
+   /opt/15-712/cctestbed/port_match.cc
+
