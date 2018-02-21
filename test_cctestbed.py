@@ -15,8 +15,8 @@ CLIENT_IFNAME='enp6s0f1'
 SERVER_PCI='06:00.0'
 CLIENT_PCI='06:00.1'
 
-SERVER_IP='192.0.0.2'
-CLIENT_IP='192.0.0.3'
+SERVER_IP = '128.104.222.190'
+CLIENT_IP = '128.104.222.185'
 
 #TODO: test for nonexistent ifnames
 
@@ -26,8 +26,8 @@ def environment():
                           server_ifname = 'enp6s0f0',
                           client_ip_lan = '192.0.0.4',
                           server_ip_lan = '192.0.0.1',
-                          client_ip_wan = '128.104.222.172',
-                          server_ip_wan = '128.104.222.187',
+                          client_ip_wan = CLIENT_IP,
+                          server_ip_wan = SERVER_IP,
                           server_pci = '06:00.0',
                           client_pci = '06:00.1')
     return env

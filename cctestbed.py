@@ -11,11 +11,9 @@ import os
 import pwd
 from datetime import datetime
 
-LOG = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-ch.setFormatter('[%(asctime)s:%(levelname)s] %(message)s')
-LOG.addHandler(ch)
-click_log.basic_config(LOG)
+SERVER_IP = '128.104.222.190'
+CLIENT_IP = '128.104.222.185'
+
 
 # TODO: look into using Paramiko for ssh calls in python
 
@@ -255,7 +253,7 @@ class Experiment(object):
                    '--length 1024K '
                    '--affinity {} '
                    #'--set-mss 500 ' # default is 1448
-                   '--window 100M '
+                   #'--window 4M '
                    '--zerocopy '
                    '--logfile {} '
                    '> /dev/null 2> /dev/null < /dev/null &').format(
@@ -339,8 +337,8 @@ class Experiment(object):
     """
     
     @contextmanager
-    def start_tcpprobe(self):
-        cmd = 'ssh -p 22 rware@{}  sudo insmod ~/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1'.format(
+    def start_tcpprobe(self): 
+        cmd = 'ssh -p 22 rware@{}  sudo insmod /opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1'.format(
             self.env.client_ip_wan)
         pipe_syscalls([cmd], sudo=False)
         cmd = 'ssh -p 22 rware@{} sudo chmod 444 /proc/net/tcpprobe'.format(
@@ -400,7 +398,6 @@ def main():
 @click.argument('config_file')
 @click.option('--name', '-n', multiple=True)
 @click.option('--rtt', '-r')
-@click_log.simple_verbosity_option(LOG)
 def run_experiment(config_file, name, rtt):
 
     if rtt:
@@ -432,10 +429,10 @@ def load_experiment(config_file, names=None, rtt=None):
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
                       server_ip_lan = '192.0.0.1',
-                      client_ip_wan = '128.104.222.172',
-                      server_ip_wan = '128.104.222.187',
-                      server_pci = '06:00.1',
-                      client_pci = '06:00.0')
+                      client_ip_wan = CLIENT_IP, #'128.104.222.172',
+                      server_ip_wan = SERVER_IP, #'128.104.222.187',
+                      server_pci = '06:00.0',
+                      client_pci = '06:00.1')
 
     with open(config_file) as f:
         config = json.load(f)
