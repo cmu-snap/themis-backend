@@ -172,41 +172,6 @@ class Experiment(object):
         finally:
             cmd = '/opt/bess/bessctl/bessctl daemon stop'
             pipe_syscalls([cmd])
-
-    """
-    @contextmanager
-    def set_rtt(self, target_rtt):
-        # This actually no longer works for flows with different RTTs
-        print('SETTING RTT TO {}'.format(target_rtt))
-        # get current average RTT from ping
-        cmd_rtt = ("ssh -p 22 rware@{} "
-                   "ping -c 4 -I {} {} "
-                   "| tail -1 "
-                   "| awk '{{print $4}}' "
-                   "| cut -d '/' -f 2").format(self.env.server_ip_wan,
-                                               self.env.server_ip_lan,
-                                               self.env.client_ip_lan)
-        cmd_rtt = cmd_rtt.split('|')
-        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
-        print('CURRENT AVG RTT = {}'.format(avg_rtt))
-        if target_rtt < avg_rtt:
-            raise ValueError('Existing RTT is {} so RTT cannot be set to {}'.format(
-                avg_rtt, target_rtt))
-        # set RTT to target RTT
-        cmd = 'ssh -p 22 rware@{} sudo tc qdisc add dev enp6s0f0 root netem delay {}ms'.format(self.env.client_ip_wan, target_rtt-avg_rtt)
-        pipe_syscalls([cmd], sudo=False)
-        # check new average
-        new_avg_rtt = float(pipe_syscalls(cmd_rtt))
-        print('NEW AVG RTT = {}'.format(new_avg_rtt))
-        try:
-            yield new_avg_rtt
-        finally:
-            # when done, remove RTT change
-            click.echo('REMOVING RTT CHANGES')
-            cmd = 'ssh -p 22 rware@{} sudo tc qdisc del dev enp6s0f0 root netem'.format(
-                self.env.client_ip_wan)
-            print(pipe_syscalls([cmd], sudo=False))
-    """
     
     def check_rtt(self):
         # NOTE: only works for one flow
