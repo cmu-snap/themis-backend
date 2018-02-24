@@ -253,7 +253,7 @@ class Experiment(object):
                    '--length 1024K '
                    '--affinity {} '
                    #'--set-mss 500 ' # default is 1448
-                   #'--window 4M '
+                   #'--window100M '
                    '--zerocopy '
                    '--logfile {} '
                    '> /dev/null 2> /dev/null < /dev/null &').format(
@@ -387,7 +387,7 @@ class Experiment(object):
     def cleanup_local_cmd(self, cmd):
         run = 'sudo pkill -f {}'.format(cmd)
         pipe_syscalls([run], sudo=False)
-
+        
     
 @click.group()
 def main():
@@ -406,25 +406,13 @@ def run_experiment(config_file, name, rtt):
 
     experiments = load_experiment(config_file, names=name, rtt=rtt)
 
-    for experiment in experiments.values():
+    for name, experiment in experiments.items():
+        # create description log just before running experiment
+        with open(experiment[name].description_log, 'w') as f:
+            json.dump(str(experiment[name]), f)
         experiment.run()
-    
-    """
-    if len(name) == 0:
-        # run all the experiments
-        for experiment in experiments.values():
-            # make sure bess daemon is shut down
-            os.system('/opt/bess/bessctl/bessctl daemon stop')
-            experiment.run()
-    else:
-        for n in name:
-            experiments[n].run()
-    """
-
-def load_experiment(config_file, names=None, rtt=None):
-
-    
-    
+        
+def load_experiment(config_file, names=None, rtt=None):    
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -465,9 +453,6 @@ def load_experiment(config_file, names=None, rtt=None):
                 queue_size = int(experiment['queue_size']),
                 flows = flows,
                 env = env)
-            # create description log
-            with open(experiments[experiment_name].description_log, 'w') as f:
-                json.dump(str(experiments[experiment_name]), f)
 
     return experiments
 
