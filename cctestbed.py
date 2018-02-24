@@ -76,12 +76,9 @@ class Experiment(object):
     
         # files must be temporary files; use mktemp to make them
         
-        
         # connect dpdk if not connected
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
-
-        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attrs = self.__str__()
@@ -404,7 +401,10 @@ def run_experiment(config_file, name, rtt):
         # override the rtt for all flows in the config file
         print('OVERRIDING RTT TO {}'.format(rtt))
 
-    experiments = load_experiment(config_file, names=name, rtt=rtt)
+    experiments, environment = load_experiment(config_file, names=name, rtt=rtt)
+
+    # connect dpdk if not already connected
+    connect_dpdk(environment.server_ifname, environment.client_ifname)
 
     for name, experiment in experiments.items():
         # create description log just before running experiment
@@ -413,6 +413,7 @@ def run_experiment(config_file, name, rtt):
         experiment.run()
         
 def load_experiment(config_file, names=None, rtt=None):    
+    # all experiments forced to use the same environment
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
@@ -454,7 +455,7 @@ def load_experiment(config_file, names=None, rtt=None):
                 flows = flows,
                 env = env)
 
-    return experiments
+    return experiments, env
 
     
         
