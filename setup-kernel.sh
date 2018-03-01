@@ -3,7 +3,7 @@ wget http://downloads.es.net/pub/iperf/iperf-3-current.tar.gz
 tar -xzf iperf-3-current.tar.gz
 cd iperf-3.*
 sudo apt-get install lib32z1 # need this for some reason for iperf3
-./configure && make && make install
+./configure && make && sudo make install
 sudo rm -r iperf-3.* iperf-3-current.tar.gz
 
 # install new version of the kernel 4.13
