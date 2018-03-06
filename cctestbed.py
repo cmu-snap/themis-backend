@@ -129,11 +129,14 @@ class Experiment(object):
                                                   self.tarfile,
                                                   os.path.basename(self.tarfile)[:-7])
         os.system(cmd)
-        #os.remove(os.path.basename(self.bess_tcpdump_log))
         os.remove(self.queue_log)
         os.remove(self.server_tcpdump_log)
         os.remove(self.client_tcpdump_log)
         for flow in self.flows:
+            cmd = 'head -n 30 {}'.format(flow.client_log)
+            os.system(cmd)
+            cmd = 'tail {}'.format(flow.server_log)
+            os.system(cmd)
             os.remove(flow.client_log)
             os.remove(flow.server_log)
         os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
@@ -151,24 +154,16 @@ class Experiment(object):
         
     @contextmanager
     def start_bess(self):
+        """
         cmd = '/opt/bess/bessctl/bessctl daemon start'
         pipe_syscalls([cmd])
-        """
-        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
-               "\"BESS_PCI_SERVER='{}', "
-               "BESS_PCI_CLIENT='{}', "
-               "BESS_QUEUE_SIZE='{}', "
-               "BESS_QUEUE_SPEED='{}', "
-               "BESS_QUEUE_DELAY='{}'\"").format(self.env.server_pci,
-                                                 self.env.client_pci,
-                                                 self.queue_size,
-                                                 self.btlbw,
-                                                 self.flows[0].rtt)
-        """
         cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
                "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(self.description_log)
         try:
             yield pipe_syscalls([cmd])
+        """
+        try:
+            yield _start_bess(self)
         finally:
             cmd = '/opt/bess/bessctl/bessctl daemon stop'
             pipe_syscalls([cmd])
@@ -185,7 +180,12 @@ class Experiment(object):
                                                self.env.server_ip_lan,
                                                self.env.client_ip_lan)
         cmd_rtt = cmd_rtt.split('|')
-        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        try:
+            avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        except ValueError as e:
+            cmd = '/opt/bess/bessctl/bessctl show pipeline'
+            os.system(cmd)
+            raise e
         print('CURRENT AVG RTT = {}'.format(avg_rtt))        
         
     @contextmanager
@@ -223,11 +223,12 @@ class Experiment(object):
                        '--linux-congestion {} '
                        '--interval 0.5 '
                        '--time {} '
-                       '--length 1024K '
+                       #'--length 1024K '#1024K '
                        '--affinity {} '
                        #'--set-mss 500 ' # default is 1448
-                       #'--window100M '
+                       #'--window 100K '
                        '--zerocopy '
+                       '--json '
                        '--logfile {} '
                        '> /dev/null 2> /dev/null < /dev/null &').format(
                            self.env.client_ip_wan,
@@ -391,10 +392,10 @@ def run_experiment(config_file, name, rtt):
     # connect dpdk if not already connected
     connect_dpdk(environment.server_ifname, environment.client_ifname)
 
-    for name, experiment in experiments.items():
+    for experiment in experiments.values():
         # create description log just before running experiment
-        with open(experiment[name].description_log, 'w') as f:
-            json.dump(str(experiment[name]), f)
+        with open(experiment.description_log, 'w') as f:
+            json.dump(str(experiment), f)
         experiment.run()
         
 def load_experiment(config_file, names=None, rtt=None):    
@@ -444,7 +445,7 @@ def load_experiment(config_file, names=None, rtt=None):
 
     
         
-    
+"""    
 @click.command()
 @click.argument('ifname_server')
 @click.argument('ifname_client')
@@ -470,7 +471,26 @@ def _start_bess(ifname_server, ifname_client, queue_size, queue_speed):
                                              queue_size,
                                              queue_speed)
     click.echo(pipe_syscalls([cmd]))
+"""
+@click.command()
+@click.argument('config_file')
+@click.argument('exp_name')
+def start_bess(config_file, exp_name):
+    experiments, environment = load_experiment(config_file, names=exp_name, rtt=None)
+    experiment = experiments[exp_name]
+    # connect dpdk if not already connected
+    connect_dpdk(environment.server_ifname, environment.client_ifname)
+    with open(experiment.description_log, 'w') as f:
+        json.dump(str(experiment), f)
+    _start_bess(experiment)
 
+def _start_bess(experiment):
+    cmd = '/opt/bess/bessctl/bessctl daemon start'
+    pipe_syscalls([cmd])
+    cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+           "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(
+               experiment.description_log)
+    pipe_syscalls([cmd])
 
     
 @click.command()
@@ -480,6 +500,7 @@ def stop_bess():
 def _stop_bess():
     cmd = '/opt/bess/bessctl/bessctl daemon stop'
     pipe_syscalls([cmd])
+    
 
     
 main.add_command(start_bess)
