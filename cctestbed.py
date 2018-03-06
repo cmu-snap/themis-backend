@@ -154,14 +154,6 @@ class Experiment(object):
         
     @contextmanager
     def start_bess(self):
-        """
-        cmd = '/opt/bess/bessctl/bessctl daemon start'
-        pipe_syscalls([cmd])
-        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
-               "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(self.description_log)
-        try:
-            yield pipe_syscalls([cmd])
-        """
         try:
             yield _start_bess(self)
         finally:
