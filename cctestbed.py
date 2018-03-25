@@ -432,8 +432,8 @@ def load_experiment(config_file, names=None, rtt=None):
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
                       server_ip_lan = '192.0.0.1',
-                      client_ip_wan = '128.104.222.172',
-                      server_ip_wan = '128.104.222.187',
+                      client_ip_wan = '128.104.222.40',
+                      server_ip_wan = '128.104.222.35',
                       server_pci = '06:00.1',
                       client_pci = '06:00.0')
 
