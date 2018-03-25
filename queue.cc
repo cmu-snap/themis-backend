@@ -200,7 +200,7 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
             
       // output flow stats:
       // enqueued, timestamp, src port, seq num, datalen, queue size, dropped, queued, batch size
-      if ( i > queued ) {   // packet is dropped ctx.current_ns()
+      if ( i => queued ) {   // packet is dropped ctx.current_ns()
 	dump_enq_ << "0," << now_ns << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",1," << queued << "," << batch->cnt() << "\n";
       }
       else {  // packet isn't dropped
