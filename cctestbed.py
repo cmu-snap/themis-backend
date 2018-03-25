@@ -11,11 +11,9 @@ import os
 import pwd
 from datetime import datetime
 
-LOG = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-ch.setFormatter('[%(asctime)s:%(levelname)s] %(message)s')
-LOG.addHandler(ch)
-click_log.basic_config(LOG)
+SERVER_IP = '128.104.222.40'
+CLIENT_IP = '128.104.222.35'
+
 
 # TODO: look into using Paramiko for ssh calls in python
 
@@ -78,12 +76,9 @@ class Experiment(object):
     
         # files must be temporary files; use mktemp to make them
         
-        
         # connect dpdk if not connected
         # assumes all experiments use the same environment which, they do
         # TODO: force above assumption to be true
-
-        connect_dpdk(self.env.server_ifname, self.env.client_ifname)
         
     def __repr__(self):
         attrs = self.__str__()
@@ -134,11 +129,14 @@ class Experiment(object):
                                                   self.tarfile,
                                                   os.path.basename(self.tarfile)[:-7])
         os.system(cmd)
-        #os.remove(os.path.basename(self.bess_tcpdump_log))
         os.remove(self.queue_log)
         os.remove(self.server_tcpdump_log)
         os.remove(self.client_tcpdump_log)
         for flow in self.flows:
+            cmd = 'head -n 30 {}'.format(flow.client_log)
+            os.system(cmd)
+            cmd = 'tail {}'.format(flow.server_log)
+            os.system(cmd)
             os.remove(flow.client_log)
             os.remove(flow.server_log)
         os.remove('/tmp/{}.csv'.format(os.path.basename(self.tarfile)[:-7]))
@@ -156,57 +154,14 @@ class Experiment(object):
         
     @contextmanager
     def start_bess(self):
-        cmd = '/opt/bess/bessctl/bessctl daemon start'
-        pipe_syscalls([cmd])
-        """
-        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
-               "\"BESS_PCI_SERVER='{}', "
-               "BESS_PCI_CLIENT='{}', "
-               "BESS_QUEUE_SIZE='{}', "
-               "BESS_QUEUE_SPEED='{}', "
-               "BESS_QUEUE_DELAY='{}'\"").format(self.env.server_pci,
-                                                 self.env.client_pci,
-                                                 self.queue_size,
-                                                 self.btlbw,
-                                                 self.flows[0].rtt)
-        """
-        cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
-               "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(self.description_log)
-        yield pipe_syscalls([cmd])
-        cmd = '/opt/bess/bessctl/bessctl daemon stop'
-        pipe_syscalls([cmd])
-
-    @contextmanager
-    def set_rtt(self, target_rtt):
-        print('SETTING RTT TO {}'.format(target_rtt))
-        # get current average RTT from ping
-        cmd_rtt = ("ssh -p 22 rware@{} "
-                   "ping -c 4 -I {} {} "
-                   "| tail -1 "
-                   "| awk '{{print $4}}' "
-                   "| cut -d '/' -f 2").format(self.env.server_ip_wan,
-                                               self.env.server_ip_lan,
-                                               self.env.client_ip_lan)
-        cmd_rtt = cmd_rtt.split('|')
-        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
-        print('CURRENT AVG RTT = {}'.format(avg_rtt))
-        if target_rtt < avg_rtt:
-            raise ValueError('Existing RTT is {} so RTT cannot be set to {}'.format(
-                avg_rtt, target_rtt))
-        # set RTT to target RTT
-        cmd = 'ssh -p 22 rware@{} sudo tc qdisc add dev enp6s0f0 root netem delay {}ms'.format(self.env.client_ip_wan, target_rtt-avg_rtt)
-        pipe_syscalls([cmd], sudo=False)
-        # check new average
-        new_avg_rtt = float(pipe_syscalls(cmd_rtt))
-        print('NEW AVG RTT = {}'.format(new_avg_rtt))
-        yield new_avg_rtt
-        # when done, remove RTT change
-        click.echo('REMOVING RTT CHANGES')
-        cmd = 'ssh -p 22 rware@{} sudo tc qdisc del dev enp6s0f0 root netem'.format(
-            self.env.client_ip_wan)
-        print(pipe_syscalls([cmd], sudo=False))
-
+        try:
+            yield _start_bess(self)
+        finally:
+            cmd = '/opt/bess/bessctl/bessctl daemon stop'
+            pipe_syscalls([cmd])
+    
     def check_rtt(self):
+        # NOTE: only works for one flow
         print('CHECKING RTT')
         # get current average RTT from ping
         cmd_rtt = ("ssh -p 22 rware@{} "
@@ -217,7 +172,12 @@ class Experiment(object):
                                                self.env.server_ip_lan,
                                                self.env.client_ip_lan)
         cmd_rtt = cmd_rtt.split('|')
-        avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        try:
+            avg_rtt = float(pipe_syscalls(cmd_rtt, sudo=False))
+        except ValueError as e:
+            cmd = '/opt/bess/bessctl/bessctl show pipeline'
+            os.system(cmd)
+            raise e
         print('CURRENT AVG RTT = {}'.format(avg_rtt))        
         
     @contextmanager
@@ -235,43 +195,48 @@ class Experiment(object):
                    flow.server_port,
                    affinity,
                    flow.server_log)
-        yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
-                                cmd='iperf3',
-                                filepath=flow.server_log)
+        try:
+            yield pipe_syscalls([cmd], sudo=False)
+        finally:
+            self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
+                                    cmd='iperf3',
+                                    filepath=flow.server_log)
 
     @contextmanager
     def start_iperf_client(self, flow, affinity):
-        with self.start_iperf_server(flow, affinity):
-            cmd = ('ssh -p 22 rware@{} '
-                   'nohup iperf3 --client {} '
-                   '--port {} '
-                   '--verbose '
-                   '--bind {} '
-                   '--cport {} '
-                   '--linux-congestion {} '
-                   '--interval 0.5 '
-                   '--time {} '
-                   '--length 1024K '
-                   '--affinity {} '
-                   #'--set-mss 500 ' # default is 1448
-                   '--window 100M '
-                   '--zerocopy '
-                   '--logfile {} '
-                   '> /dev/null 2> /dev/null < /dev/null &').format(
-                       self.env.client_ip_wan,
-                       self.env.server_ip_lan,
-                       flow.server_port,
-                       self.env.client_ip_lan,
-                       flow.client_port,
-                       flow.ccalg,
-                       flow.duration,
-                       affinity,
-                       flow.client_log)
-            yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
-                                cmd='iperf3',
-                                filepath=flow.client_log)
+        try:
+            with self.start_iperf_server(flow, affinity):
+                cmd = ('ssh -p 22 rware@{} '
+                       'nohup iperf3 --client {} '
+                       '--port {} '
+                       '--verbose '
+                       '--bind {} '
+                       '--cport {} '
+                       '--linux-congestion {} '
+                       '--interval 0.5 '
+                       '--time {} '
+                       #'--length 1024K '#1024K '
+                       '--affinity {} '
+                       #'--set-mss 500 ' # default is 1448
+                       #'--window 100K '
+                       '--zerocopy '
+                       '--json '
+                       '--logfile {} '
+                       '> /dev/null 2> /dev/null < /dev/null &').format(
+                           self.env.client_ip_wan,
+                           self.env.server_ip_lan,
+                           flow.server_port,
+                           self.env.client_ip_lan,
+                           flow.client_port,
+                           flow.ccalg,
+                           flow.duration,
+                           affinity,
+                           flow.client_log)
+                yield pipe_syscalls([cmd], sudo=False)
+        finally:
+            self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                                    cmd='iperf3',
+                                    filepath=flow.client_log)
 
 
     @contextmanager
@@ -284,10 +249,12 @@ class Experiment(object):
                '> /dev/null 2> /dev/null < /dev/null & ').format(
                    self.env.client_ip_wan,
                    self.client_tcpdump_log)
-        yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
-                                cmd='tcpdump',
-                                filepath=self.client_tcpdump_log)
+        try:
+            yield pipe_syscalls([cmd], sudo=False)
+        finally:
+            self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                                    cmd='tcpdump',
+                                    filepath=self.client_tcpdump_log)
     
     @contextmanager
     def start_tcpdump_server(self):
@@ -299,10 +266,12 @@ class Experiment(object):
                '> /dev/null 2> /dev/null < /dev/null & ').format(
                    self.env.server_ip_wan,
                    self.server_tcpdump_log)
-        yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
-                                cmd='tcpdump',
-                                filepath=self.server_tcpdump_log)
+        try:
+            yield pipe_syscalls([cmd], sudo=False)
+        finally:
+            self.cleanup_remote_cmd(ip=self.env.server_ip_wan,
+                                    cmd='tcpdump',
+                                    filepath=self.server_tcpdump_log)
         """
         cmd = ('tshark '
                '-T fields '
@@ -323,10 +292,12 @@ class Experiment(object):
         cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.queue_log)
         # for some reason using subprocess here just hangs so use os.system instead
         print('RUNNING CMD: {}'.format(cmd))
-        yield os.system(cmd)
-        print('RUNNING CMD: pkill -9 tail')
-        subprocess.run(['pkill','-9','tail'])
-        #self.cleanup_local_cmd(cmd='tail')
+        try:
+            yield os.system(cmd)
+        finally:
+            print('RUNNING CMD: pkill -9 tail')
+            subprocess.run(['pkill','-9','tail'])
+            #self.cleanup_local_cmd(cmd='tail')
 
     """
     @contextmanager
@@ -339,8 +310,8 @@ class Experiment(object):
     """
     
     @contextmanager
-    def start_tcpprobe(self):
-        cmd = 'ssh -p 22 rware@{}  sudo insmod ~/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1'.format(
+    def start_tcpprobe(self): 
+        cmd = 'ssh -p 22 rware@{}  sudo insmod /opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1'.format(
             self.env.client_ip_wan)
         pipe_syscalls([cmd], sudo=False)
         cmd = 'ssh -p 22 rware@{} sudo chmod 444 /proc/net/tcpprobe'.format(
@@ -349,13 +320,15 @@ class Experiment(object):
         cmd = ('ssh -p 22 rware@{} '
                '"cat /proc/net/tcpprobe > {} 2> {} < /dev/null &"').format(
                    self.env.client_ip_wan, self.tcpprobe_log, self.tcpprobe_log)
-        yield pipe_syscalls([cmd], sudo=False)
-        self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
-                               cmd='cat',
-                               filepath=self.tcpprobe_log)
-        cmd = ('ssh -p 22 rware@{} '
-               'sudo rmmod tcp_probe_ray ').format(self.env.client_ip_wan)
-        pipe_syscalls([cmd], sudo=False)
+        try:
+            yield pipe_syscalls([cmd], sudo=False)
+        finally:
+            self.cleanup_remote_cmd(ip=self.env.client_ip_wan,
+                                    cmd='cat',
+                                    filepath=self.tcpprobe_log)
+            cmd = ('ssh -p 22 rware@{} '
+                   'sudo rmmod tcp_probe_ray ').format(self.env.client_ip_wan)
+            pipe_syscalls([cmd], sudo=False)
 
         
     def cleanup_remote_cmd(self, ip, cmd, filepath=None):
@@ -389,7 +362,7 @@ class Experiment(object):
     def cleanup_local_cmd(self, cmd):
         run = 'sudo pkill -f {}'.format(cmd)
         pipe_syscalls([run], sudo=False)
-
+        
     
 @click.group()
 def main():
@@ -400,42 +373,33 @@ def main():
 @click.argument('config_file')
 @click.option('--name', '-n', multiple=True)
 @click.option('--rtt', '-r')
-@click_log.simple_verbosity_option(LOG)
 def run_experiment(config_file, name, rtt):
 
     if rtt:
         # override the rtt for all flows in the config file
         print('OVERRIDING RTT TO {}'.format(rtt))
 
-    experiments = load_experiment(config_file, names=name, rtt=rtt)
+    experiments, environment = load_experiment(config_file, names=name, rtt=rtt)
+
+    # connect dpdk if not already connected
+    connect_dpdk(environment.server_ifname, environment.client_ifname)
 
     for experiment in experiments.values():
+        # create description log just before running experiment
+        with open(experiment.description_log, 'w') as f:
+            json.dump(str(experiment), f)
         experiment.run()
-    
-    """
-    if len(name) == 0:
-        # run all the experiments
-        for experiment in experiments.values():
-            # make sure bess daemon is shut down
-            os.system('/opt/bess/bessctl/bessctl daemon stop')
-            experiment.run()
-    else:
-        for n in name:
-            experiments[n].run()
-    """
-
-def load_experiment(config_file, names=None, rtt=None):
-
-    
-    
+        
+def load_experiment(config_file, names=None, rtt=None):    
+    # all experiments forced to use the same environment
     env = Environment(client_ifname = 'enp6s0f1',
                       server_ifname = 'enp6s0f0',
                       client_ip_lan = '192.0.0.4',
                       server_ip_lan = '192.0.0.1',
-                      client_ip_wan = '128.104.222.40',
-                      server_ip_wan = '128.104.222.35',
-                      server_pci = '06:00.1',
-                      client_pci = '06:00.0')
+                      client_ip_wan = CLIENT_IP, #'128.104.222.172',
+                      server_ip_wan = SERVER_IP, #'128.104.222.187',
+                      server_pci = '06:00.0',
+                      client_pci = '06:00.1')
 
     with open(config_file) as f:
         config = json.load(f)
@@ -468,15 +432,12 @@ def load_experiment(config_file, names=None, rtt=None):
                 queue_size = int(experiment['queue_size']),
                 flows = flows,
                 env = env)
-            # create description log
-            with open(experiments[experiment_name].description_log, 'w') as f:
-                json.dump(str(experiments[experiment_name]), f)
 
-    return experiments
+    return experiments, env
 
     
         
-    
+"""    
 @click.command()
 @click.argument('ifname_server')
 @click.argument('ifname_client')
@@ -502,7 +463,26 @@ def _start_bess(ifname_server, ifname_client, queue_size, queue_speed):
                                              queue_size,
                                              queue_speed)
     click.echo(pipe_syscalls([cmd]))
+"""
+@click.command()
+@click.argument('config_file')
+@click.argument('exp_name')
+def start_bess(config_file, exp_name):
+    experiments, environment = load_experiment(config_file, names=exp_name, rtt=None)
+    experiment = experiments[exp_name]
+    # connect dpdk if not already connected
+    connect_dpdk(environment.server_ifname, environment.client_ifname)
+    with open(experiment.description_log, 'w') as f:
+        json.dump(str(experiment), f)
+    _start_bess(experiment)
 
+def _start_bess(experiment):
+    cmd = '/opt/bess/bessctl/bessctl daemon start'
+    pipe_syscalls([cmd])
+    cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+           "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(
+               experiment.description_log)
+    pipe_syscalls([cmd])
 
     
 @click.command()
@@ -512,6 +492,7 @@ def stop_bess():
 def _stop_bess():
     cmd = '/opt/bess/bessctl/bessctl daemon stop'
     pipe_syscalls([cmd])
+    
 
     
 main.add_command(start_bess)
@@ -657,8 +638,6 @@ def disconnect_dpdk():
     # TODO:
     pass
     
-
-#def set_rtt(server_ip_lan, client_ip_lan, client_ip_wan, rtt):
 def set_rtt(client_ip_wan, rtt):
     click.echo('SETTING RTT')
     # get average RTT from ping

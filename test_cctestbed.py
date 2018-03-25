@@ -15,8 +15,8 @@ CLIENT_IFNAME='enp6s0f1'
 SERVER_PCI='06:00.0'
 CLIENT_PCI='06:00.1'
 
-SERVER_IP='192.0.0.2'
-CLIENT_IP='192.0.0.3'
+SERVER_IP = '128.104.222.40'
+CLIENT_IP = '128.104.222.35'
 
 #TODO: test for nonexistent ifnames
 
@@ -26,8 +26,8 @@ def environment():
                           server_ifname = 'enp6s0f0',
                           client_ip_lan = '192.0.0.4',
                           server_ip_lan = '192.0.0.1',
-                          client_ip_wan = '128.104.222.40',
-                          server_ip_wan = '128.104.222.35',
+                          client_ip_wan = CLIENT_IP,
+                          server_ip_wan = SERVER_IP,
                           server_pci = '06:00.0',
                           client_pci = '06:00.1')
     return env
@@ -36,7 +36,7 @@ def environment():
 def experiment(environment, request):
     def experiment_close():
         os.system('rm /tmp/*.json') # will remove all experiment description files
-    experiments = mut.load_experiment(request.param)
+    experiments, env = mut.load_experiment(request.param)
     request.addfinalizer(experiment_close)
     return experiments.popitem()[1]    
         
@@ -161,18 +161,26 @@ class TestExperiment(object):
         filename = os.path.basename(experiment.server_tcpdump_log)
         assert(os.path.isfile(filename))
         os.remove(filename)
-        
-    def test_start_monitor_bess(self, experiment):
-        cmd = 'pgrep tail'    
-        with experiment.start_monitor_bess() as cmd_output:
-            print(cmd_output)
-            output = subprocess.run(shlex.split(cmd))
-            assert(output.returncode==0)
-        output = subprocess.run(shlex.split(cmd))
-        assert(output.returncode==1)
-        assert(os.path.isfile(experiment.queue_log))
-        os.remove(experiment.queue_log)
 
+    @pytest.mark.xfail(raises=KeyboardInterrupt)
+    def test_start_monitor_bess(self, experiment):
+        try:
+            cmd = 'pgrep tail'    
+            with experiment.start_monitor_bess() as cmd_output:
+                print(cmd_output)
+                output = subprocess.run(shlex.split(cmd))
+                assert(output.returncode==0)
+                # should be able to recover from an error
+                raise KeyboardInterrupt
+        except: pass
+        finally: # check that tail is no longer running and cleanup is done
+            output = subprocess.run(shlex.split(cmd))
+            assert(output.returncode==1)
+            assert(os.path.isfile(experiment.queue_log))
+            os.remove(experiment.queue_log)
+        
+    
+        
     # TODO: fix this. BESS needs to be running to run this
     def test_start_tcpdump_bess(self, experiment, bess):
         cmd = 'pgrep -f {}'.format(experiment.bess_tcpdump_log)
