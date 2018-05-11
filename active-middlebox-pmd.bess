@@ -6,11 +6,11 @@ import os
 # get variables i need from experiment json file
 exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
 with open(exp_description) as f:
-     exp_info = json.loads(json.load(f).replace('=', ':').replace('\n',''))
-pci_server = exp_info['env'][-2]
-pci_client = exp_info['env'][-1]
-queue_size = int(exp_info['queue_size'])
-btlbw = int(exp_info['btlbw'])
+     experiment = json.load(f)
+pci_server = experiment['server'][-1]
+pci_client = experiment['client'][-1]
+queue_size = int(experiment['queue_size'])
+btlbw = int(experiment['btlbw'])
 
 print('exp_description =', exp_description)
 print('pci_server =', pci_server)
@@ -18,8 +18,8 @@ print('pci_client =', pci_client)
 print('queue_size =', queue_size)
 print('btlbw =', btlbw)	
 
-server = PMDPort(pci=pci_server)
-client = PMDPort(pci=pci_client)
+client = PMDPort(pci=pci_client) #pci_client)
+server = PMDPort(pci=pci_server)#pci_server)
 
 # check if environment variables to say how to use Queue
 server_in = PortInc(port=server.name)
@@ -36,8 +36,11 @@ bess.add_tc('bit_limit',
 btl_queue.attach_task(parent='bit_limit')
 
 client_in -> btl_queue -> server_out
-if len(exp_info['flows']) == 1:
-     flow_delay = exp_info['flows'][0][2]
+if len(experiment['flows']) == 1:
+     flow_delay = experiment['flows'][0][3]
+     server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
+elif experiment['flows'][0][3] == experiment['flows'][1][3]:
+     flow_delay = experiment['flows'][0][3]
      server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
 else:
      # exact match on destination port number; destinations will be destinations on port
@@ -46,10 +49,10 @@ else:
 
      server_in -> port_match
 
-     for idx, flow in enumerate(exp_info['flows']):
+     for idx, flow in enumerate(experiment['flows']):
           flow_name = flow[0]
-          flow_delay = flow[2]
-          flow_dst_port = flow[3]
+          flow_delay = flow[3]
+          flow_dst_port = flow[4]
           #queue_delay = QueueDelay(size=4096, delay=flow_delay)
           print('flow=name:{}, delay:{}, dst_port:{}'.format(flow_name,
 							     flow_delay,
@@ -57,8 +60,8 @@ else:
 	  port_match.add(dst_port=flow_dst_port, gate=idx) 
           port_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay)  -> merge
      # default gate skips any QueueDelay module and sends right to client
-     port_match.set_default_gate(gate=len(exp_info['flows']))
-     port_match:len(exp_info['flows']) -> merge
+     port_match.set_default_gate(gate=len(experiment['flows']))
+     port_match:len(experiment['flows']) -> merge
      merge -> client_out
 
 #delay_queue = QueueDelay(size=4096, delay=int($BESS_QUEUE_DELAY!'1'))    
