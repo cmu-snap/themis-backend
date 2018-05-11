@@ -20,11 +20,9 @@ Host = namedtuple('Host', ['ifname', 'ip_wan', 'ip_lan', 'pci'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])    
 
-# TODO: implement connect_dpdk function -- make sure driver is correct
 # TODO: implement functions for starting bess, queue collection
 # TODO: implement functions for starting tcpdump (issues with sudo?)
 
-# TODO: always pring 'Running cmd:{}'; wrapper around subprocess cmd
 # TODO: to set affinity, get number of processors on remote machines using 'nproc --all
 # TODO: check every seconds if processes still running instead of using time.sleep
 # TODO: allow starting and stopping flows at any time
