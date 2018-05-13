@@ -11,6 +11,7 @@ import pwd
 import subprocess
 import shlex
 import time
+import tarfile
 import logging
 import yaml
 import paramiko
@@ -24,7 +25,7 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
 USERNAME = getpass.getuser()
 SEVER_LOCAL_IFNAME = 'ens13'
 CLIENT_LOCAL_IFNAME = 'ens3f0'
-# TODO: implement functions for starting tcpdump (issues with sudo?)
+
 # TODO: write function to validate experiment output -- number packets output by
 # queue module, 
 
@@ -85,7 +86,11 @@ class RemoteCommand:
                     raise RuntimeError(
                         'Got a non-zero exit status running cmd: {}.\n{}'.format(
                             self.cmd, stderr.read()))
-            assert(pid)
+            elif pid=='':
+                raise RuntimeError(
+                    'Could not get PID after running cmd: {}.\n{}'.format(
+                        self.cmd, stderr.read()))
+
             pid = int(pid)
             yield pid
             stdout.close()
@@ -135,7 +140,7 @@ class RemoteCommand:
         return 'RemoteCommand({})'.format(self.__str__())
             
 class Experiment:
-    def __init__(self, name, btlbw, queue_size, flows, server, client):
+    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename):
         self.exp_time = (datetime.now().isoformat()
                          .replace(':','').replace('-','').split('.')[0])
         self.name = name
@@ -144,11 +149,13 @@ class Experiment:
         self.server = server
         self.client = client
         # store what version of this code we are running -- could be useful later
-        self.git_commit = run_local_command('git rev-parse HEAD')
+        self.cctestbed_git_commit = run_local_command('git rev-parse HEAD')
+        self.bess_git_commit = run_local_command('git --git-dir=/opt/bess/.git '
+                                                 '--work-tree=/opt/bess '
+                                                 'rev-parse HEAD')
+        self.config_filename = config_filename
         self.logs = {
             'server_tcpdump_log': '/tmp/server-tcpdump-{}-{}.pcap'.format(
-                self.name, self.exp_time),
-            'bess_tcpdump_log': '/tmp/bess-tcpdump-{}-{}.pcap'.format(
                 self.name, self.exp_time),
             'queue_log': '/tmp/queue-{}-{}.txt'.format(self.name, self.exp_time),
             'client_tcpdump_log': '/tmp/client-tcpdump-{}-{}.pcap'.format(
@@ -179,7 +186,40 @@ class Experiment:
             self._run_tcpdump('client', stack)
             self._run_tcpprobe(stack)
             self._run_all_flows(stack)
-    
+        # compress all log files
+        self._compress_logs()
+
+    def _compress_logs(self):
+        # will only issue a warning if a log file doesn't exist
+        # this allows experiments to be run with some logs omitted
+        logging.info('Compressing {} logs into tarfile: {}'.format(
+            len(self.logs.values()), self.tar_filename))
+        with tarfile.open(self.tar_filename, mode='w:gz') as experiment_tarfile:
+            # zip experiment logs including description config file
+            experiment_tarfile.add(self.config_filename, arcname=os.path.basename(self.config_filename))
+            logging.info('Renaming config_filename in experiment from {} to {}'.format(
+                self.config_filename,
+                os.path.join('/tmp' , os.path.basename(self.config_filename))))
+            # MAYBE: don't do this:
+            # update config filename to be in /tmp/ (assumption with all other files)
+            self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
+            # zip all experiment logs (that exist)
+            for log in self.logs.values():
+                if os.path.isfile(log):
+                    experiment_tarfile.add(log, arcname=os.path.basename(log))
+                    os.remove(log)
+                else:
+                    logging.warning('Log file does not exist: {}'.format(log))
+            # zip flow iperf logs
+            for flow in self.flows:
+                for log in [flow.server_log, flow.client_log]:
+                    if os.path.isfile(log):
+                        experiment_tarfile.add(log, arcname=os.path.basename(log))
+                        os.remove(log)
+                    else:
+                        logging.warning('Log file does not exist: {}'.format(log))
+        assert(os.path.exists(self.tar_filename))
+            
     def _validate(self):
         # check queue log has all lines with the same number of columns
         # check queue log isn't empty
@@ -192,11 +232,11 @@ class Experiment:
 
     def _show_bess_pipeline(self):
         cmd = '/opt/bess/bessctl/bessctl show pipeline'
-        logging.info(run_local_command(cmd))
+        logging.info('\n'+run_local_command(cmd))
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        logging.info(run_local_command(cmd))
+        logging.info('\n'+run_local_command(cmd))
         cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
-        logging.info(run_local_command(cmd))
+        logging.info('\n'+run_local_command(cmd))
 
 
     def _run_tcpdump(self, host, stack):
@@ -337,7 +377,9 @@ class Experiment:
                                              logs=[flow.client_log])
             stack.enter_context(start_client())
         # assume all flows start and stop at the same time
-        time.sleep(flow.end_time - flow.start_time + 5)
+        sleep_time = flow.end_time - flow.start_time + 1
+        logging.info('Sleep for {}s'.format(sleep_time))
+        time.sleep(sleep_time)
         self._show_bess_pipeline()
         
     def __repr__(self):
@@ -356,7 +398,7 @@ def load_config_file(config_filename):
         config = yaml.safe_load(f)
     return config
 
-def load_experiments(config):
+def load_experiments(config, config_filename):
     """Create experiments from config file and output to config"""
     client = Host(ifname=config['client']['ifname'],
                   ip_lan=config['client']['ip_lan'],
@@ -384,7 +426,8 @@ def load_experiments(config):
         exp = Experiment(name=experiment_name,
                          btlbw=experiment['btlbw'],
                          queue_size=experiment['queue_size'],
-                         flows=flows, server=server, client=client)
+                         flows=flows, server=server, client=client,
+                         config_filename=config_filename)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
 

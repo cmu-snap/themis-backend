@@ -6,30 +6,33 @@ import paramiko
 import os
 import subprocess
 import json
+import tarfile
 
 @pytest.fixture(name='config')
 def test_load_config_file():
-    config_filename = 'experiments-cubic.yaml'
+    config_filename = 'experiments-test.yaml'
     config = mut.load_config_file(config_filename)
     assert(config is not None)
     assert('client' in config)
     assert('server' in config)
     assert('experiments' in config)
-    return config
+    return config, config_filename
 
 @pytest.fixture(name='experiment')
 def test_load_experiments(config, request):
-    experiments = mut.load_experiments(config)
-    assert(len(experiments)==2)
-    assert(experiments['cubic-8q'].queue_size==8)
-    assert(experiments['cubic-16q'].queue_size==16)
-    assert(len(experiments['cubic-8q'].flows)==1)
-    assert(len(experiments['cubic-16q'].flows)==1)
+    experiments = mut.load_experiments(config[0], config[1])
     def remove_experiment_description_log():
         for experiment in experiments.values():
-            os.remove(experiment.logs['description_log'])
+            # later tests could delete description log (see: compress_logs text)
+            if os.path.exists(experiment.logs['description_log']):
+                os.remove(experiment.logs['description_log'])
     request.addfinalizer(remove_experiment_description_log)
-    return experiments['cubic-8q']
+    assert(len(experiments)==5)
+    assert(experiments['cubic'].queue_size==8)
+    assert(experiments['cubic-cubic'].queue_size==1024)
+    assert(len(experiments['cubic'].flows)==1)
+    assert(len(experiments['cubic-cubic'].flows)==2)
+    return experiments['cubic']
 
 def is_remote_process_running(remote_ip, pid):
     ssh_client = paramiko.SSHClient()
@@ -175,4 +178,27 @@ def test_experiment_run_tcpdump_client(experiment):
     
 def test_experiment_run(experiment):
     experiment.run()
-    
+    # TODO: check log compression
+
+def test_experiment_compress_logs(experiment):
+    with ExitStack() as stack:
+        experiment._run_all_flows(stack)
+    experiment._compress_logs()
+    # check that tarfile contains files with data in them
+    assert(os.path.isfile(experiment.tar_filename))
+    expected_zipped_files = [experiment.logs['queue_log'],
+                             experiment.logs['description_log'],
+                             experiment.config_filename]
+    for flow in experiment.flows:
+        expected_zipped_files.append(flow.server_log)
+        expected_zipped_files.append(flow.client_log)
+    for expected_file in expected_zipped_files:
+        assert(not os.path.exists(expected_file))
+    # unzip and check if files have data in them
+    with tarfile.open(experiment.tar_filename) as tar:
+        tar.extractall(path='/tmp/')
+    for expected_file in expected_zipped_files:
+        assert(os.path.isfile(expected_file))
+        assert(os.stat(expected_file).st_size > 0)
+        os.remove(expected_file)
+    os.remove(experiment.tar_filename)
