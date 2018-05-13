@@ -18,7 +18,7 @@ def test_load_config_file():
     assert('experiments' in config)
     return config, config_filename
 
-@pytest.fixture(name='experiment')
+@pytest.fixture(name='experiment', params=['cubic','cubic-bbr'])
 def test_load_experiments(config, request):
     experiments = mut.load_experiments(config[0], config[1])
     def remove_experiment_description_log():
@@ -32,7 +32,7 @@ def test_load_experiments(config, request):
     assert(experiments['cubic-cubic'].queue_size==1024)
     assert(len(experiments['cubic'].flows)==1)
     assert(len(experiments['cubic-cubic'].flows)==2)
-    return experiments['cubic']
+    return experiments[request.param]
 
 def is_remote_process_running(remote_ip, pid):
     ssh_client = paramiko.SSHClient()
@@ -82,7 +82,28 @@ def test_connect_dpdk(experiment):
         experiment.server, experiment.client)
     assert(expected_server_pci == experiment.server.pci)
     assert(expected_client_pci == experiment.client.pci)
-    
+              
+def test_experiment_run_bess(experiment):
+    with experiment._run_bess():
+        subprocess.run(['pgrep', 'bessd'], check=True)
+        proc = subprocess.run(['/opt/bess/bessctl/bessctl', 'show', 'pipeline'],
+                                stdout=subprocess.PIPE)
+        print(proc.stdout.decode('utf-8'))
+    time.sleep(3)
+    proc = subprocess.run(['pgrep', 'bessd'])
+    assert(proc.returncode != 0)
+        
+def test_experiment_run_bess_monitor(experiment):
+    with experiment._run_bess_monitor() as pid:
+        assert(is_local_process_running(pid))
+    assert(not is_local_process_running(pid))
+    assert(os.path.isfile(experiment.logs['queue_log']))
+    # check that there's something in the file
+    with open(experiment.logs['queue_log']) as f:
+        assert(f.read().strip() == ('enqueued, time, src, seq, datalen, '
+                                    'size, dropped, queued, batch'))
+    os.remove(experiment.logs['queue_log'])
+
 def test_experiment_run_all_flows(experiment):
     with ExitStack() as stack:
         experiment._run_all_flows(stack)
@@ -106,40 +127,7 @@ def test_experiment_run_all_flows(experiment):
     assert(len(second_line) == 9)
     # MAYBE: could check here if all the lines have the same number of columns
     os.remove(experiment.logs['queue_log'])
-          
-def test_experiment_run_bess(experiment):
-    with experiment._run_bess():
-        subprocess.run(['pgrep', 'bessd'], check=True)
-        subprocess.run(['/opt/bess/bessctl/bessctl', 'show', 'pipeline'],
-                       stdout=subprocess.PIPE)
-        # test that you can ping between machines
-        cmd = ('ping -c 4 -I {} {} '
-               '| tail -1 '
-               '| awk "{{print $4}}" ').format(experiment.server.ip_lan,
-                                           experiment.client.ip_lan)
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(experiment.server.ip_wan, username='ranysha')
-        _, stdout, _ = ssh_client.exec_command(cmd)
-        # parse out avg rtt from last line of ping output
-        avg_rtt = float(stdout.readline().split('=')[-1].split('/')[1])
-        ssh_client.close()        
-        assert(avg_rtt > experiment.flows[0].rtt)
-    time.sleep(3)
-    proc = subprocess.run(['pgrep', 'bessd'])
-    assert(proc.returncode != 0)
-        
-def test_experiment_run_bess_monitor(experiment):
-    with experiment._run_bess_monitor() as pid:
-        assert(is_local_process_running(pid))
-    assert(not is_local_process_running(pid))
-    assert(os.path.isfile(experiment.logs['queue_log']))
-    # check that there's something in the file
-    with open(experiment.logs['queue_log']) as f:
-        assert(f.read().strip() == ('enqueued, time, src, seq, datalen, '
-                                    'size, dropped, queued, batch'))
-    os.remove(experiment.logs['queue_log'])
-
+    
 def test_experiment_run_tcpprobe(experiment):
     with ExitStack() as stack:
         pid = experiment._run_tcpprobe(stack)

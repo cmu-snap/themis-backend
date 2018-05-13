@@ -228,7 +228,7 @@ class Experiment:
         # check number of packets enqueued + dropped, numbers of packets at tcpdump sender -- MAY HAVE TO ACCOUNT FOR IPERF PACKETS?
         # check number of packets dequeued = number of packets at tcpdump receiver
         # check number of packets enqueued + dropped = number of packets in tcppprobe
-        pass
+        raise NotImplementedError()
 
     def _show_bess_pipeline(self):
         cmd = '/opt/bess/bessctl/bessctl show pipeline'
@@ -324,13 +324,35 @@ class Experiment:
     @contextmanager
     def _run_bess(self):
         try:
-            yield start_bess(self)
+            start_bess(self)
+            # give bess some time to start
+            time.sleep(3)
+            # check that i can ping between machines
+            cmd = ('ping -c 4 -I {} {} '
+               '| tail -1 '
+               '| awk "{{print $4}}" ').format(self.server.ip_lan,
+                                               self.client.ip_lan)
+            ssh_client = get_ssh_client(self.server.ip_wan, username=USERNAME)
+            logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
+                                                       cmd))
+            _, stdout, stderr = ssh_client.exec_command(cmd)
+            line = stdout.readline()
+            # parse out avg rtt from last line of ping output
+            avg_rtt = float(line.split('=')[-1].split('/')[1])
+            logging.info('Got an avg rtt of {}'.format(avg_rtt))
+            if not (avg_rtt > 0):
+                raise RuntimeError('Did not see an avg_rtt greater than 0.')    
+            yield
+        except Exception as e:
+            raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr.readline()), e)
         finally:
             stop_bess()
     
     def _run_all_flows(self, stack):
         # run bess and monitor
         stack.enter_context(self._run_bess())
+        # give bess some time to start
+        time.sleep(3)
         self._show_bess_pipeline()
         stack.enter_context(self._run_bess_monitor())
         for flow in self.flows:
