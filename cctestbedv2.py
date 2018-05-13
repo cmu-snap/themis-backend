@@ -6,6 +6,7 @@ from json import JSONEncoder
 import argparse
 import json
 import os
+import getpass
 import pwd
 import subprocess
 import shlex
@@ -18,10 +19,18 @@ fileConfig('logging_config.ini')
 
 Host = namedtuple('Host', ['ifname', 'ip_wan', 'ip_lan', 'pci'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
-                           'server_port', 'client_port', 'client_log', 'server_log'])    
+                           'server_port', 'client_port', 'client_log', 'server_log'])
 
-# TODO: implement functions for starting bess, queue collection
+USERNAME = getpass.getuser()
+SEVER_LOCAL_IFNAME = 'ens13'
+CLIENT_LOCAL_IFNAME = 'ens3f0'
 # TODO: implement functions for starting tcpdump (issues with sudo?)
+# TODO: write function to validate experiment output -- number packets output by
+# queue module, 
+
+# TODO: come up with more elegant way to run remote sudo commands
+# -- more machine setup: add ability to run stuff without sudo to potato (client)
+# -- create /etc/sudoers.d/cctestbed
 
 # TODO: to set affinity, get number of processors on remote machines using 'nproc --all
 # TODO: check every seconds if processes still running instead of using time.sleep
@@ -30,14 +39,13 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
 class BackgroundCommand:
     def __init__(self, cmd, sudo=False,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null',
-                 logs=[], username='ranysha'):
-        self.cmd = cmd
+                 logs=[]):
+        self.cmd = cmd.strip() # don't wany any extra white sapce in cmd
         self.stdout = stdout
         self.stdin = stdin
         self.stderr = stderr
         self.logs = logs
         self.proc = None
-        self.username = username
         self.sudo = sudo
 
     @contextmanager
@@ -61,22 +69,20 @@ class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
-                 username='ranysha'):
+                 cleanup_cmd=None, sudo=False):
         self.cmd = cmd
         self.ip_addr = ip_addr
         self.stdout = stdout
         self.stdin = stdin
         self.stderr = stderr
         self.logs = logs
-        self.username = username
+        self.cleanup_cmd = cleanup_cmd
+        self.sudo = sudo
         self._ssh_client = None
         self._ssh_channel = None
 
     def _get_ssh_client(self):
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(self.ip_addr, username=self.username)
-        return ssh_client
+        return get_ssh_client(self.ip_addr, USERNAME)
         
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
@@ -89,15 +95,18 @@ class RemoteCommand:
         try:
             stderr = self._ssh_channel.makefile_stderr()
             # run command and get PID
-            self._ssh_channel.exec_command('{} > {} 2> {} < {} &'.format(self.cmd,
+            if self.sudo:
+                cmd = 'sudo {}'.format(self.cmd)
+            else:
+                cmd = self.cmd
+            self._ssh_channel.exec_command('{} > {} 2> {} < {} &'.format(cmd,
                                                                          self.stdout,
                                                                          self.stderr,
                                                                          self.stdin))
             ssh_client = self._get_ssh_client()
-            logging.info('Running cmd ({}): {}'.format(self.ip_addr, self.cmd))
-            _, stdout, _ = ssh_client.exec_command('pgrep -f "{}"'.format(self.cmd.strip()))
+            logging.info('Running cmd ({}): {}'.format(self.ip_addr, cmd))
+            _, stdout, _ = ssh_client.exec_command('pgrep -f "^{}"'.format(self.cmd))
             pid = stdout.readline().strip()
-            assert(pid)
             logging.info('PID={}'.format(pid))
             # check if immediately get nonzero exit status
             if self._ssh_channel.exit_status_ready():
@@ -105,6 +114,7 @@ class RemoteCommand:
                     raise RuntimeError(
                         'Got a non-zero exit status running cmd: {}.\n{}'.format(
                             self.cmd, stderr.read()))
+            assert(pid)
             pid = int(pid)
             yield pid
             stdout.close()
@@ -115,14 +125,31 @@ class RemoteCommand:
             logging.info('Cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
             # on cleanup kill process & collect all logs
             ssh_client = self._get_ssh_client()
-            ssh_client.exec_command('kill {}'.format(pid))
+            kill_cmd = 'kill {}'.format(pid)
+            if self.sudo:
+                kill_cmd = 'sudo kill {}'.format(pid)
+            logging.info('Running cmd ({}): {}'.format(self.ip_addr, kill_cmd))
+            ssh_client.exec_command(kill_cmd)
             ssh_client.close()
+            if self.cleanup_cmd is not None:
+                # TODO: run cleanup cmd as sudo too?
+                ssh_client = self._get_ssh_client()
+                logging.info('Running cmd ({}): {}'.format(self.ip_addr,
+                                                           self.cleanup_cmd))
+                ssh_client.exec_command(self.cleanup_cmd)
+                ssh_client.close()
             for log in self.logs:
                 ssh_client = self._get_ssh_client()
+                sftp_client = ssh_client.open_sftp()
+                logging.info('Copying remote file ({}): {}'.format(self.ip_addr,
+                                                                   log))
                 try:
-                    sftp_client = ssh_client.open_sftp()
                     sftp_client.get(log, os.path.join('/tmp',log))
-                    ssh_client.exec_command('rm {}'.format(log))
+                    rm_cmd = 'rm {}'.format(log)
+                    if self.sudo:
+                        rm_cmd = 'sudo rm {}'.format(log)
+                    logging.info('Running cmd ({}): {}'.format(self.ip_addr, rm_cmd))
+                    ssh_client.exec_command(rm_cmd)
                 except FileNotFoundError as e:
                     logging.warning('Could not find file "{}" on remote server "{}"'.format(
                         log, self.ip_addr))
@@ -131,7 +158,7 @@ class RemoteCommand:
                 
     def __str__(self):
         return {'ip_addr': self.ip_addr, 'cmd': self.cmd,
-                'logs': self.logs, 'username': self.username}
+                'logs': self.logs, 'username': USERNAME}
 
     def __repr__(self):
         return 'RemoteCommand({})'.format(self.__str__())
@@ -174,65 +201,158 @@ class Experiment:
     def get_wait_times(self):
         #start_times = [flow.wait_time for time in flow]
         pass
-            
+    
     def run(self):
         pass
     
-    def _run_all_flows(self):
-        with ExitStack() as stack:
-            stack.enter_context(self._run_bess())
-            for flow in self.flows:
-                start_server_cmd = ('iperf3 --server '
-                                    '--bind {} '
-                                    '--port {} '
-                                    '--one-off '
-                                    '--affinity {} '
-                                    '--logfile {} ').format(
-                                            self.server.ip_lan,
-                                            flow.server_port,
-                                            1,
-                                            flow.server_log)
-                start_server = RemoteCommand(start_server_cmd,
-                                             self.server.ip_wan,
-                                             logs=[flow.server_log])
-                stack.enter_context(start_server())
-                
-            for idx, flow in enumerate(self.flows):
-                start_client_cmd = ('iperf3 --client {} '
-                                    '--port {} '
-                                    '--verbose '
-                                    '--bind {} '
-                                    '--cport {} '
-                                    '--linux-congestion {} '
-                                    '--interval 0.5 '
-                                    '--time {} '
-                                    #'--length 1024K '#1024K '
-                                    '--affinity {} '
-                                    #'--set-mss 500 ' # default is 1448
-                                    #'--window 100K '
-                                    '--zerocopy '
-                                    '--json '
-                                    '--logfile {} ').format(self.server.ip_lan,
-                                                            flow.server_port,
-                                                            self.client.ip_lan,
-                                                            flow.client_port,
-                                                            flow.ccalg,
-                                                            flow.end_time - flow.start_time,
-                                                            idx % 32,
-                                                            flow.client_log)
-                start_client = RemoteCommand(start_client_cmd,
-                                             self.client.ip_wan,
-                                             logs=[flow.client_log])
-                stack.enter_context(start_client())
-            # assume all flows start and stop at the same time
-            time.sleep(flow.end_time - flow.start_time + 5)
+    def _validate(self):
+        # check queue log has all lines with the same number of columns
+        # check queue log isn't empty
+        # check that the number of lines in queue log equal to number packets enqueued,
+        # dequeued, dropped
+        # check number of packets enqueued + dropped, numbers of packets at tcpdump sender -- MAY HAVE TO ACCOUNT FOR IPERF PACKETS?
+        # check number of packets dequeued = number of packets at tcpdump receiver
+        # check number of packets enqueued + dropped = number of packets in tcppprobe
+        pass
 
+    def _run_tcpdump(self, host, stack):
+        start_tcpdump_cmd = ('tcpdump -n --packet-buffered '
+                             '--snapshot-length=65535 '
+                             '--interface={} '
+                             '-w {}')
+        tcpdump_logs = None
+        if host == 'server':
+            start_tcpdump_cmd = start_tcpdump_cmd.format(self.server.ifname,
+                                                         self.logs['server_tcpdump_log'])
+            
+            tcpdump_logs = [self.logs['server_tcpdump_log']]
+            start_tcpdump = RemoteCommand(start_tcpdump_cmd,
+                                          self.server.ip_wan,
+                                          logs=tcpdump_logs,
+                                          sudo=True)
+        elif host == 'client':
+            start_tcpdump_cmd = start_tcpdump_cmd.format(self.client.ifname,
+                                                         self.logs['client_tcpdump_log'])
+            tcpdump_logs = [self.logs['client_tcpdump_log']]
+            start_tcpdump = RemoteCommand(start_tcpdump_cmd,
+                                          self.client.ip_wan,
+                                          logs=tcpdump_logs,
+                                          sudo=True)
+        else:
+            raise ValueError('Expected either server or client to host')
+        return stack.enter_context(start_tcpdump())
+        
+    def _run_tcpprobe(self, stack):
+        # assumes that tcp_bbr_measure is installed @ /opt/tcp_bbr_measure on iperf client
+        insmod_cmd = ('sudo insmod '
+                      '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
+                      '&& sudo chmod 444 /proc/net/tcpprobe ')
+        ssh_client = get_ssh_client(self.client.ip_wan, username=USERNAME)
+        logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
+                                                   insmod_cmd))
+        try:
+            _, stdout, stderr = ssh_client.exec_command(insmod_cmd)
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                raise RuntimeError(
+                    'Got a non-zero exit status running cmd: {}.\n{}'.format(
+                        self.cmd, stderr.read()))
+        finally:
+            ssh_client.close()
+
+        try:
+            start_tcpprobe_cmd = 'cat /proc/net/tcpprobe'    
+            start_tcpprobe = RemoteCommand(start_tcpprobe_cmd,
+                                           self.client.ip_wan,
+                                           stdout = self.logs['tcpprobe_log'],
+                                           stderr = self.logs['tcpprobe_log'],
+                                           logs=[self.logs['tcpprobe_log']],
+                                           cleanup_cmd='sudo rmmod tcp_probe_ray')
+        except:
+            # need to still rmmod if we can't create the remote command
+            # for some reason
+            ssh_client = get_ssh_client(self.client.ip_wan, username=USERNAME)
+            ssh_client.exec_command('sudo rmmod tcp_probe_ray')
+            ssh_client.close()
+        return stack.enter_context(start_tcpprobe())
+    
+    @contextmanager
+    def _run_bess_monitor(self):
+        # have to use system here; subprocess just hangs for some reason
+        with open(self.logs['queue_log'], 'w') as f:
+            f.write('enqueued, time, src, seq, datalen, '
+                    'size, dropped, queued, batch')
+        # only log "good" lines, those that start with 0 or 1
+        cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
+        logging.info('Running cmd: {}'.format(cmd))
+        pid = None
+        try:
+            os.system(cmd)
+            pid = run_local_command('pgrep -f "tail -n1 -f /tmp/bessd.INFO"')
+            assert(pid)
+            pid = int(pid)
+            logging.info('PID={}'.format(pid))
+            yield pid
+        finally:
+            logging.info('Cleaning up cmd: {}'.format(cmd))
+            run_local_command('kill {}'.format(pid))
+    
     @contextmanager
     def _run_bess(self):
         try:
             yield start_bess(self)
         finally:
             stop_bess()
+    
+    def _run_all_flows(self, stack):
+        # run bess and monitor
+        stack.enter_context(self._run_bess())
+        stack.enter_context(self._run_bess_monitor())
+        for flow in self.flows:
+            start_server_cmd = ('iperf3 --server '
+                                '--bind {} '
+                                '--port {} '
+                                '--one-off '
+                                '--affinity {} '
+                                '--logfile {} ').format(
+                                    self.server.ip_lan,
+                                    flow.server_port,
+                                    1,
+                                    flow.server_log)
+        start_server = RemoteCommand(start_server_cmd,
+                                     self.server.ip_wan,
+                                     logs=[flow.server_log])
+        stack.enter_context(start_server())
+        
+        for idx, flow in enumerate(self.flows):
+            start_client_cmd = ('iperf3 --client {} '
+                                '--port {} '
+                                '--verbose '
+                                '--bind {} '
+                                '--cport {} '
+                                '--linux-congestion {} '
+                                '--interval 0.5 '
+                                '--time {} '
+                                #'--length 1024K '#1024K '
+                                '--affinity {} '
+                                #'--set-mss 500 ' # default is 1448
+                                #'--window 100K '
+                                '--zerocopy '
+                                '--json '
+                                '--logfile {} ').format(self.server.ip_lan,
+                                                        flow.server_port,
+                                                        self.client.ip_lan,
+                                                        flow.client_port,
+                                                        flow.ccalg,
+                                                        flow.end_time - flow.start_time,
+                                                        idx % 32,
+                                                        flow.client_log)
+            start_client = RemoteCommand(start_client_cmd,
+                                         self.client.ip_wan,
+                                             logs=[flow.client_log])
+            stack.enter_context(start_client())
+        # assume all flows start and stop at the same time
+        time.sleep(flow.end_time - flow.start_time + 5)
         
     def __repr__(self):
         attrs = self.__str__()
@@ -288,7 +408,7 @@ def load_experiments(config):
     return experiments
 
 def start_bess(experiment):
-    cmd = '/opt/bess/bessctl/bessctl daemon start'
+    cmd = 'sudo /opt/bess/bessctl/bessctl daemon start'
     run_local_command(cmd)
     cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
            "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(
@@ -296,7 +416,7 @@ def start_bess(experiment):
     run_local_command(cmd)
 
 def stop_bess():
-    cmd = '/opt/bess/bessctl/bessctl daemon stop'
+    cmd = 'sudo /opt/bess/bessctl/bessctl daemon stop'
     run_local_command(cmd)
                   
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
@@ -308,21 +428,21 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
         return server.pci, client.pci
 
     # get pcis
-    expected_server_pci = get_interface_pci(server.ifname)
-    expected_client_pci = get_interface_pci(client.ifname)
+    expected_server_pci = get_interface_pci(SERVER_LOCAL_IFNAME)
+    expected_client_pci = get_interface_pci(CLIENT_LOCAL_IFNAME)
     if expected_server_pci is None or expected_server_pci.strip()=='':
         return server.pci, client.pci
     assert(expected_server_pci == server.pci)
     assert(expected_client_pci == client.pci)
 
     # get ips on this machine
-    server_if_ip, server_ip_mask = get_interface_ip(server.ifname)
-    client_if_ip, client_ip_mask = get_interface_ip(client.ifname)
+    server_if_ip, server_ip_mask = get_interface_ip(SERVER_LOCAL_IFNAME)
+    client_if_ip, client_ip_mask = get_interface_ip(CLIENT_LOCAL_IFNAME)
 
     logging.info('Server: ifname = {}, pci = {}, if_ip = {}/{}'.format(
-        server.ifname, server.pci, server_if_ip, server_ip_mask))
+        SERVER_LOCAL_IFNAME, server.pci, server_if_ip, server_ip_mask))
     logging.info('Client: ifname = {}, pci = {}, if_ip = {}/{}'.format(
-        client.ifname, client.pci, client_if_ip, client_ip_mask))    
+        CLIENT_LOCAL_IFNAME, client.pci, client_if_ip, client_ip_mask))    
     
     # make sure hugepages is started
     cmd = 'sudo sysctl vm.nr_hugepages=1024'
@@ -338,20 +458,14 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
         cmd = 'sudo modprobe {}'.format(dpdk_driver)
         run_local_command(cmd)
     cmd = 'sudo ifconfig {} down'
-    run_local_command(cmd.format(server.ifname))
-    run_local_command(cmd.format(client.ifname))
+    run_local_command(cmd.format(SERVER_LOCAL_IFNAME))
+    run_local_command(cmd.format(CLIENT_LOCAL_IFNAME))
     cmd = 'sudo /opt/bess/bin/dpdk-devbind.py -b {} {}'
     run_local_command(cmd.format(dpdk_driver, server.pci))
     run_local_command(cmd.format(dpdk_driver, client.pci))
     
     return server.pci, client.pci
-
-def run_local_command(cmd):
-    """Run local command return stdout"""
-    logging.info('Running cmd: {}'.format(cmd))
-    proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
-    return proc.stdout.decode('utf-8')
-
+    
 def get_interface_pci(ifname):
     """Return the PCI of the given interface
     
@@ -386,6 +500,18 @@ def get_interface_ip(ifname):
         raise ValueError('There is no interface with name {}.'.format(ifname))
     ip, mask = ip.split()[1].split('/')
     return ip, mask
+
+def run_local_command(cmd):
+    """Run local command return stdout"""
+    logging.info('Running cmd: {}'.format(cmd))
+    proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
+    return proc.stdout.decode('utf-8')
+
+def get_ssh_client(ip_addr, username=USERNAME):
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(ip_addr, username=username)
+    return ssh_client
 
 def main(args):
     #setup logging

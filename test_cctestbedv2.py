@@ -7,8 +7,6 @@ import os
 import subprocess
 import json
 
-#TODO: add cleanup code for experiment description log files in /tmp/
-
 @pytest.fixture(name='config')
 def test_load_config_file():
     config_filename = 'experiments-cubic.yaml'
@@ -45,6 +43,16 @@ def is_remote_process_running(remote_ip, pid):
         assert(int(returned_pid) == pid)
         return True
 
+def is_local_process_running(pid):
+    cmd = ['ps', '--no-headers', '-p', str(pid), '-o', 'pid=']
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE)
+    returned_pid = proc.stdout.decode('utf-8')
+    if returned_pid.strip() == '':
+        return False
+    else:
+        assert(int(returned_pid) == pid)
+        return True
+    
 def test_remote_command(experiment):
     start_server_cmd = ('iperf3 --server '
                         '--bind {} '
@@ -73,20 +81,29 @@ def test_connect_dpdk(experiment):
     assert(expected_client_pci == experiment.client.pci)
     
 def test_experiment_run_all_flows(experiment):
-    experiment._run_all_flows()
+    with ExitStack() as stack:
+        experiment._run_all_flows(stack)
     for flow in experiment.flows:
         # check that bw looks reasonable (not less than 2mb from btlbw)
         # and delete created files
         with open(flow.client_log) as f:
             client_log = json.load(f)
-        mbits_per_second = client_log['end']['sum_sent']['bits_per_second'] / 10e5
-        print('Mbps={}'.format(mbits_per_second))
-        assert(experiment.btlbw - mbits_per_second < 2) 
-        assert(os.path.isfile(flow.server_log))
-        os.remove(flow.server_log)
-        assert(os.path.isfile(flow.client_log))
-        os.remove(flow.client_log)
-
+            mbits_per_second = client_log['end']['sum_sent']['bits_per_second'] / 10e5
+            print('Mbps={}'.format(mbits_per_second))
+            assert(experiment.btlbw - mbits_per_second < 2) 
+            assert(os.path.isfile(flow.server_log))
+            os.remove(flow.server_log)
+            assert(os.path.isfile(flow.client_log))
+            os.remove(flow.client_log)
+    # cleanup bess monitoring file
+    assert(os.path.isfile(experiment.logs['queue_log']))
+    with open(experiment.logs['queue_log']) as f:
+        f.readline()
+        second_line = f.readline().split(',')
+    assert(len(second_line) == 9)
+    # MAYBE: could check here if all the lines have the same number of columns
+    os.remove(experiment.logs['queue_log'])
+          
 def test_experiment_run_bess(experiment):
     with experiment._run_bess():
         subprocess.run(['pgrep', 'bessd'], check=True)
@@ -109,3 +126,50 @@ def test_experiment_run_bess(experiment):
     proc = subprocess.run(['pgrep', 'bessd'])
     assert(proc.returncode != 0)
         
+def test_experiment_run_bess_monitor(experiment):
+    with experiment._run_bess_monitor() as pid:
+        assert(is_local_process_running(pid))
+    assert(not is_local_process_running(pid))
+    assert(os.path.isfile(experiment.logs['queue_log']))
+    # check that there's something in the file
+    with open(experiment.logs['queue_log']) as f:
+        assert(f.read().strip() == ('enqueued, time, src, seq, datalen, '
+                                    'size, dropped, queued, batch'))
+    os.remove(experiment.logs['queue_log'])
+
+def test_experiment_run_tcpprobe(experiment):
+    with ExitStack() as stack:
+        pid = experiment._run_tcpprobe(stack)
+        # check if kernel module loaded
+        module_loaded_cmd = 'cat /proc/modules | grep tcp_probe_ray'
+        ssh_client = mut.get_ssh_client(experiment.client.ip_wan)
+        _, stdout, _ = ssh_client.exec_command(module_loaded_cmd)
+        assert(stdout.channel.recv_exit_status() == 0)
+        ssh_client.close()
+        assert(is_remote_process_running(experiment.client.ip_wan, pid))
+    assert(not is_remote_process_running(experiment.client.ip_wan, pid))
+    # check if kernel module unloaded
+    module_loaded_cmd = 'cat /proc/modules | grep tcp_probe_ray'
+    ssh_client = mut.get_ssh_client(experiment.client.ip_wan)
+    _, stdout, _ = ssh_client.exec_command(module_loaded_cmd)
+    assert(stdout.channel.recv_exit_status() == 1)
+    ssh_client.close()
+    assert(os.path.isfile(experiment.logs['tcpprobe_log']))
+    os.remove(experiment.logs['tcpprobe_log'])
+
+def test_experiment_run_tcpdump_server(experiment):
+    with ExitStack() as stack:
+        pid = experiment._run_tcpdump('server', stack)
+        assert(is_remote_process_running(experiment.server.ip_wan, pid))
+    assert(not is_remote_process_running(experiment.server.ip_wan, pid))
+    assert(os.path.isfile(experiment.logs['server_tcpdump_log']))
+    os.remove(experiment.logs['server_tcpdump_log'])
+    
+def test_experiment_run_tcpdump_client(experiment):
+    with ExitStack() as stack:
+        pid = experiment._run_tcpdump('client', stack)
+        assert(is_remote_process_running(experiment.client.ip_wan, pid))
+    assert(not is_remote_process_running(experiment.client.ip_wan, pid))
+    assert(os.path.isfile(experiment.logs['client_tcpdump_log']))
+    os.remove(experiment.logs['client_tcpdump_log'])
+    

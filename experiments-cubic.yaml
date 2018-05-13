@@ -1,7 +1,7 @@
 # potato
 client: 
-    #ifname: ens13
-    ifname: ens3f0
+    ifname: ens13
+    #ifname: ens3f0
     ip_lan: 192.0.0.1
     ip_wan: 128.2.208.128
     pci: '05:00.0'
