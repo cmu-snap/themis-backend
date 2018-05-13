@@ -35,42 +35,13 @@ CLIENT_LOCAL_IFNAME = 'ens3f0'
 # TODO: to set affinity, get number of processors on remote machines using 'nproc --all
 # TODO: check every seconds if processes still running instead of using time.sleep
 # TODO: allow starting and stopping flows at any time
-
-class BackgroundCommand:
-    def __init__(self, cmd, sudo=False,
-                 stdout='/dev/null', stdin='/dev/null', stderr='/dev/null',
-                 logs=[]):
-        self.cmd = cmd.strip() # don't wany any extra white sapce in cmd
-        self.stdout = stdout
-        self.stdin = stdin
-        self.stderr = stderr
-        self.logs = logs
-        self.proc = None
-        self.sudo = sudo
-
-    @contextmanager
-    def __call__(self):
-        """
-            Reference: piping shell commands - https://docs.python.org/2/library/subprocess.html#replacing-shell-pipeline
-        """
-        try:
-            os.system('{} > {} 2> {} < {} &'.format(self.cmd,
-                                                    self.stdout,
-                                                    self.stderr,
-                                                    self.stdin))
-            proc = subprocess.run('pgrep {}'.format(cmd, stdout = subprocess.PIPE))
-            pid = proc.stdout
-        finally:
-            # kill pid
-            pass
-
                                   
 class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
                  cleanup_cmd=None, sudo=False):
-        self.cmd = cmd
+        self.cmd = cmd.strip()
         self.ip_addr = ip_addr
         self.stdout = stdout
         self.stdin = stdin
@@ -203,7 +174,11 @@ class Experiment:
         pass
     
     def run(self):
-        pass
+        with ExitStack() as stack:
+            self._run_tcpdump('server', stack)
+            self._run_tcpdump('client', stack)
+            self._run_tcpprobe(stack)
+            self._run_all_flows(stack)
     
     def _validate(self):
         # check queue log has all lines with the same number of columns
@@ -214,6 +189,15 @@ class Experiment:
         # check number of packets dequeued = number of packets at tcpdump receiver
         # check number of packets enqueued + dropped = number of packets in tcppprobe
         pass
+
+    def _show_bess_pipeline(self):
+        cmd = '/opt/bess/bessctl/bessctl show pipeline'
+        logging.info(run_local_command(cmd))
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        logging.info(run_local_command(cmd))
+        cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
+        logging.info(run_local_command(cmd))
+
 
     def _run_tcpdump(self, host, stack):
         start_tcpdump_cmd = ('tcpdump -n --packet-buffered '
@@ -307,6 +291,7 @@ class Experiment:
     def _run_all_flows(self, stack):
         # run bess and monitor
         stack.enter_context(self._run_bess())
+        self._show_bess_pipeline()
         stack.enter_context(self._run_bess_monitor())
         for flow in self.flows:
             start_server_cmd = ('iperf3 --server '
@@ -353,6 +338,7 @@ class Experiment:
             stack.enter_context(start_client())
         # assume all flows start and stop at the same time
         time.sleep(flow.end_time - flow.start_time + 5)
+        self._show_bess_pipeline()
         
     def __repr__(self):
         attrs = self.__str__()

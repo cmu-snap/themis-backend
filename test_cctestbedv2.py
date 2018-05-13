@@ -173,3 +173,6 @@ def test_experiment_run_tcpdump_client(experiment):
     assert(os.path.isfile(experiment.logs['client_tcpdump_log']))
     os.remove(experiment.logs['client_tcpdump_log'])
     
+def test_experiment_run(experiment):
+    experiment.run()
+    
