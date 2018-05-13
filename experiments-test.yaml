@@ -1,0 +1,77 @@
+# potato
+client: 
+    ifname: ens13
+    #ifname: ens3f0
+    ip_lan: 192.0.0.1
+    ip_wan: 128.2.208.128
+    pci: '05:00.0'
+
+# taro    
+server:
+    ifname: ens13
+    ip_lan: 192.0.0.4
+    ip_wan: 128.2.208.104
+    pci: '8b:00.0'
+
+experiments:
+    cubic:
+        btlbw: 10
+        queue_size: 8
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+
+    cubic-cubic:
+        btlbw: 10
+        queue_size: 1024
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+
+    cubic-bbr:
+        btlbw: 10
+        queue_size: 1024
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+        - ccalg: bbr
+          start_time: 0
+          end_time: 10
+          rtt: 40    
+
+    cubic-bbr-rtt:
+        btlbw: 10
+        queue_size: 1024
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+        - ccalg: bbr
+          start_time: 0
+          end_time: 10
+          rtt: 20    
+    
+    cubic-cubic-rtt:
+        btlbw: 10
+        queue_size: 1024
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 20
+        
