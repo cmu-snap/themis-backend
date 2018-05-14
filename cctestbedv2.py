@@ -87,18 +87,20 @@ class RemoteCommand:
                         'Got a non-zero exit status running cmd: {}.\n{}'.format(
                             self.cmd, stderr.read()))
             elif pid=='':
+                logging.error('Could not get PID after running cmd: {}.\n'.format(
+                    self.cmd, stderr.read())
                 raise RuntimeError(
-                    'Could not get PID after running cmd: {}.\n{}'.format(
-                        self.cmd, stderr.read()))
+                    'Could not get PID after running cmd: {}'.format(
+                        self.cmd)
 
             pid = int(pid)
             yield pid
             stdout.close()
             stderr.close()
         finally:
+            logging.info('Cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
             self._ssh_channel.close()
             self._ssh_client.close()
-            logging.info('Cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
             # on cleanup kill process & collect all logs
             ssh_client = self._get_ssh_client()
             kill_cmd = 'kill {}'.format(pid)
@@ -131,7 +133,7 @@ class RemoteCommand:
                         log, self.ip_addr))
                 sftp_client.close()
                 ssh_client.close()
-                
+            logging.info('Done cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
     def __str__(self):
         return {'ip_addr': self.ip_addr, 'cmd': self.cmd,
                 'logs': self.logs, 'username': USERNAME}
@@ -181,6 +183,7 @@ class Experiment:
         pass
     
     def run(self):
+        logging.info('Running experiment: {}'.format(self.name))
         with ExitStack() as stack:
             self._run_tcpdump('server', stack)
             self._run_tcpdump('client', stack)
@@ -188,6 +191,7 @@ class Experiment:
             self._run_all_flows(stack)
         # compress all log files
         self._compress_logs()
+        logging.info('Finished experiment: {}'.format(self.name))
 
     def _compress_logs(self):
         # will only issue a warning if a log file doesn't exist
@@ -366,10 +370,10 @@ class Experiment:
                                     flow.server_port,
                                     1,
                                     flow.server_log)
-        start_server = RemoteCommand(start_server_cmd,
-                                     self.server.ip_wan,
-                                     logs=[flow.server_log])
-        stack.enter_context(start_server())
+            start_server = RemoteCommand(start_server_cmd,
+                                         self.server.ip_wan,
+                                         logs=[flow.server_log])
+            stack.enter_context(start_server())
         
         for idx, flow in enumerate(self.flows):
             start_client_cmd = ('iperf3 --client {} '
@@ -420,7 +424,7 @@ def load_config_file(config_filename):
         config = yaml.safe_load(f)
     return config
 
-def load_experiments(config, config_filename):
+def load_experiments(config, config_filename, experiment_names=None):
     """Create experiments from config file and output to config"""
     client = Host(ifname=config['client']['ifname'],
                   ip_lan=config['client']['ip_lan'],
@@ -431,7 +435,16 @@ def load_experiments(config, config_filename):
                   ip_wan=config['server']['ip_wan'],
                   pci=config['server']['pci'])
     experiments = {}
-    for experiment_name, experiment in config['experiments'].items():
+
+    if experiment_names is None:
+        experiments_to_run = config['experiments'].items()
+    else:
+        experiments_to_run = [
+            (experiment_name, experiment)
+            for experiment_name, experiment in config['experiments'].items()
+            if experiment_name in experiment_names]
+    
+    for experiment_name, experiment in experiments_to_run:
         flows = []
         server_port = 5201
         client_port = 5555
@@ -565,13 +578,18 @@ def get_ssh_client(ip_addr, username=USERNAME):
     return ssh_client
 
 def main(args):
-    #setup logging
-    pass
+    config = load_config_file(args.config_file)
+    experiment_names = args.names
+    experiments = load_experiments(config, args.config_file,
+                                   experiment_names=experiment_names)
+    for experiment in experiments.values():
+        experiment.run()
     
 def parse_args():
     """Parse commandline arguments"""
     parser = argparse.ArgumentParser(description='Run congestion control experiments')
     parser.add_argument('config_file', help='Configuration file describing experiment')
+    parser.add_argument('--names', '-n', nargs='+', help='Name(s) of experiments to run')
     args = parser.parse_args()
     return args
     
