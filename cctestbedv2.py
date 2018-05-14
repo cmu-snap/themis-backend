@@ -16,8 +16,6 @@ import logging
 import yaml
 import paramiko
 
-fileConfig('logging_config.ini')
-
 Host = namedtuple('Host', ['ifname', 'ip_wan', 'ip_lan', 'pci'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
@@ -27,7 +25,7 @@ SEVER_LOCAL_IFNAME = 'ens13'
 CLIENT_LOCAL_IFNAME = 'ens3f0'
 
 # TODO: write function to validate experiment output -- number packets output by
-# queue module, 
+# queue module,
 
 # TODO: come up with more elegant way to run remote sudo commands
 # -- more machine setup: add ability to run stuff without sudo to potato (client)
@@ -36,7 +34,7 @@ CLIENT_LOCAL_IFNAME = 'ens3f0'
 # TODO: to set affinity, get number of processors on remote machines using 'nproc --all
 # TODO: check every seconds if processes still running instead of using time.sleep
 # TODO: allow starting and stopping flows at any time
-                                  
+
 class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr,
@@ -55,10 +53,10 @@ class RemoteCommand:
 
     def _get_ssh_client(self):
         return get_ssh_client(self.ip_addr, USERNAME)
-        
+
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
-        
+
     @contextmanager
     def __call__(self):
         self._ssh_client = self._get_ssh_client()
@@ -139,11 +137,14 @@ class RemoteCommand:
 
     def __repr__(self):
         return 'RemoteCommand({})'.format(self.__str__())
-            
+
 class Experiment:
-    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename):
-        self.exp_time = (datetime.now().isoformat()
-                         .replace(':','').replace('-','').split('.')[0])
+    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename, exp_time=None):
+        if exp_time is None:
+            self.exp_time = (datetime.now().isoformat()
+                            .replace(':','').replace('-','').split('.')[0])
+        else:
+            self.exp_time = exp_time
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
@@ -180,7 +181,7 @@ class Experiment:
     def get_wait_times(self):
         #start_times = [flow.wait_time for time in flow]
         pass
-    
+
     def run(self):
         logging.info('Running experiment: {}'.format(self.name))
         with ExitStack() as stack:
@@ -222,7 +223,7 @@ class Experiment:
                     else:
                         logging.warning('Log file does not exist: {}'.format(log))
         assert(os.path.exists(self.tar_filename))
-            
+
     def _validate(self):
         # check queue log has all lines with the same number of columns
         # check queue log isn't empty
@@ -251,7 +252,7 @@ class Experiment:
         if host == 'server':
             start_tcpdump_cmd = start_tcpdump_cmd.format(self.server.ifname,
                                                          self.logs['server_tcpdump_log'])
-            
+
             tcpdump_logs = [self.logs['server_tcpdump_log']]
             start_tcpdump = RemoteCommand(start_tcpdump_cmd,
                                           self.server.ip_wan,
@@ -268,7 +269,7 @@ class Experiment:
         else:
             raise ValueError('Expected either server or client to host')
         return stack.enter_context(start_tcpdump())
-        
+
     def _run_tcpprobe(self, stack):
         # assumes that tcp_bbr_measure is installed @ /opt/tcp_bbr_measure on iperf client
         insmod_cmd = ('sudo insmod '
@@ -288,7 +289,7 @@ class Experiment:
             ssh_client.close()
 
         try:
-            start_tcpprobe_cmd = 'cat /proc/net/tcpprobe'    
+            start_tcpprobe_cmd = 'cat /proc/net/tcpprobe'
             start_tcpprobe = RemoteCommand(start_tcpprobe_cmd,
                                            self.client.ip_wan,
                                            stdout = self.logs['tcpprobe_log'],
@@ -302,7 +303,7 @@ class Experiment:
             ssh_client.exec_command('sudo rmmod tcp_probe_ray')
             ssh_client.close()
         return stack.enter_context(start_tcpprobe())
-    
+
     @contextmanager
     def _run_bess_monitor(self):
         # have to use system here; subprocess just hangs for some reason
@@ -323,7 +324,7 @@ class Experiment:
         finally:
             logging.info('Cleaning up cmd: {}'.format(cmd))
             run_local_command('kill {}'.format(pid))
-    
+
     @contextmanager
     def _run_bess(self):
         try:
@@ -344,13 +345,13 @@ class Experiment:
             avg_rtt = float(line.split('=')[-1].split('/')[1])
             logging.info('Got an avg rtt of {}'.format(avg_rtt))
             if not (avg_rtt > 0):
-                raise RuntimeError('Did not see an avg_rtt greater than 0.')    
+                raise RuntimeError('Did not see an avg_rtt greater than 0.')
             yield
         except Exception as e:
             raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr.readline()), e)
         finally:
             stop_bess()
-    
+
     def _run_all_flows(self, stack):
         # run bess and monitor
         stack.enter_context(self._run_bess())
@@ -373,7 +374,7 @@ class Experiment:
                                          self.server.ip_wan,
                                          logs=[flow.server_log])
             stack.enter_context(start_server())
-        
+
         for idx, flow in enumerate(self.flows):
             start_client_cmd = ('iperf3 --client {} '
                                 '--port {} '
@@ -406,11 +407,11 @@ class Experiment:
         logging.info('Sleep for {}s'.format(sleep_time))
         time.sleep(sleep_time)
         self._show_bess_pipeline()
-        
+
     def __repr__(self):
         attrs = self.__str__()
         return 'Experiment({})'.format(attrs)
-        
+
     def __str__(self):
         attrs = json.dumps(self.__dict__,
                            sort_keys=True,
@@ -442,7 +443,7 @@ def load_experiments(config, config_filename, experiment_names=None):
             (experiment_name, experiment)
             for experiment_name, experiment in config['experiments'].items()
             if experiment_name in experiment_names]
-    
+
     for experiment_name, experiment in experiments_to_run:
         flows = []
         server_port = 5201
@@ -481,7 +482,7 @@ def start_bess(experiment):
 def stop_bess():
     cmd = 'sudo /opt/bess/bessctl/bessctl daemon stop'
     run_local_command(cmd)
-                  
+
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     # check if DPDK already connected
     cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep drv={}'.format(dpdk_driver)
@@ -505,8 +506,8 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     logging.info('Server: ifname = {}, pci = {}, if_ip = {}/{}'.format(
         SERVER_LOCAL_IFNAME, server.pci, server_if_ip, server_ip_mask))
     logging.info('Client: ifname = {}, pci = {}, if_ip = {}/{}'.format(
-        CLIENT_LOCAL_IFNAME, client.pci, client_if_ip, client_ip_mask))    
-    
+        CLIENT_LOCAL_IFNAME, client.pci, client_if_ip, client_ip_mask))
+
     # make sure hugepages is started
     cmd = 'sudo sysctl vm.nr_hugepages=1024'
     run_local_command(cmd)
@@ -526,12 +527,12 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     cmd = 'sudo /opt/bess/bin/dpdk-devbind.py -b {} {}'
     run_local_command(cmd.format(dpdk_driver, server.pci))
     run_local_command(cmd.format(dpdk_driver, client.pci))
-    
+
     return server.pci, client.pci
-    
+
 def get_interface_pci(ifname):
     """Return the PCI of the given interface
-    
+
     Parameters:
     -----------
     ifname : str
@@ -583,7 +584,7 @@ def main(args):
                                    experiment_names=experiment_names)
     for experiment in experiments.values():
         experiment.run()
-    
+
 def parse_args():
     """Parse commandline arguments"""
     parser = argparse.ArgumentParser(description='Run congestion control experiments')
@@ -591,7 +592,8 @@ def parse_args():
     parser.add_argument('--names', '-n', nargs='+', help='Name(s) of experiments to run')
     args = parser.parse_args()
     return args
-    
+
 if __name__ == '__main__':
+    fileConfig('logging_config.ini')
     args = parse_args()
     main(args)
