@@ -88,10 +88,9 @@ class RemoteCommand:
                             self.cmd, stderr.read()))
             elif pid=='':
                 logging.error('Could not get PID after running cmd: {}.\n'.format(
-                    self.cmd, stderr.read())
-                raise RuntimeError(
-                    'Could not get PID after running cmd: {}'.format(
-                        self.cmd)
+                    self.cmd, stderr.read()))
+                raise RuntimeError('Could not get PID after running cmd: {}'.format(
+                    self.cmd))
 
             pid = int(pid)
             yield pid
