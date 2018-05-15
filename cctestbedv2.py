@@ -319,6 +319,8 @@ class Experiment:
             logging.info('PID={}'.format(pid))
             yield pid
         finally:
+            run_local_command('cat {} | grep -e "^0" -e "^1" > queue-log-tmp.txt'.format(self.logs['queue_log']))
+            run_local_command('mv queue-log-tmp.txt )
             logging.info('Cleaning up cmd: {}'.format(cmd))
             run_local_command('cat {} | grep -e "^0" -e "^1" > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']))
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
