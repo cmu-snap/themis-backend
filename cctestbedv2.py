@@ -139,22 +139,19 @@ class RemoteCommand:
         return 'RemoteCommand({})'.format(self.__str__())
 
 class Experiment:
-    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename, exp_time=None):
-        if exp_time is None:
-            self.exp_time = (datetime.now().isoformat()
+    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename):
+        self.exp_time = (datetime.now().isoformat()
                             .replace(':','').replace('-','').split('.')[0])
-        else:
-            self.exp_time = exp_time
         self.name = name
         self.btlbw = btlbw
         self.queue_size = queue_size
         self.server = server
         self.client = client
         # store what version of this code we are running -- could be useful later
-        self.cctestbed_git_commit = run_local_command('git rev-parse HEAD')
+        self.cctestbed_git_commit = run_local_command('git rev-parse HEAD').strip()
         self.bess_git_commit = run_local_command('git --git-dir=/opt/bess/.git '
                                                  '--work-tree=/opt/bess '
-                                                 'rev-parse HEAD')
+                                                 'rev-parse HEAD').strip()
         self.config_filename = config_filename
         self.logs = {
             'server_tcpdump_log': '/tmp/server-tcpdump-{}-{}.pcap'.format(
@@ -309,7 +306,7 @@ class Experiment:
         # have to use system here; subprocess just hangs for some reason
         with open(self.logs['queue_log'], 'w') as f:
             f.write('enqueued, time, src, seq, datalen, '
-                    'size, dropped, queued, batch')
+                    'size, dropped, queued, batch\n')
         # only log "good" lines, those that start with 0 or 1
         cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
         logging.info('Running cmd: {}'.format(cmd))
