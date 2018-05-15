@@ -307,7 +307,8 @@ class Experiment:
         with open(self.logs['queue_log'], 'w') as f:
             f.write('dequeued,time,src,seq,datalen,size,dropped,queued,batch\n')
         # only log "good" lines, those that start with 0 or 1
-        cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
+        #cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
+        cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.logs['queue_log'])
         logging.info('Running cmd: {}'.format(cmd))
         pid = None
         try:
@@ -318,6 +319,8 @@ class Experiment:
             logging.info('PID={}'.format(pid))
             yield pid
         finally:
+            run_local_command('cat {} | grep -e "^0" -e "^1" > queue-log-tmp.txt'.format(self.logs['queue_log']))
+            run_local_command('mv queue-log-tmp.txt )
             logging.info('Cleaning up cmd: {}'.format(cmd))
             run_local_command('kill {}'.format(pid))
 
