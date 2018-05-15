@@ -21,7 +21,7 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
 
 USERNAME = getpass.getuser()
-SEVER_LOCAL_IFNAME = 'ens13'
+SERVER_LOCAL_IFNAME = 'ens13'
 CLIENT_LOCAL_IFNAME = 'ens3f0'
 
 # TODO: write function to validate experiment output -- number packets output by
@@ -320,7 +320,7 @@ class Experiment:
             yield pid
         finally:
             logging.info('Cleaning up cmd: {}'.format(cmd))
-            run_local_command('cat {} | grep -e "^0" -e "^1" > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']))
+            run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
             run_local_command('kill {}'.format(pid))
 
@@ -564,10 +564,13 @@ def get_interface_ip(ifname):
     ip, mask = ip.split()[1].split('/')
     return ip, mask
 
-def run_local_command(cmd):
+def run_local_command(cmd, shell=False):
     """Run local command return stdout"""
     logging.info('Running cmd: {}'.format(cmd))
-    proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
+    if shell:
+        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    else:
+        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
     return proc.stdout.decode('utf-8')
 
 def get_ssh_client(ip_addr, username=USERNAME):
