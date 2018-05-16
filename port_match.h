@@ -48,7 +48,7 @@ class PortMatch final : public Module {
     max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
-  void ProcessBatch(bess::PacketBatch *batch) override;
+  void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
   
   CommandResponse Init(const bess::pb::PortMatchArg &arg);
   CommandResponse CommandAdd(const bess::pb::PortMatchCommandAddArg &arg);

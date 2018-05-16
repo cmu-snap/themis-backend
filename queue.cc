@@ -167,11 +167,11 @@ std::string Queue::GetDesc() const {
 }
 
 /* from upstream */
-void Queue::ProcessBatch(bess::PacketBatch *batch) {
+void Queue::ProcessBatch(Context *, bess::PacketBatch *batch) {
+
   int queued =
       llring_mp_enqueue_burst(queue_, (void **)batch->pkts(), batch->cnt());
   if (backpressure_ && llring_count(queue_) > high_water_) {
-
     SignalOverload();
   }
 
@@ -213,28 +213,27 @@ void Queue::ProcessBatch(bess::PacketBatch *batch) {
   
   if (queued < batch->cnt()) {
     to_drop = batch->cnt() - queued;
-    stats_.dropped += to_drop;    
+    stats_.dropped += to_drop;  
     bess::Packet::Free(batch->pkts() + queued, to_drop);
   }
 }
 
 /* to downstream */
-struct task_result Queue::RunTask(void *) {
+struct task_result Queue::RunTask(Context *ctx, bess::PacketBatch *batch,
+                                  void *) {
   if (children_overload_ > 0) {
     return {
         .block = true, .packets = 0, .bits = 0,
     };
   }
 
-  bess::PacketBatch batch;
-
   const int burst = ACCESS_ONCE(burst_);
   const int pkt_overhead = 24;
 
   uint64_t total_bytes = 0;
 
-  uint32_t cnt = llring_sc_dequeue_burst(queue_, (void **)batch.pkts(), burst);
-  
+  uint32_t cnt = llring_sc_dequeue_burst(queue_, (void **)batch->pkts(), burst);
+
   if (cnt == 0) {
     return {.block = true, .packets = 0, .bits = 0};
   }
@@ -243,11 +242,11 @@ struct task_result Queue::RunTask(void *) {
   uint32_t qsize = llring_count(queue_);
   
   stats_.dequeued += cnt;
-  batch.set_cnt(cnt);
+  batch->set_cnt(cnt);
 
   // update flow stats for each dequeued packet
-  for (int i = 0; i < batch.cnt(); i++) {
-    bess::Packet *pkt = batch.pkts()[i];
+  for (int i = 0; i < batch->cnt(); i++) {
+    bess::Packet *pkt = batch->pkts()[i];
     Ethernet *eth = pkt->head_data<Ethernet *>();
     Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
     
@@ -259,7 +258,7 @@ struct task_result Queue::RunTask(void *) {
       flow_stats_[tcp->src_port]--;
       num_pkts_ = num_pkts_ + 1;
       
-      dump_deq_ << "1," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << cnt << "," << batch.cnt() << "\n";
+      dump_deq_ << "1," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << cnt << "," << batch->cnt() << "\n";
     
       // output flow stats for every 10 packets dequeued or when we see a FIN packet
 
@@ -293,16 +292,16 @@ struct task_result Queue::RunTask(void *) {
     
   if (prefetch_) {
     for (uint32_t i = 0; i < cnt; i++) {
-      total_bytes += batch.pkts()[i]->total_len();
-      rte_prefetch0(batch.pkts()[i]->head_data());
+      total_bytes += batch->pkts()[i]->total_len();
+      rte_prefetch0(batch->pkts()[i]->head_data());
     }
   } else {
     for (uint32_t i = 0; i < cnt; i++) {
-      total_bytes += batch.pkts()[i]->total_len();
+      total_bytes += batch->pkts()[i]->total_len();
     }
   }
 
-  RunNextModule(&batch);
+  RunNextModule(ctx, batch);
 
   if (backpressure_ && llring_count(queue_) < low_water_) {
     SignalUnderload();

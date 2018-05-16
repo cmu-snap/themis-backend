@@ -7,6 +7,9 @@ import os
 import subprocess
 import json
 import tarfile
+from logging.config import fileConfig
+
+fileConfig('logging_config.ini')
 
 @pytest.fixture(name='config')
 def test_load_config_file():
