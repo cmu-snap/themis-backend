@@ -1,3 +1,5 @@
+#! /usr/bin/env python3.6
+
 from collections import namedtuple
 from datetime import datetime
 from contextlib import contextmanager, ExitStack
@@ -16,13 +18,15 @@ import logging
 import yaml
 import paramiko
 
-Host = namedtuple('Host', ['ifname', 'ip_wan', 'ip_lan', 'pci'])
+Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
 
-USERNAME = getpass.getuser()
-SERVER_LOCAL_IFNAME = 'ens13'
-CLIENT_LOCAL_IFNAME = 'ens3f0'
+# changes for aws experiments
+
+#USERNAME = getpass.getuser()
+#SERVER_LOCAL_IFNAME = 'ens13'
+#CLIENT_LOCAL_IFNAME = 'enp11s0f0' #'ens3f0'
 
 # TODO: write function to validate experiment output -- number packets output by
 # queue module,
@@ -37,7 +41,7 @@ CLIENT_LOCAL_IFNAME = 'ens3f0'
 
 class RemoteCommand:
     """Command to run on a remote machine in the background"""
-    def __init__(self, cmd, ip_addr,
+    def __init__(self, cmd, ip_addr, username,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
                  cleanup_cmd=None, sudo=False):
         self.cmd = cmd.strip()
@@ -48,11 +52,12 @@ class RemoteCommand:
         self.logs = logs
         self.cleanup_cmd = cleanup_cmd
         self.sudo = sudo
+        self.username = username
         self._ssh_client = None
         self._ssh_channel = None
 
     def _get_ssh_client(self):
-        return get_ssh_client(self.ip_addr, USERNAME)
+        return get_ssh_client(self.ip_addr, self.username)
 
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
@@ -133,13 +138,14 @@ class RemoteCommand:
             logging.info('Done cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
     def __str__(self):
         return {'ip_addr': self.ip_addr, 'cmd': self.cmd,
-                'logs': self.logs, 'username': USERNAME}
+                'logs': self.logs, 'username': self.username}
 
     def __repr__(self):
         return 'RemoteCommand({})'.format(self.__str__())
 
 class Experiment:
-    def __init__(self, name, btlbw, queue_size, flows, server, client, config_filename):
+    def __init__(self, name, btlbw, queue_size,
+                 flows, server, client, config_filename, username_remote):
         self.exp_time = (datetime.now().isoformat()
                             .replace(':','').replace('-','').split('.')[0])
         self.name = name
@@ -147,6 +153,7 @@ class Experiment:
         self.queue_size = queue_size
         self.server = server
         self.client = client
+        self.username_remote = username_remote
         # store what version of this code we are running -- could be useful later
         self.cctestbed_git_commit = run_local_command('git rev-parse HEAD').strip()
         self.bess_git_commit = run_local_command('git --git-dir=/opt/bess/.git '
@@ -247,22 +254,24 @@ class Experiment:
                              '-w {}')
         tcpdump_logs = None
         if host == 'server':
-            start_tcpdump_cmd = start_tcpdump_cmd.format(self.server.ifname,
+            start_tcpdump_cmd = start_tcpdump_cmd.format(self.server.ifname_remote,
                                                          self.logs['server_tcpdump_log'])
 
             tcpdump_logs = [self.logs['server_tcpdump_log']]
             start_tcpdump = RemoteCommand(start_tcpdump_cmd,
                                           self.server.ip_wan,
                                           logs=tcpdump_logs,
-                                          sudo=True)
+                                          sudo=True,
+                                          username=self.username_remote)
         elif host == 'client':
-            start_tcpdump_cmd = start_tcpdump_cmd.format(self.client.ifname,
+            start_tcpdump_cmd = start_tcpdump_cmd.format(self.client.ifname_remote,
                                                          self.logs['client_tcpdump_log'])
             tcpdump_logs = [self.logs['client_tcpdump_log']]
             start_tcpdump = RemoteCommand(start_tcpdump_cmd,
                                           self.client.ip_wan,
                                           logs=tcpdump_logs,
-                                          sudo=True)
+                                          sudo=True,
+                                          username=self.username_remote)
         else:
             raise ValueError('Expected either server or client to host')
         return stack.enter_context(start_tcpdump())
@@ -272,7 +281,7 @@ class Experiment:
         insmod_cmd = ('sudo insmod '
                       '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
                       '&& sudo chmod 444 /proc/net/tcpprobe ')
-        ssh_client = get_ssh_client(self.client.ip_wan, username=USERNAME)
+        ssh_client = get_ssh_client(self.client.ip_wan, username=self.username_remote)
         logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
                                                    insmod_cmd))
         try:
@@ -292,11 +301,12 @@ class Experiment:
                                            stdout = self.logs['tcpprobe_log'],
                                            stderr = self.logs['tcpprobe_log'],
                                            logs=[self.logs['tcpprobe_log']],
-                                           cleanup_cmd='sudo rmmod tcp_probe_ray')
+                                           cleanup_cmd='sudo rmmod tcp_probe_ray',
+                                           username=self.username_remote)
         except:
             # need to still rmmod if we can't create the remote command
             # for some reason
-            ssh_client = get_ssh_client(self.client.ip_wan, username=USERNAME)
+            ssh_client = get_ssh_client(self.client.ip_wan, username=self.username_remote)
             ssh_client.exec_command('sudo rmmod tcp_probe_ray')
             ssh_client.close()
         return stack.enter_context(start_tcpprobe())
@@ -335,7 +345,8 @@ class Experiment:
                '| tail -1 '
                '| awk "{{print $4}}" ').format(self.server.ip_lan,
                                                self.client.ip_lan)
-            ssh_client = get_ssh_client(self.server.ip_wan, username=USERNAME)
+            ssh_client = get_ssh_client(self.server.ip_wan,
+                                        username=self.username_remote)
             logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
                                                        cmd))
             _, stdout, stderr = ssh_client.exec_command(cmd)
@@ -371,6 +382,7 @@ class Experiment:
                                     flow.server_log)
             start_server = RemoteCommand(start_server_cmd,
                                          self.server.ip_wan,
+                                         username=self.username_remote,
                                          logs=[flow.server_log])
             stack.enter_context(start_server())
 
@@ -399,7 +411,8 @@ class Experiment:
                                                         flow.client_log)
             start_client = RemoteCommand(start_client_cmd,
                                          self.client.ip_wan,
-                                             logs=[flow.client_log])
+                                         username=self.username_remote,
+                                         logs=[flow.client_log])
             stack.enter_context(start_client())
         # assume all flows start and stop at the same time
         sleep_time = flow.end_time - flow.start_time + 1
@@ -425,11 +438,13 @@ def load_config_file(config_filename):
 
 def load_experiments(config, config_filename, experiment_names=None):
     """Create experiments from config file and output to config"""
-    client = Host(ifname=config['client']['ifname'],
+    client = Host(ifname_remote=config['client']['ifname_remote'],
+                  ifname_local=config['client']['ifname_local'],
                   ip_lan=config['client']['ip_lan'],
                   ip_wan=config['client']['ip_wan'],
                   pci=config['client']['pci'])
-    server = Host(ifname=config['server']['ifname'],
+    server = Host(ifname_remote=config['server']['ifname_remote'],
+                  ifname_local=config['server']['ifname_local'],
                   ip_lan=config['server']['ip_lan'],
                   ip_wan=config['server']['ip_wan'],
                   pci=config['server']['pci'])
@@ -461,7 +476,8 @@ def load_experiments(config, config_filename, experiment_names=None):
                          btlbw=experiment['btlbw'],
                          queue_size=experiment['queue_size'],
                          flows=flows, server=server, client=client,
-                         config_filename=config_filename)
+                         config_filename=config_filename,
+                         username_remote=config['usernames']['remote'])
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
 
@@ -484,28 +500,28 @@ def stop_bess():
 
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     # check if DPDK already connected
-    cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep drv={}'.format(dpdk_driver)
+    cmd = f'/opt/bess/bin/dpdk-devbind.py --status | grep drv={dpdk_driver}'
     proc = subprocess.run(cmd, check=False, shell=True, stdout=subprocess.PIPE)
     if proc.returncode == 0:
         logging.info('Interfaces already connected to DPDK')
         return server.pci, client.pci
 
     # get pcis
-    expected_server_pci = get_interface_pci(SERVER_LOCAL_IFNAME)
-    expected_client_pci = get_interface_pci(CLIENT_LOCAL_IFNAME)
+    expected_server_pci = get_interface_pci(server.ifname_local)
+    expected_client_pci = get_interface_pci(client.ifname_local)
     if expected_server_pci is None or expected_server_pci.strip()=='':
         return server.pci, client.pci
     assert(expected_server_pci == server.pci)
     assert(expected_client_pci == client.pci)
 
     # get ips on this machine
-    server_if_ip, server_ip_mask = get_interface_ip(SERVER_LOCAL_IFNAME)
-    client_if_ip, client_ip_mask = get_interface_ip(CLIENT_LOCAL_IFNAME)
+    server_if_ip, server_ip_mask = get_interface_ip(server.ifname_local)
+    client_if_ip, client_ip_mask = get_interface_ip(client.ifname_local)
 
-    logging.info('Server: ifname = {}, pci = {}, if_ip = {}/{}'.format(
-        SERVER_LOCAL_IFNAME, server.pci, server_if_ip, server_ip_mask))
-    logging.info('Client: ifname = {}, pci = {}, if_ip = {}/{}'.format(
-        CLIENT_LOCAL_IFNAME, client.pci, client_if_ip, client_ip_mask))
+    logging.info(f'Server: ifname = {server.ifname_local}, '
+                 f'pci = {server.pci}, if_ip = {server_if_ip}/{server_ip_mask}')
+    logging.info(f'Client: ifname = {client.ifname_local}, '
+                 f'pci = {client.pci}, if_ip = {client_if_ip}/{client_ip_mask}')
 
     # make sure hugepages is started
     cmd = 'sudo sysctl vm.nr_hugepages=1024'
@@ -515,14 +531,14 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     if dpdk_driver == 'igb_uio':
         cmd = 'sudo modprobe uio'
         run_local_command(cmd)
-        cmd = 'sudo insmod {}'.format('/opt/bess/deps/dpdk-17.11/build/kmod/igb_uio.ko')
+        cmd = 'sudo insmod /opt/bess/deps/dpdk-17.11/build/kmod/igb_uio.ko'
         run_local_command(cmd)
     else:
-        cmd = 'sudo modprobe {}'.format(dpdk_driver)
+        cmd = 'sudo modprobe {dpdk_driver}'
         run_local_command(cmd)
     cmd = 'sudo ifconfig {} down'
-    run_local_command(cmd.format(SERVER_LOCAL_IFNAME))
-    run_local_command(cmd.format(CLIENT_LOCAL_IFNAME))
+    run_local_command(cmd.format(server.ifname_local))
+    run_local_command(cmd.format(client.ifname_local))
     cmd = 'sudo /opt/bess/bin/dpdk-devbind.py -b {} {}'
     run_local_command(cmd.format(dpdk_driver, server.pci))
     run_local_command(cmd.format(dpdk_driver, client.pci))
@@ -573,7 +589,7 @@ def run_local_command(cmd, shell=False):
         proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
     return proc.stdout.decode('utf-8')
 
-def get_ssh_client(ip_addr, username=USERNAME):
+def get_ssh_client(ip_addr, username):
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_client.connect(ip_addr, username=username)

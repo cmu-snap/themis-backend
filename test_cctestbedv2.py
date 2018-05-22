@@ -37,10 +37,14 @@ def test_load_experiments(config, request):
     assert(len(experiments['cubic-cubic'].flows)==2)
     return experiments[request.param]
 
-def is_remote_process_running(remote_ip, pid):
+@pytest.fixture
+def experiment_aws():
+    pass
+
+def is_remote_process_running(remote_ip, pid, username='ranysha'):
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(remote_ip, username='ranysha')
+    ssh_client.connect(remote_ip, username=username)
     _, stdout, stderr = ssh_client.exec_command('ps --no-headers -p {} -o pid='.format(pid))
     returned_pid = stdout.readline()
     if returned_pid.strip() == '':
@@ -85,7 +89,10 @@ def test_connect_dpdk(experiment):
         experiment.server, experiment.client)
     assert(expected_server_pci == experiment.server.pci)
     assert(expected_client_pci == experiment.client.pci)
-              
+
+def test_connect_dpdk_aws():
+    pass
+    
 def test_experiment_run_bess(experiment):
     with experiment._run_bess():
         subprocess.run(['pgrep', 'bessd'], check=True)
