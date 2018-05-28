@@ -500,7 +500,7 @@ def stop_bess():
 
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     # check if DPDK already connected
-    cmd = f'/opt/bess/bin/dpdk-devbind.py --status | grep drv={dpdk_driver}'
+    cmd = f'/opt/bess/bin/dpdk-devbind.py --status | grep drv={}'.format('dpdk_driver')
     proc = subprocess.run(cmd, check=False, shell=True, stdout=subprocess.PIPE)
     if proc.returncode == 0:
         logging.info('Interfaces already connected to DPDK')
@@ -518,10 +518,12 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     server_if_ip, server_ip_mask = get_interface_ip(server.ifname_local)
     client_if_ip, client_ip_mask = get_interface_ip(client.ifname_local)
 
-    logging.info(f'Server: ifname = {server.ifname_local}, '
-                 f'pci = {server.pci}, if_ip = {server_if_ip}/{server_ip_mask}')
-    logging.info(f'Client: ifname = {client.ifname_local}, '
-                 f'pci = {client.pci}, if_ip = {client_if_ip}/{client_ip_mask}')
+    logging.info('Server: ifname = {}, '
+                 'pci = (}, if_ip = {}/{}'.format(
+                     server.ifname_local, server.pci, server_if_ip, server_ip_mask))
+    logging.info('Client: ifname = {}, '
+                 'pci = {}, if_ip = {}/{}'.format(
+                     client.ifname_local, client.pci, client_ip_ip, client_ip_mask))
 
     # make sure hugepages is started
     cmd = 'sudo sysctl vm.nr_hugepages=1024'
@@ -534,7 +536,7 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
         cmd = 'sudo insmod /opt/bess/deps/dpdk-17.11/build/kmod/igb_uio.ko'
         run_local_command(cmd)
     else:
-        cmd = 'sudo modprobe {dpdk_driver}'
+        cmd = 'sudo modprobe {}'.format(dpdk_driver)
         run_local_command(cmd)
     cmd = 'sudo ifconfig {} down'
     run_local_command(cmd.format(server.ifname_local))
