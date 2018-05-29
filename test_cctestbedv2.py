@@ -53,6 +53,17 @@ def is_remote_process_running(remote_ip, pid, username='ranysha'):
         assert(int(returned_pid) == pid)
         return True
 
+def does_remote_file_exist(remote_ip, filename, username='ranysha'):
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(remote_ip, username=username)
+    sftp_client = ssh_client.open_sftp()
+    try:
+        sftp_client.stat(filename)
+        return True
+    except FileNotFoundError:
+        return False
+
 def is_local_process_running(pid):
     cmd = ['ps', '--no-headers', '-p', str(pid), '-o', 'pid=']
     proc = subprocess.run(cmd, stdout=subprocess.PIPE)
@@ -83,7 +94,7 @@ def test_remote_command(experiment):
     assert(not is_remote_process_running(experiment.server.ip_wan, pid))
     assert(os.path.isfile(experiment.flows[0].server_log))
     os.remove(experiment.flows[0].server_log)
-
+    
 def test_connect_dpdk(experiment):
     expected_server_pci, expected_client_pci = mut.connect_dpdk(
         experiment.server, experiment.client)
@@ -164,6 +175,8 @@ def test_experiment_run_tcpdump_server(experiment):
         assert(is_remote_process_running(experiment.server.ip_wan, pid))
     assert(not is_remote_process_running(experiment.server.ip_wan, pid))
     assert(os.path.isfile(experiment.logs['server_tcpdump_log']))
+    assert(not does_remote_file_exist(experiment.server.ip_wan,
+                                      experiment.logs['server_tcpdump_log']))
     os.remove(experiment.logs['server_tcpdump_log'])
     
 def test_experiment_run_tcpdump_client(experiment):
@@ -172,6 +185,8 @@ def test_experiment_run_tcpdump_client(experiment):
         assert(is_remote_process_running(experiment.client.ip_wan, pid))
     assert(not is_remote_process_running(experiment.client.ip_wan, pid))
     assert(os.path.isfile(experiment.logs['client_tcpdump_log']))
+    assert(not does_remote_file_exist(experiment.client.ip_wan,
+                                      experiment.logs['client_tcpdump_log']))
     os.remove(experiment.logs['client_tcpdump_log'])
     
 def test_experiment_run(experiment):

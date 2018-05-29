@@ -125,6 +125,8 @@ class RemoteCommand:
                                                                    log))
                 try:
                     sftp_client.get(log, os.path.join('/tmp',log))
+                    logging.info('Remove remote file ({}): {}'.format(self.ip_addr,
+                                                                      log))
                     rm_cmd = 'rm {}'.format(log)
                     if self.sudo:
                         rm_cmd = 'sudo rm {}'.format(log)
@@ -182,10 +184,6 @@ class Experiment:
                                      server_log=server_log)
             self.flows.append(new_flow)
 
-    def get_wait_times(self):
-        #start_times = [flow.wait_time for time in flow]
-        pass
-
     def run(self):
         logging.info('Running experiment: {}'.format(self.name))
         with ExitStack() as stack:
@@ -197,6 +195,10 @@ class Experiment:
         self._compress_logs()
         logging.info('Finished experiment: {}'.format(self.name))
 
+    def get_wait_times(self):
+        #start_times = [flow.wait_time for time in flow]
+        pass
+        
     def _compress_logs(self):
         # will only issue a warning if a log file doesn't exist
         # this allows experiments to be run with some logs omitted
@@ -500,7 +502,7 @@ def stop_bess():
 
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     # check if DPDK already connected
-    cmd = f'/opt/bess/bin/dpdk-devbind.py --status | grep drv={}'.format('dpdk_driver')
+    cmd = '/opt/bess/bin/dpdk-devbind.py --status | grep drv={}'.format('dpdk_driver')
     proc = subprocess.run(cmd, check=False, shell=True, stdout=subprocess.PIPE)
     if proc.returncode == 0:
         logging.info('Interfaces already connected to DPDK')
