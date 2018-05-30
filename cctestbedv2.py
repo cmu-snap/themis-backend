@@ -305,8 +305,7 @@ class Experiment:
     def _run_bess_monitor(self):
         # have to use system here; subprocess just hangs for some reason
         with open(self.logs['queue_log'], 'w') as f:
-            f.write('enqueued, time, src, seq, datalen, '
-                    'size, dropped, queued, batch\n')
+            f.write('dequeued,time,src,seq,datalen,size,dropped,queued,batch\n')
         # only log "good" lines, those that start with 0 or 1
         cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
         logging.info('Running cmd: {}'.format(cmd))
