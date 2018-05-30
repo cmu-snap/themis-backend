@@ -202,8 +202,6 @@ class Experiment:
     def _compress_logs(self):
         # will only issue a warning if a log file doesn't exist
         # this allows experiments to be run with some logs omitted
-        logging.info('Compressing {} logs into tarfile: {}'.format(
-            len(self.logs.values()), self.tar_filename))
         with tarfile.open(self.tar_filename, mode='w:gz') as experiment_tarfile:
             # zip experiment logs including description config file
             experiment_tarfile.add(self.config_filename, arcname=os.path.basename(self.config_filename))
@@ -213,6 +211,8 @@ class Experiment:
             # MAYBE: don't do this:
             # update config filename to be in /tmp/ (assumption with all other files)
             self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
+            logging.info('Compressing {} logs into tarfile: {}'.format(
+                len(self.logs.values()), self.tar_filename))
             # zip all experiment logs (that exist)
             for log in self.logs.values():
                 if os.path.isfile(log):
