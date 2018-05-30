@@ -158,7 +158,7 @@ std::string QueueDelay::GetDesc() const {
 }
 
 /* from upstream */
-void QueueDelay::ProcessBatch(bess::PacketBatch *batch) {
+void QueueDelay::ProcessBatch(Context *, bess::PacketBatch *batch) {
   int queued =
       llring_mp_enqueue_burst(queue_, (void **)batch->pkts(), batch->cnt());
   if (backpressure_ && llring_count(queue_) > high_water_) {
@@ -175,15 +175,15 @@ void QueueDelay::ProcessBatch(bess::PacketBatch *batch) {
 }
 
 /* to downstream */
-struct task_result QueueDelay::RunTask(void *) {
+struct task_result QueueDelay::RunTask(Context *ctx, bess::PacketBatch *batch,
+                                       void *) {
   if (children_overload_ > 0) {
     return {
         .block = true, .packets = 0, .bits = 0,
     };
   }
 
-  bess::PacketBatch batch;
-  batch.clear();
+  batch->clear();
   
   const int pkt_overhead = 24;
 
@@ -196,7 +196,7 @@ struct task_result QueueDelay::RunTask(void *) {
   
   uint32_t cnt = 0;
 
-  while (batch.cnt() != 1) {
+  while (batch->cnt() != 1) {
     if (head_ == 0) {
       uint32_t deq = llring_sc_dequeue_burst(queue_, (void **)&head_, 1);
   
@@ -205,8 +205,8 @@ struct task_result QueueDelay::RunTask(void *) {
       }
     }
     uint64_t timestamp = get_attr<uint64_t>(this, ATTR_W_TIMESTAMP, head_);
-    if (ctx.current_ns() - timestamp >= (delay_ * MILLISECONDS_TO_NANOSECONDS)) {
-      batch.add(head_);
+    if (ctx->current_ns - timestamp >= (delay_ * MILLISECONDS_TO_NANOSECONDS)) {
+      batch->add(head_);
       head_ = 0;
       cnt++;
     }
@@ -229,20 +229,20 @@ struct task_result QueueDelay::RunTask(void *) {
   }
 
   stats_.dequeued += cnt;
-  batch.set_cnt(cnt);
+  batch->set_cnt(cnt);
 
   if (prefetch_) {
     for (uint32_t i = 0; i < cnt; i++) {
-      total_bytes += batch.pkts()[i]->total_len();
-      rte_prefetch0(batch.pkts()[i]->head_data());
+      total_bytes += batch->pkts()[i]->total_len();
+      rte_prefetch0(batch->pkts()[i]->head_data());
     }
   } else {
     for (uint32_t i = 0; i < cnt; i++) {
-      total_bytes += batch.pkts()[i]->total_len();
+      total_bytes += batch->pkts()[i]->total_len();
     }
   }
 
-  RunNextModule(&batch);
+  RunNextModule(ctx, batch);
 
   if (backpressure_ && llring_count(queue_) < low_water_) {
     SignalUnderload();

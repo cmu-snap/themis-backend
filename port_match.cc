@@ -72,7 +72,7 @@ CommandResponse PortMatch::CommandClear(const bess::pb::EmptyArg &) {
   return CommandSuccess();
 }
 
-void PortMatch::ProcessBatch(bess::PacketBatch *batch) {
+void PortMatch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
   using bess::utils::Ethernet;
   using bess::utils::Ipv4;
   using bess::utils::Tcp;
@@ -97,17 +97,18 @@ void PortMatch::ProcessBatch(bess::PacketBatch *batch) {
 
       std::pair<be16_t, gate_idx_t> *result = table_.Find(be16_t(tcp->dst_port));
       if (result) {
-	out_gates[i] = result->second;
+        out_gates[i] = result->second;
       }
       else {
-	out_gates[i] = default_gate;
+        out_gates[i] = default_gate;
       }
     }
     else {
       out_gates[i] = default_gate;
     }
+    EmitPacket(ctx, pkt, out_gates[i]);
   }
-  RunSplit(out_gates, batch);
+    //RunSplit(out_gates, batch);
 }
 
 CommandResponse PortMatch::CommandSetDefaultGate(
