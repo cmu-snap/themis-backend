@@ -1,0 +1,42 @@
+usernames:
+    local: ranysha
+    remote: ubuntu
+    
+# aws
+client: 
+    ifname_remote: eth0
+    ifname_local: enp11s0f0
+    ip_lan: 35.160.118.3
+    ip_wan: 35.160.118.3
+    pci: '0b:00.0'
+
+# potato
+server:
+    ifname_remote: ens13
+    ifname_local: ens13
+    ip_lan: 192.0.0.4
+    ip_wan: 128.2.208.104
+    pci: '8b:00.0'
+
+experiments:
+    cubic-bbr:
+        btlbw: 10
+        queue_size: 1024
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
+        - ccalg: bbr
+          start_time: 0
+          end_time: 10
+          rtt: 40
+
+    cubic:
+        btlbw: 10
+        queue_size: 8
+        flows:
+        - ccalg: cubic
+          start_time: 0
+          end_time: 10
+          rtt: 40
