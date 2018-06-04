@@ -7,8 +7,8 @@ import os
 exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
 with open(exp_description) as f:
      experiment = json.load(f)
-pci_server = experiment['server'][-1]
-pci_client = experiment['client'][-1]
+pci_server = experiment['server'][-3]
+pci_client = experiment['client'][-3]
 queue_size = int(experiment['queue_size'])
 btlbw = int(experiment['btlbw'])
 
@@ -34,8 +34,10 @@ bess.add_tc('bit_limit',
 	resource='bit',
 	limit={'bit': 1000000*btlbw}) # how many mbits, default is 1
 btl_queue.attach_task(parent='bit_limit')
+ 
 
 client_in -> btl_queue -> server_out
+
 if len(experiment['flows']) == 1:
      flow_delay = experiment['flows'][0][3]
      server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out

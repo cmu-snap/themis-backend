@@ -87,7 +87,9 @@ def test_remote_command(experiment):
                             experiment.flows[0].server_log)
     start_server = mut.RemoteCommand(start_server_cmd,
                                      experiment.server.ip_wan,
-                                     logs=[experiment.flows[0].server_log])
+                                     logs=[experiment.flows[0].server_log],
+                                     username='ranysha',
+                                     key_filename=None)
     with start_server() as pid:
         assert(is_remote_process_running(experiment.server.ip_wan, pid))
         time.sleep(5)
@@ -113,7 +115,9 @@ def test_experiment_run_bess(experiment):
     time.sleep(3)
     proc = subprocess.run(['pgrep', 'bessd'])
     assert(proc.returncode != 0)
-        
+
+
+    
 def test_experiment_run_bess_monitor(experiment):
     with experiment._run_bess_monitor() as pid:
         assert(is_local_process_running(pid))
