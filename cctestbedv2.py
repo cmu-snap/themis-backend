@@ -296,7 +296,7 @@ class Experiment:
             if exit_status != 0:
                 raise RuntimeError(
                     'Got a non-zero exit status running cmd: {}.\n{}'.format(
-                        self.cmd, stderr.read()))
+                        insmod_cmd, stderr.read()))
         finally:
             ssh_client.close()
 
