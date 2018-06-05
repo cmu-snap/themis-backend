@@ -5,7 +5,7 @@ DATAPATH_PROCESSED = '/Users/rware/Documents/research/data/cctestbed/processed'
 import sys
 sys.path.insert(0, CODEPATH)
 
-from collections import namedtuple, Counter
+from collections import namedtuple, Counter, defaultdict
 from contextlib import contextmanager
 import cctestbedv2 as cctestbed
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ BYTES_TO_BITS = 8
 BITS_TO_MEGABITS = 1.0 / 1000000.0
 MILLISECONDS_TO_SECONDS = 1.0 / 1000.0
 
-Host = namedtuple('Host', ['ifname', 'ip_wan', 'ip_lan', 'pci'])
+Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
 
@@ -204,6 +204,7 @@ class ExperimentAnalyzer:
             goodput = (dequeued.groupby('src')['datalen'].sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / (dequeued.index.max() - dequeued.index.min()).total_seconds()
         goodput.index = goodput.index = goodput.index.astype('str')
         goodput = goodput.rename(self.flow_names)[list(self.flow_names.values())]
+        # TODO: only get total goodput for a specific ccalg
         #goodput = goodput.rename(flows)[list(flows.values())]
         #goodput_describe = (transfer_size / transfer_time).describe().T
         return goodput
@@ -300,6 +301,8 @@ def untarfile_extract(tar_filename, filename):
     finally:
         os.remove(file_localpath)
 
+
+
 ##### PLOTS ######
 
 def plot_queue(experiment_analyzer, window_size, include_ports=False,
@@ -353,9 +356,7 @@ def plot_queue(experiment_analyzer, window_size, include_ports=False,
             return ax
     return queue
 
-
-def plot_goodput(experiment_analyzer, window_size, zoom=None, save=False):
-    # window size should be in MS
+def get_goodput_timeseries(experiment_analyzer, window_size):
     df_queue = experiment_analyzer.df_queue
     transfer_time = window_size * MILLISECONDS_TO_SECONDS
     transfer_size = (df_queue[df_queue.dequeued==1]
@@ -369,9 +370,31 @@ def plot_goodput(experiment_analyzer, window_size, zoom=None, save=False):
     goodput = transfer_size / transfer_time
     goodput.index = (goodput.index - goodput.index[0]).total_seconds()
     goodput = goodput.rename(columns=experiment_analyzer.flow_names) # this won't work when the flows have the same name!
-    ax = goodput[list(experiment_analyzer.flow_names.values())].plot(title='Goodput ({}ms window)'.format(window_size), xlim=zoom)
+    return goodput[list(experiment_analyzer.flow_names.values())]
+
+def plot_goodput(experiment_analyzer, window_size=None, save=False, ccalg=False, **kwargs):
+    """Return the table used for plotting"""
+    if window_size is None:
+        # use the rtt of the first flow as the window size
+        window_size = experiment_analyzer.experiment.flows[0].rtt
+    goodput = get_goodput_timeseries(experiment_analyzer, window_size)
+    if ccalg:
+        # plot the avg goodput for each ccalg over time w/ error bars
+        goodput_ccalg_avg = pd.DataFrame()
+        goodput_ccalg_std = pd.DataFrame()
+        each_ccalgs_columns = defaultdict(list)
+        for col in goodput.columns:
+            ccalg = col.split('-')[0]
+            each_ccalgs_columns[ccalg].append(col)
+        for ccalg, cols in each_ccalgs_columns.items():
+            col_name = '{} {} flows'.format(len(cols), ccalg)
+            goodput_ccalg_avg[col_name] = goodput[cols].sum(1)
+            goodput_ccalg_std[col_name] = goodput[cols].std(1)
+        goodput = goodput_ccalg_avg
+    ax = goodput.plot(yerr=goodput_ccalg_std, **kwargs)
     ax.set_xlabel('time (seconds)')
     ax.set_ylabel('goodput (mbps)')
     if save:
         return ax
     return goodput
+
