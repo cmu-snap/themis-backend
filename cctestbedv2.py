@@ -109,7 +109,7 @@ class RemoteCommand:
             ssh_client = self._get_ssh_client()
             kill_cmd = 'kill {}'.format(pid)
             if self.sudo:
-                kill_cmd = 'sudo kill {}'.format(pid)
+                kill_cmd = 'sudo kill -9 {}'.format(pid)
             exec_command(ssh_client, self.ip_addr, kill_cmd)
             if self.cleanup_cmd is not None:
                 # TODO: run cleanup cmd as sudo too?
@@ -179,8 +179,29 @@ class Experiment:
                                      server_log=server_log)
             self.flows.append(new_flow)
 
+    def cleanup_last_experiment(self):
+        logging.info('Cleaning up last experiment just in case...')
+        run_local_command('pkill tail')
+        cleanup_cmds = [('sudo pkill -9 tcpdump', ('server', 'client')),
+                        ('sudo pkill -9 cat', ('client')),
+                        ('sudo pkill iperf', ('server','client')),
+                        ('sudo rmmod tcp_probe_ray', ('client'))]
+        for cmd, machines in cleanup_cmds:
+            if 'client' in machines:
+                ssh_client = get_ssh_client(self.client.ip_wan,
+                                            username=self.client.username,
+                                            key_filename=self.client.key_filename)
+                exec_command(ssh_client, self.client.ip_wan, cmd)
+            if 'server' in machines:
+                ssh_client = get_ssh_client(self.server.ip_wan,
+                                            username=self.server.username,
+                                            key_filename=self.server.key_filename)
+                exec_command(ssh_client, self.server.ip_wan, cmd)
+            
     def run(self):
         try:
+            # make sure old stuff closed
+            self.cleanup_last_experiment()
             logging.info('Running experiment: {}'.format(self.name))
             with ExitStack() as stack:
                 self._run_tcpdump('server', stack)
@@ -190,9 +211,9 @@ class Experiment:
             # compress all log files
             self._compress_logs()
             logging.info('Finished experiment: {}'.format(self.name))
-        except:
+        except Exception as e:
             logging.error('Error occurred while running experiment {}'.format(
-                self.name))
+                self.name), e)
             logging.info('Deleting all generated logs')
             # zip all experiment logs (that exist)
             for log in self.logs.values():
@@ -207,7 +228,8 @@ class Experiment:
                         os.remove(log)
                     else:
                         logging.warning('Log file does not exist: {}'.format(log))
-            
+            raise e
+        
     def get_wait_times(self):
         #start_times = [flow.wait_time for time in flow]
         pass
@@ -224,7 +246,7 @@ class Experiment:
             # MAYBE: don't do this:
             # update config filename to be in /tmp/ (assumption with all other files)
             self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
-            logging.info('Compressing {} logs into tarfile: {}'.format(
+            logging.info('Compressing logs into tarfile: {}'.format(
                 len(self.logs.values()), self.tar_filename))
             # zip all experiment logs (that exist)
             for log in self.logs.values():
@@ -646,6 +668,7 @@ def main(args):
     experiment_names = args.names
     experiments = load_experiments(config, args.config_file,
                                    experiment_names=experiment_names)
+    logging.info('Going to run {} experiments'.format(len(experiments)))
     for experiment in experiments.values():
         # retry experiments one time if they fail
         try:
