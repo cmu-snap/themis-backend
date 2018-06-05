@@ -13,7 +13,7 @@ fileConfig('logging_config.ini')
 
 @pytest.fixture(name='config')
 def test_load_config_file():
-    config_filename = 'experiments-test.yaml'
+    config_filename = 'experiments-test-aws.yaml'
     config = mut.load_config_file(config_filename)
     assert(config is not None)
     assert('client' in config)
@@ -30,21 +30,22 @@ def test_load_experiments(config, request):
             if os.path.exists(experiment.logs['description_log']):
                 os.remove(experiment.logs['description_log'])
     request.addfinalizer(remove_experiment_description_log)
-    assert(len(experiments)==5)
+    assert(len(experiments)==2)
     assert(experiments['cubic'].queue_size==8)
-    assert(experiments['cubic-cubic'].queue_size==1024)
+    assert(experiments['cubic-bbr'].queue_size==1024)
     assert(len(experiments['cubic'].flows)==1)
-    assert(len(experiments['cubic-cubic'].flows)==2)
+    assert(len(experiments['cubic-bbr'].flows)==2)
     return experiments[request.param]
 
 @pytest.fixture
 def experiment_aws():
     pass
 
-def is_remote_process_running(remote_ip, pid, username='ranysha'):
+def is_remote_process_running(remote_ip, pid, username='ubuntu'):
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(remote_ip, username=username)
+    ssh_client.connect(remote_ip,
+                       username=username, key_filename='/home/ranysha/.ssh/rware.pem')
     _, stdout, stderr = ssh_client.exec_command('ps --no-headers -p {} -o pid='.format(pid))
     returned_pid = stdout.readline()
     if returned_pid.strip() == '':
@@ -53,10 +54,11 @@ def is_remote_process_running(remote_ip, pid, username='ranysha'):
         assert(int(returned_pid) == pid)
         return True
 
-def does_remote_file_exist(remote_ip, filename, username='ranysha'):
+def does_remote_file_exist(remote_ip, filename, username='ubuntu'):
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(remote_ip, username=username)
+    ssh_client.connect(remote_ip,
+                       username=username, key_filename='/home/ranysha/.ssh/rware.pem')
     sftp_client = ssh_client.open_sftp()
     try:
         sftp_client.stat(filename)
@@ -87,9 +89,7 @@ def test_remote_command(experiment):
                             experiment.flows[0].server_log)
     start_server = mut.RemoteCommand(start_server_cmd,
                                      experiment.server.ip_wan,
-                                     logs=[experiment.flows[0].server_log],
-                                     username='ranysha',
-                                     key_filename=None)
+                                     logs=[experiment.flows[0].server_log])
     with start_server() as pid:
         assert(is_remote_process_running(experiment.server.ip_wan, pid))
         time.sleep(5)
@@ -103,9 +103,6 @@ def test_connect_dpdk(experiment):
     assert(expected_server_pci == experiment.server.pci)
     assert(expected_client_pci == experiment.client.pci)
 
-def test_connect_dpdk_aws():
-    pass
-    
 def test_experiment_run_bess(experiment):
     with experiment._run_bess():
         subprocess.run(['pgrep', 'bessd'], check=True)
@@ -115,9 +112,7 @@ def test_experiment_run_bess(experiment):
     time.sleep(3)
     proc = subprocess.run(['pgrep', 'bessd'])
     assert(proc.returncode != 0)
-
-
-    
+        
 def test_experiment_run_bess_monitor(experiment):
     with experiment._run_bess_monitor() as pid:
         assert(is_local_process_running(pid))

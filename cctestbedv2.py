@@ -1,4 +1,4 @@
-#! /usr/bin/env python3.6
+#! /usr/bin/env python3
 
 from collections import namedtuple
 from datetime import datetime
@@ -15,10 +15,11 @@ import shlex
 import time
 import tarfile
 import logging
+import glob
 import yaml
 import paramiko
 
-Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci'])
+Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
 
@@ -43,7 +44,7 @@ class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr, username,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
-                 cleanup_cmd=None, sudo=False):
+                 cleanup_cmd=None, sudo=False, key_filename=None):
         self.cmd = cmd.strip()
         self.ip_addr = ip_addr
         self.stdout = stdout
@@ -53,15 +54,16 @@ class RemoteCommand:
         self.cleanup_cmd = cleanup_cmd
         self.sudo = sudo
         self.username = username
+        self.key_filename = key_filename
         self._ssh_client = None
         self._ssh_channel = None
 
     def _get_ssh_client(self):
-        return get_ssh_client(self.ip_addr, self.username)
+        return get_ssh_client(self.ip_addr, self.username, self.key_filename)
 
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
-
+    
     @contextmanager
     def __call__(self):
         self._ssh_client = self._get_ssh_client()
@@ -108,16 +110,11 @@ class RemoteCommand:
             kill_cmd = 'kill {}'.format(pid)
             if self.sudo:
                 kill_cmd = 'sudo kill {}'.format(pid)
-            logging.info('Running cmd ({}): {}'.format(self.ip_addr, kill_cmd))
-            ssh_client.exec_command(kill_cmd)
-            ssh_client.close()
+            exec_command(ssh_client, self.ip_addr, kill_cmd)
             if self.cleanup_cmd is not None:
                 # TODO: run cleanup cmd as sudo too?
                 ssh_client = self._get_ssh_client()
-                logging.info('Running cmd ({}): {}'.format(self.ip_addr,
-                                                           self.cleanup_cmd))
-                ssh_client.exec_command(self.cleanup_cmd)
-                ssh_client.close()
+                exec_command(ssh_client, self.ip_addr, self.cleanup_cmd)
             for log in self.logs:
                 ssh_client = self._get_ssh_client()
                 sftp_client = ssh_client.open_sftp()
@@ -130,8 +127,7 @@ class RemoteCommand:
                     rm_cmd = 'rm {}'.format(log)
                     if self.sudo:
                         rm_cmd = 'sudo rm {}'.format(log)
-                    logging.info('Running cmd ({}): {}'.format(self.ip_addr, rm_cmd))
-                    ssh_client.exec_command(rm_cmd)
+                    exec_command(ssh_client, self.ip_addr, rm_cmd)
                 except FileNotFoundError as e:
                     logging.warning('Could not find file "{}" on remote server "{}"'.format(
                         log, self.ip_addr))
@@ -147,7 +143,7 @@ class RemoteCommand:
 
 class Experiment:
     def __init__(self, name, btlbw, queue_size,
-                 flows, server, client, config_filename, username_remote):
+                 flows, server, client, config_filename):
         self.exp_time = (datetime.now().isoformat()
                             .replace(':','').replace('-','').split('.')[0])
         self.name = name
@@ -155,7 +151,6 @@ class Experiment:
         self.queue_size = queue_size
         self.server = server
         self.client = client
-        self.username_remote = username_remote
         # store what version of this code we are running -- could be useful later
         self.cctestbed_git_commit = run_local_command('git rev-parse HEAD').strip()
         self.bess_git_commit = run_local_command('git --git-dir=/opt/bess/.git '
@@ -185,16 +180,34 @@ class Experiment:
             self.flows.append(new_flow)
 
     def run(self):
-        logging.info('Running experiment: {}'.format(self.name))
-        with ExitStack() as stack:
-            self._run_tcpdump('server', stack)
-            self._run_tcpdump('client', stack)
-            self._run_tcpprobe(stack)
-            self._run_all_flows(stack)
-        # compress all log files
-        self._compress_logs()
-        logging.info('Finished experiment: {}'.format(self.name))
-
+        try:
+            logging.info('Running experiment: {}'.format(self.name))
+            with ExitStack() as stack:
+                self._run_tcpdump('server', stack)
+                self._run_tcpdump('client', stack)
+                self._run_tcpprobe(stack)
+                self._run_all_flows(stack)
+            # compress all log files
+            self._compress_logs()
+            logging.info('Finished experiment: {}'.format(self.name))
+        except:
+            logging.error('Error occurred while running experiment {}'.format(
+                self.name))
+            logging.info('Deleting all generated logs')
+            # zip all experiment logs (that exist)
+            for log in self.logs.values():
+                if os.path.isfile(log):
+                    os.remove(log)
+                else:
+                    logging.warning('Log file does not exist: {}'.format(log))
+            # zip flow iperf logs
+            for flow in self.flows:
+                for log in [flow.server_log, flow.client_log]:
+                    if os.path.isfile(log):
+                        os.remove(log)
+                    else:
+                        logging.warning('Log file does not exist: {}'.format(log))
+            
     def get_wait_times(self):
         #start_times = [flow.wait_time for time in flow]
         pass
@@ -264,7 +277,8 @@ class Experiment:
                                           self.server.ip_wan,
                                           logs=tcpdump_logs,
                                           sudo=True,
-                                          username=self.username_remote)
+                                          username=self.server.username,
+                                          key_filename=self.server.key_filename)
         elif host == 'client':
             start_tcpdump_cmd = start_tcpdump_cmd.format(self.client.ifname_remote,
                                                          self.logs['client_tcpdump_log'])
@@ -273,7 +287,8 @@ class Experiment:
                                           self.client.ip_wan,
                                           logs=tcpdump_logs,
                                           sudo=True,
-                                          username=self.username_remote)
+                                          username=self.client.username,
+                                          key_filename=self.client.key_filename)
         else:
             raise ValueError('Expected either server or client to host')
         return stack.enter_context(start_tcpdump())
@@ -283,7 +298,9 @@ class Experiment:
         insmod_cmd = ('sudo insmod '
                       '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
                       '&& sudo chmod 444 /proc/net/tcpprobe ')
-        ssh_client = get_ssh_client(self.client.ip_wan, username=self.username_remote)
+        ssh_client = get_ssh_client(self.client.ip_wan,
+                                    username=self.client.username,
+                                    key_filename=self.client.key_filename)
         logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
                                                    insmod_cmd))
         try:
@@ -292,7 +309,7 @@ class Experiment:
             if exit_status != 0:
                 raise RuntimeError(
                     'Got a non-zero exit status running cmd: {}.\n{}'.format(
-                        self.cmd, stderr.read()))
+                        insmod_cmd, stderr.read()))
         finally:
             ssh_client.close()
 
@@ -304,11 +321,14 @@ class Experiment:
                                            stderr = self.logs['tcpprobe_log'],
                                            logs=[self.logs['tcpprobe_log']],
                                            cleanup_cmd='sudo rmmod tcp_probe_ray',
-                                           username=self.username_remote)
+                                           username=self.client.username,
+                                           key_filename=self.client.key_filename)
         except:
             # need to still rmmod if we can't create the remote command
             # for some reason
-            ssh_client = get_ssh_client(self.client.ip_wan, username=self.username_remote)
+            ssh_client = get_ssh_client(self.client.ip_wan,
+                                        username=self.client.username,
+                                        key_filename=self.client.key_filename)
             ssh_client.exec_command('sudo rmmod tcp_probe_ray')
             ssh_client.close()
         return stack.enter_context(start_tcpprobe())
@@ -348,7 +368,8 @@ class Experiment:
                '| awk "{{print $4}}" ').format(self.server.ip_lan,
                                                self.client.ip_lan)
             ssh_client = get_ssh_client(self.server.ip_wan,
-                                        username=self.username_remote)
+                                        username=self.server.username, 
+                                        key_filename=self.server.key_filename)
             logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
                                                        cmd))
             _, stdout, stderr = ssh_client.exec_command(cmd)
@@ -384,8 +405,9 @@ class Experiment:
                                     flow.server_log)
             start_server = RemoteCommand(start_server_cmd,
                                          self.server.ip_wan,
-                                         username=self.username_remote,
-                                         logs=[flow.server_log])
+                                         username=self.server.username,
+                                         logs=[flow.server_log],
+                                         key_filename=self.server.key_filename)
             stack.enter_context(start_server())
 
         for idx, flow in enumerate(self.flows):
@@ -413,8 +435,9 @@ class Experiment:
                                                         flow.client_log)
             start_client = RemoteCommand(start_client_cmd,
                                          self.client.ip_wan,
-                                         username=self.username_remote,
-                                         logs=[flow.client_log])
+                                         username=self.client.username,
+                                         logs=[flow.client_log],
+                                         key_filename=self.client.key_filename)
             stack.enter_context(start_client())
         # assume all flows start and stop at the same time
         sleep_time = flow.end_time - flow.start_time + 1
@@ -440,25 +463,24 @@ def load_config_file(config_filename):
 
 def load_experiments(config, config_filename, experiment_names=None):
     """Create experiments from config file and output to config"""
-    client = Host(ifname_remote=config['client']['ifname_remote'],
-                  ifname_local=config['client']['ifname_local'],
-                  ip_lan=config['client']['ip_lan'],
-                  ip_wan=config['client']['ip_wan'],
-                  pci=config['client']['pci'])
-    server = Host(ifname_remote=config['server']['ifname_remote'],
-                  ifname_local=config['server']['ifname_local'],
-                  ip_lan=config['server']['ip_lan'],
-                  ip_wan=config['server']['ip_wan'],
-                  pci=config['server']['pci'])
+    client = Host(**config['client'])
+    server = Host(**config['server'])
     experiments = {}
 
-    if experiment_names is None:
-        experiments_to_run = config['experiments'].items()
-    else:
-        experiments_to_run = [
-            (experiment_name, experiment)
-            for experiment_name, experiment in config['experiments'].items()
-            if experiment_name in experiment_names]
+    def is_completed_experiment(experiment_name):
+        experiment_done = len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0
+        if experiment_done:
+            logging.warning('Skipping completed experiment: {}'.format(experiment_name))
+        return experiment_done
+            
+    experiments_to_run = []
+    for experiment_name, experiment in config['experiments'].items():
+        if experiment_names is None:
+            if not is_completed_experiment(experiment_name):
+                experiments_to_run.append((experiment_name, experiment))
+        elif experiment_name in experiment_names:
+            if not is_completed_experiment(experiment_name):
+                experiments_to_run.append((experiment_name, experiment))
 
     for experiment_name, experiment in experiments_to_run:
         flows = []
@@ -478,8 +500,7 @@ def load_experiments(config, config_filename, experiment_names=None):
                          btlbw=experiment['btlbw'],
                          queue_size=experiment['queue_size'],
                          flows=flows, server=server, client=client,
-                         config_filename=config_filename,
-                         username_remote=config['usernames']['remote'])
+                         config_filename=config_filename)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
 
@@ -508,6 +529,15 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
         logging.info('Interfaces already connected to DPDK')
         return server.pci, client.pci
 
+    # make sure we can ssh into jicama from taro (ASSUMES POTATO IS CLIENT)
+    if server.ifname_local == 'enp11s0f0' or server.ifname_local == 'enp11s0f0':
+        check_cmd = 'route | grep 192.0.0.1'
+        proc = subprocess.run(check_cmd, check=False, shell=True, stdout=subprocess.PIPE)
+        if proc.returncode != 0:
+            route_cmd = 'sudo ip route add 192.0.0.1 dev ens3f0'
+            subprocess.run(route_cmd, check=True, shell=True, stdout=subprocess.PIPE)
+            subprocess.run(check_cmd, check=True, shell=True, stdout=subprocess.PIPE)
+    
     # get pcis
     expected_server_pci = get_interface_pci(server.ifname_local)
     expected_client_pci = get_interface_pci(client.ifname_local)
@@ -521,11 +551,11 @@ def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     client_if_ip, client_ip_mask = get_interface_ip(client.ifname_local)
 
     logging.info('Server: ifname = {}, '
-                 'pci = (}, if_ip = {}/{}'.format(
+                 'pci = {}, if_ip = {}/{}'.format(
                      server.ifname_local, server.pci, server_if_ip, server_ip_mask))
     logging.info('Client: ifname = {}, '
                  'pci = {}, if_ip = {}/{}'.format(
-                     client.ifname_local, client.pci, client_ip_ip, client_ip_mask))
+                     client.ifname_local, client.pci, client_if_ip, client_ip_mask))
 
     # make sure hugepages is started
     cmd = 'sudo sysctl vm.nr_hugepages=1024'
@@ -593,19 +623,36 @@ def run_local_command(cmd, shell=False):
         proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
     return proc.stdout.decode('utf-8')
 
-def get_ssh_client(ip_addr, username):
+def get_ssh_client(ip_addr, username, key_filename=None):
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(ip_addr, username=username)
+    ssh_client.connect(ip_addr, username=username, key_filename=key_filename)
     return ssh_client
 
+def exec_command(ssh_client, ip_addr, cmd):
+    # will retry if there is an exception
+    try:
+        logging.info('Running cmd ({}): {}'.format(ip_addr, cmd))
+        ssh_client.exec_command(cmd)
+    except paramiko.ssh_exception.SSHException as e:
+        time.sleep(5)
+        logging.warning('Retrying failed cmd ({}): {}'.format(ip_addr, cmd))
+        ssh_client.exec_command(cmd)
+    finally:
+        ssh_client.close()
+        
 def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
     experiments = load_experiments(config, args.config_file,
                                    experiment_names=experiment_names)
     for experiment in experiments.values():
-        experiment.run()
+        # retry experiments one time if they fail
+        try:
+            experiment.run()
+        except:
+            logging.warning('Retrying experiment {}'.format(experiment.name))
+            experiment.run()
 
 def parse_args():
     """Parse commandline arguments"""
