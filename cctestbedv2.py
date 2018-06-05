@@ -15,6 +15,7 @@ import shlex
 import time
 import tarfile
 import logging
+import glob
 import yaml
 import paramiko
 
@@ -62,7 +63,7 @@ class RemoteCommand:
 
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
-
+    
     @contextmanager
     def __call__(self):
         self._ssh_client = self._get_ssh_client()
@@ -109,16 +110,11 @@ class RemoteCommand:
             kill_cmd = 'kill {}'.format(pid)
             if self.sudo:
                 kill_cmd = 'sudo kill {}'.format(pid)
-            logging.info('Running cmd ({}): {}'.format(self.ip_addr, kill_cmd))
-            ssh_client.exec_command(kill_cmd)
-            ssh_client.close()
+            exec_command(ssh_client, self.ip_addr, kill_cmd)
             if self.cleanup_cmd is not None:
                 # TODO: run cleanup cmd as sudo too?
                 ssh_client = self._get_ssh_client()
-                logging.info('Running cmd ({}): {}'.format(self.ip_addr,
-                                                           self.cleanup_cmd))
-                ssh_client.exec_command(self.cleanup_cmd)
-                ssh_client.close()
+                exec_command(ssh_client, self.ip_addr, self.cleanup_cmd)
             for log in self.logs:
                 ssh_client = self._get_ssh_client()
                 sftp_client = ssh_client.open_sftp()
@@ -131,8 +127,7 @@ class RemoteCommand:
                     rm_cmd = 'rm {}'.format(log)
                     if self.sudo:
                         rm_cmd = 'sudo rm {}'.format(log)
-                    logging.info('Running cmd ({}): {}'.format(self.ip_addr, rm_cmd))
-                    ssh_client.exec_command(rm_cmd)
+                    exec_command(ssh_client, self.ip_addr, rm_cmd)
                 except FileNotFoundError as e:
                     logging.warning('Could not find file "{}" on remote server "{}"'.format(
                         log, self.ip_addr))
@@ -185,16 +180,34 @@ class Experiment:
             self.flows.append(new_flow)
 
     def run(self):
-        logging.info('Running experiment: {}'.format(self.name))
-        with ExitStack() as stack:
-            self._run_tcpdump('server', stack)
-            self._run_tcpdump('client', stack)
-            self._run_tcpprobe(stack)
-            self._run_all_flows(stack)
-        # compress all log files
-        self._compress_logs()
-        logging.info('Finished experiment: {}'.format(self.name))
-
+        try:
+            logging.info('Running experiment: {}'.format(self.name))
+            with ExitStack() as stack:
+                self._run_tcpdump('server', stack)
+                self._run_tcpdump('client', stack)
+                self._run_tcpprobe(stack)
+                self._run_all_flows(stack)
+            # compress all log files
+            self._compress_logs()
+            logging.info('Finished experiment: {}'.format(self.name))
+        except:
+            logging.error('Error occurred while running experiment {}'.format(
+                self.name))
+            logging.info('Deleting all generated logs')
+            # zip all experiment logs (that exist)
+            for log in self.logs.values():
+                if os.path.isfile(log):
+                    os.remove(log)
+                else:
+                    logging.warning('Log file does not exist: {}'.format(log))
+            # zip flow iperf logs
+            for flow in self.flows:
+                for log in [flow.server_log, flow.client_log]:
+                    if os.path.isfile(log):
+                        os.remove(log)
+                    else:
+                        logging.warning('Log file does not exist: {}'.format(log))
+            
     def get_wait_times(self):
         #start_times = [flow.wait_time for time in flow]
         pass
@@ -454,13 +467,20 @@ def load_experiments(config, config_filename, experiment_names=None):
     server = Host(**config['server'])
     experiments = {}
 
-    if experiment_names is None:
-        experiments_to_run = config['experiments'].items()
-    else:
-        experiments_to_run = [
-            (experiment_name, experiment)
-            for experiment_name, experiment in config['experiments'].items()
-            if experiment_name in experiment_names]
+    def is_completed_experiment(experiment_name):
+        experiment_done = len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0
+        if experiment_done:
+            logging.warning('Skipping completed experiment: {}'.format(experiment_name))
+        return experiment_done
+            
+    experiments_to_run = []
+    for experiment_name, experiment in config['experiments'].items():
+        if experiment_names is None:
+            if not is_completed_experiment(experiment_name):
+                experiments_to_run.append((experiment_name, experiment))
+        elif experiment_name in experiment_names:
+            if not is_completed_experiment(experiment_name):
+                experiments_to_run.append((experiment_name, experiment))
 
     for experiment_name, experiment in experiments_to_run:
         flows = []
@@ -609,13 +629,30 @@ def get_ssh_client(ip_addr, username, key_filename=None):
     ssh_client.connect(ip_addr, username=username, key_filename=key_filename)
     return ssh_client
 
+def exec_command(ssh_client, ip_addr, cmd):
+    # will retry if there is an exception
+    try:
+        logging.info('Running cmd ({}): {}'.format(ip_addr, cmd))
+        ssh_client.exec_command(cmd)
+    except paramiko.ssh_exception.SSHException as e:
+        time.sleep(5)
+        logging.warning('Retrying failed cmd ({}): {}'.format(ip_addr, cmd))
+        ssh_client.exec_command(cmd)
+    finally:
+        ssh_client.close()
+        
 def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
     experiments = load_experiments(config, args.config_file,
                                    experiment_names=experiment_names)
     for experiment in experiments.values():
-        experiment.run()
+        # retry experiments one time if they fail
+        try:
+            experiment.run()
+        except:
+            logging.warning('Retrying experiment {}'.format(experiment.name))
+            experiment.run()
 
 def parse_args():
     """Parse commandline arguments"""
