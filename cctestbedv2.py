@@ -237,8 +237,10 @@ class Experiment:
         wait_times = [0]
         for previous_flow_start_time, start_time in zip(start_times[:-1],
                                                         start_times[1:]):
-            wait_times.append(start_time - previous_flow_start_time)
-        assert(sorted(wait_times) == wait_times)
+            if len(wait_times) > 1:
+                wait_times.append(start_time - previous_flow_start_time)
+            else:
+                wait_times.append(start_time)
         return wait_times
         
     def _compress_logs(self):
