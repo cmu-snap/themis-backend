@@ -370,7 +370,21 @@ def get_goodput_timeseries(experiment_analyzer, window_size):
     goodput = transfer_size / transfer_time
     goodput.index = (goodput.index - goodput.index[0]).total_seconds()
     goodput = goodput.rename(columns=experiment_analyzer.flow_names) # this won't work when the flows have the same name!
-    return goodput[list(experiment_analyzer.flow_names.values())]
+    goodput = goodput[list(experiment_analyzer.flow_names.values())]
+    return goodput
+
+def get_goodput_timeseries_ccalg(goodput):
+    goodput_ccalg_avg = pd.DataFrame()
+    goodput_ccalg_std = pd.DataFrame()
+    each_ccalgs_columns = defaultdict(list)
+    for col in goodput.columns:
+        ccalg = col.split('-')[0]
+        each_ccalgs_columns[ccalg].append(col)
+    for ccalg, cols in each_ccalgs_columns.items():
+        col_name = '{} {} flows'.format(len(cols), ccalg)
+        goodput_ccalg_avg[col_name] = goodput[cols].mean(1)
+        goodput_ccalg_std[col_name] = goodput[cols].std(1)
+    return goodput_ccalg_avg, goodput_ccalg_std
 
 def plot_goodput(experiment_analyzer, window_size=None, save=False, ccalg=False, **kwargs):
     """Return the table used for plotting"""
@@ -379,22 +393,29 @@ def plot_goodput(experiment_analyzer, window_size=None, save=False, ccalg=False,
         window_size = experiment_analyzer.experiment.flows[0].rtt
     goodput = get_goodput_timeseries(experiment_analyzer, window_size)
     if ccalg:
-        # plot the avg goodput for each ccalg over time w/ error bars
-        goodput_ccalg_avg = pd.DataFrame()
-        goodput_ccalg_std = pd.DataFrame()
-        each_ccalgs_columns = defaultdict(list)
-        for col in goodput.columns:
-            ccalg = col.split('-')[0]
-            each_ccalgs_columns[ccalg].append(col)
-        for ccalg, cols in each_ccalgs_columns.items():
-            col_name = '{} {} flows'.format(len(cols), ccalg)
-            goodput_ccalg_avg[col_name] = goodput[cols].sum(1)
-            goodput_ccalg_std[col_name] = goodput[cols].std(1)
-        goodput = goodput_ccalg_avg
-    ax = goodput.plot(yerr=goodput_ccalg_std, **kwargs)
+        goodput, goodput_ccalg_std = get_goodput_timeseries_ccalg(goodput)
+        ax = goodput.plot(yerr=goodput_ccalg_std, **kwargs)
+    else:
+        ax = goodput.plot(**kwargs)
     ax.set_xlabel('time (seconds)')
     ax.set_ylabel('goodput (mbps)')
     if save:
         return ax
     return goodput
 
+def get_goodput_fraction(experiment_analyzers):
+    goodput_fraction_table = []
+    for _, analyzer in experiment_analyzers.items():
+        each_ccalgs_rows = defaultdict(list)
+        goodput = analyzer.get_total_goodput(interval=(150,500))
+        for row in goodput.index:
+            ccalg = row.split('-')[0]
+            each_ccalgs_rows[ccalg].append(row)
+        goodput_fraction_row = {}
+        for ccalg, rows in each_ccalgs_rows.items():
+            goodput_fraction_row['num_{}_flows'.format(ccalg)] = len(rows)
+            goodput_fraction_row[ccalg] = goodput[rows].sum() / goodput.sum()
+            goodput_fraction_row['bdp'] = '{} mbps, {} ms'.format(
+                analyzer.experiment.btlbw, analyzer.experiment.flows[0].rtt)
+        goodput_fraction_table.append(goodput_fraction_row)
+    return pd.DataFrame.from_dict(goodput_fraction_table)
