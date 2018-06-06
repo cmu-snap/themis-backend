@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from datetime import datetime
 from contextlib import contextmanager, ExitStack
 from logging.config import fileConfig
@@ -8,7 +8,6 @@ from json import JSONEncoder
 import argparse
 import json
 import os
-import getpass
 import pwd
 import subprocess
 import shlex
@@ -16,6 +15,7 @@ import time
 import tarfile
 import logging
 import glob
+import random
 import yaml
 import paramiko
 
@@ -231,8 +231,15 @@ class Experiment:
             raise e
         
     def get_wait_times(self):
-        #start_times = [flow.wait_time for time in flow]
-        pass
+        logging.info('Computing wait times for each flow')
+        start_times = [flow.start_time for flow in self.flows]
+        assert(sorted(start_times) == start_times)
+        wait_times = [0]
+        for previous_flow_start_time, start_time in zip(start_times[:-1],
+                                                        start_times[1:]):
+            wait_times.append(start_time - previous_flow_start_time)
+        assert(sorted(wait_times) == wait_times)
+        return wait_times
         
     def _compress_logs(self):
         # will only issue a warning if a log file doesn't exist
@@ -408,6 +415,8 @@ class Experiment:
             stop_bess()
 
     def _run_all_flows(self, stack):
+        # get wait times for each flow
+        wait_times = self.get_wait_times()
         # run bess and monitor
         stack.enter_context(self._run_bess())
         # give bess some time to start
@@ -433,6 +442,11 @@ class Experiment:
             stack.enter_context(start_server())
 
         for idx, flow in enumerate(self.flows):
+            # make sure first flow runs for the whole time regardless of start time
+            # note this assumes self.flows is sorted by start time
+            flow_duration = flow.end_time - flow.start_time
+            if idx == 0:
+                flow_duration = flow.end_time
             start_client_cmd = ('iperf3 --client {} '
                                 '--port {} '
                                 '--verbose '
@@ -452,7 +466,7 @@ class Experiment:
                                                         self.client.ip_lan,
                                                         flow.client_port,
                                                         flow.ccalg,
-                                                        flow.end_time - flow.start_time,
+                                                        flow_duration,
                                                         idx % 32,
                                                         flow.client_log)
             start_client = RemoteCommand(start_client_cmd,
@@ -460,8 +474,12 @@ class Experiment:
                                          username=self.client.username,
                                          logs=[flow.client_log],
                                          key_filename=self.client.key_filename)
+            
+            logging.info('Sleep for {}s before starting flow with start time {}'.format(
+                    wait_times[idx], flow.start_time))
+            time.sleep(wait_times[idx])
             stack.enter_context(start_client())
-        # assume all flows start and stop at the same time
+        # last flow should be the last one
         sleep_time = flow.end_time - flow.start_time + 1
         logging.info('Sleep for {}s'.format(sleep_time))
         time.sleep(sleep_time)
@@ -483,25 +501,30 @@ def load_config_file(config_filename):
         config = yaml.safe_load(f)
     return config
 
-def load_experiments(config, config_filename, experiment_names=None):
+def load_experiments(config, config_filename, random_seed=None, experiment_names=None, force=False):
     """Create experiments from config file and output to config"""
     client = Host(**config['client'])
     server = Host(**config['server'])
-    experiments = {}
-
-    def is_completed_experiment(experiment_name):
+    experiments = OrderedDict()
+    def is_completed_experiment(experiment_name, force):
         experiment_done = len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0
         if experiment_done:
-            logging.warning('Skipping completed experiment: {}'.format(experiment_name))
+            if force:
+                logging.warning(
+                    'Re-running completed experiment: {}'.format(experiment_name))
+                return False
+            else:
+                logging.warning(
+                    'Skipping completed experiment: {}'.format(experiment_name))
         return experiment_done
             
     experiments_to_run = []
     for experiment_name, experiment in config['experiments'].items():
         if experiment_names is None:
-            if not is_completed_experiment(experiment_name):
+            if not is_completed_experiment(experiment_name, force):
                 experiments_to_run.append((experiment_name, experiment))
         elif experiment_name in experiment_names:
-            if not is_completed_experiment(experiment_name):
+            if not is_completed_experiment(experiment_name, force):
                 experiments_to_run.append((experiment_name, experiment))
 
     for experiment_name, experiment in experiments_to_run:
@@ -509,6 +532,8 @@ def load_experiments(config, config_filename, experiment_names=None):
         server_port = 5201
         client_port = 5555
         for flow in experiment['flows']:
+            if random_seed is not None:
+                flow['start_time'] = random.randint(0,10)
             assert(flow['start_time'] < flow['end_time'])
             flows.append(Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                               end_time=flow['end_time'], rtt=flow['rtt'],
@@ -667,7 +692,9 @@ def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
     experiments = load_experiments(config, args.config_file,
-                                   experiment_names=experiment_names)
+                                   experiment_names=experiment_names,
+                                   force=args.force,
+                                   random_seed=args.seed)
     logging.info('Going to run {} experiments'.format(len(experiments)))
     for experiment in experiments.values():
         # retry experiments one time if they fail
@@ -682,7 +709,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Run congestion control experiments')
     parser.add_argument('config_file', help='Configuration file describing experiment')
     parser.add_argument('--names', '-n', nargs='+', help='Name(s) of experiments to run')
+    parser.add_argument('--force', '-f', action='store_true', help='Force experiments that were already run to run again')
+    parser.add_argument('--randomize', dest='seed', type=int,
+                        help='Randomize flow start time between 0 & 10 seconds with given random seed')
     args = parser.parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
     return args
 
 if __name__ == '__main__':
