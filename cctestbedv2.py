@@ -253,8 +253,7 @@ class Experiment:
             # MAYBE: don't do this:
             # update config filename to be in /tmp/ (assumption with all other files)
             self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
-            logging.info('Compressing logs into tarfile: {}'.format(
-                len(self.logs.values()), self.tar_filename))
+            logging.info('Compressing logs into tarfile: {}'.format(self.tar_filename))
             # zip all experiment logs (that exist)
             for log in self.logs.values():
                 if os.path.isfile(log):
