@@ -140,8 +140,7 @@ static const int bbr_high_gain  = BBR_UNIT * 2885 / 1000 + 1;
  */
 static const int bbr_drain_gain = BBR_UNIT * 1000 / 2885;
 /* The gain for deriving steady-state cwnd tolerates delayed/stretched ACKs: */
-//static const int bbr_cwnd_gain  = BBR_UNIT * 2;
-static unsigned int bbr_cwnd_gain = BBR_UNIT * 4;
+static const int bbr_cwnd_gain  = BBR_UNIT * 2;
 /* The pacing_gain values for the PROBE_BW gain cycle, to discover/share bw: */
 static const int bbr_pacing_gain[] = {
 	BBR_UNIT * 5 / 4,	/* probe for more available bw */
@@ -423,6 +422,10 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 		goto done;
 
 	/* If we're below target cwnd, slow start cwnd toward target cwnd. */
+	//if (gain == 2) {
+	  //  gain = 4;
+	//  gain = 2;
+	//}
 	target_cwnd = bbr_target_cwnd(sk, bw, gain);
 	if (bbr_full_bw_reached(sk))  /* only cut cwnd if we filled the pipe */
 		cwnd = min(cwnd + acked, target_cwnd);
