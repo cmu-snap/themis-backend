@@ -122,7 +122,10 @@ class Experiment:
                 self.name), e)
             logging.info('Deleting all generated logs')
             # zip all experiment logs (that exist)
-            for log in self.logs.values():
+            # DON'T DELETE DESCRIPTION LOG!!
+            logs = self.logs.copy()
+            logs.pop('description_log')
+            for log in logs.values():
                 if os.path.isfile(log):
                     os.remove(log)
                 else:

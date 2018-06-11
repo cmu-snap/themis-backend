@@ -76,7 +76,8 @@ class RemoteCommand:
 
             for proc in scp_procs:
                 logging.info('Waiting for remote file to finish copying: {}'.format(proc.args[-1]))
-                proc.wait(timeout=120) # timeout here is 2 minutes
+                # NOTE: NO TIMEOUT SO THIS COULD HANG FOREVER
+                proc.wait() 
                 if proc.returncode != 0:
                     logging.warning('Could not find file "{}" on remote server "{}"'.format(log, self.ip_addr))
                 else:
