@@ -1,9 +1,10 @@
 #! /usr/bin/env python3
 
+from command import RemoteCommand, run_local_command, get_ssh_client, exec_command
+
 from collections import namedtuple, OrderedDict
 from datetime import datetime
 from contextlib import contextmanager, ExitStack
-from logging.config import fileConfig
 from json import JSONEncoder
 import argparse
 import json
@@ -19,9 +20,15 @@ import random
 import yaml
 import paramiko
 
+from logging.config import fileConfig
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
+fileConfig(log_file_path)    
+
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
+
+
 
 # changes for aws experiments
 
@@ -39,107 +46,6 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
 # TODO: to set affinity, get number of processors on remote machines using 'nproc --all
 # TODO: check every seconds if processes still running instead of using time.sleep
 # TODO: allow starting and stopping flows at any time
-
-class RemoteCommand:
-    """Command to run on a remote machine in the background"""
-    def __init__(self, cmd, ip_addr, username,
-                 stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
-                 cleanup_cmd=None, sudo=False, key_filename=None):
-        self.cmd = cmd.strip()
-        self.ip_addr = ip_addr
-        self.stdout = stdout
-        self.stdin = stdin
-        self.stderr = stderr
-        self.logs = logs
-        self.cleanup_cmd = cleanup_cmd
-        self.sudo = sudo
-        self.username = username
-        self.key_filename = key_filename
-        self._ssh_client = None
-        self._ssh_channel = None
-
-    def _get_ssh_client(self):
-        return get_ssh_client(self.ip_addr, self.username, self.key_filename)
-
-    def _get_ssh_channel(self, ssh_client):
-        return ssh_client.get_transport().open_session()
-    
-    @contextmanager
-    def __call__(self):
-        self._ssh_client = self._get_ssh_client()
-        self._ssh_channel = self._get_ssh_channel(self._ssh_client)
-        pid = None
-        try:
-            stderr = self._ssh_channel.makefile_stderr()
-            # run command and get PID
-            if self.sudo:
-                cmd = 'sudo {}'.format(self.cmd)
-            else:
-                cmd = self.cmd
-            self._ssh_channel.exec_command('{} > {} 2> {} < {} &'.format(cmd,
-                                                                         self.stdout,
-                                                                         self.stderr,
-                                                                         self.stdin))
-            ssh_client = self._get_ssh_client()
-            logging.info('Running cmd ({}): {}'.format(self.ip_addr, cmd))
-            _, stdout, _ = ssh_client.exec_command('pgrep -f "^{}"'.format(self.cmd))
-            pid = stdout.readline().strip()
-            logging.info('PID={}'.format(pid))
-            # check if immediately get nonzero exit status
-            if self._ssh_channel.exit_status_ready():
-                if self._ssh_channel.recv_exit_status() != 0:
-                    raise RuntimeError(
-                        'Got a non-zero exit status running cmd: {}.\n{}'.format(
-                            self.cmd, stderr.read()))
-            elif pid=='':
-                logging.error('Could not get PID after running cmd: {}.\n'.format(
-                    self.cmd, stderr.read()))
-                raise RuntimeError('Could not get PID after running cmd: {}'.format(
-                    self.cmd))
-
-            pid = int(pid)
-            yield pid
-            stdout.close()
-            stderr.close()
-        finally:
-            logging.info('Cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
-            self._ssh_channel.close()
-            self._ssh_client.close()
-            # on cleanup kill process & collect all logs
-            ssh_client = self._get_ssh_client()
-            kill_cmd = 'kill {}'.format(pid)
-            if self.sudo:
-                kill_cmd = 'sudo kill -9 {}'.format(pid)
-            exec_command(ssh_client, self.ip_addr, kill_cmd)
-            if self.cleanup_cmd is not None:
-                # TODO: run cleanup cmd as sudo too?
-                ssh_client = self._get_ssh_client()
-                exec_command(ssh_client, self.ip_addr, self.cleanup_cmd)
-            for log in self.logs:
-                ssh_client = self._get_ssh_client()
-                sftp_client = ssh_client.open_sftp()
-                logging.info('Copying remote file ({}): {}'.format(self.ip_addr,
-                                                                   log))
-                try:
-                    sftp_client.get(log, os.path.join('/tmp',log))
-                    logging.info('Remove remote file ({}): {}'.format(self.ip_addr,
-                                                                      log))
-                    rm_cmd = 'rm {}'.format(log)
-                    if self.sudo:
-                        rm_cmd = 'sudo rm {}'.format(log)
-                    exec_command(ssh_client, self.ip_addr, rm_cmd)
-                except FileNotFoundError as e:
-                    logging.warning('Could not find file "{}" on remote server "{}"'.format(
-                        log, self.ip_addr))
-                sftp_client.close()
-                ssh_client.close()
-            logging.info('Done cleaning up cmd ({}): {}'.format(self.ip_addr, self.cmd))
-    def __str__(self):
-        return {'ip_addr': self.ip_addr, 'cmd': self.cmd,
-                'logs': self.logs, 'username': self.username}
-
-    def __repr__(self):
-        return 'RemoteCommand({})'.format(self.__str__())
 
 class Experiment:
     def __init__(self, name, btlbw, queue_size,
@@ -188,15 +94,15 @@ class Experiment:
                         ('sudo rmmod tcp_probe_ray', ('client'))]
         for cmd, machines in cleanup_cmds:
             if 'client' in machines:
-                ssh_client = get_ssh_client(self.client.ip_wan,
-                                            username=self.client.username,
-                                            key_filename=self.client.key_filename)
-                exec_command(ssh_client, self.client.ip_wan, cmd)
+                with get_ssh_client(self.client.ip_wan,
+                                    username=self.client.username,
+                                    key_filename=self.client.key_filename) as ssh_client:
+                    exec_command(ssh_client, self.client.ip_wan, cmd)
             if 'server' in machines:
-                ssh_client = get_ssh_client(self.server.ip_wan,
-                                            username=self.server.username,
-                                            key_filename=self.server.key_filename)
-                exec_command(ssh_client, self.server.ip_wan, cmd)
+                with get_ssh_client(self.server.ip_wan,
+                                    username=self.server.username,
+                                    key_filename=self.server.key_filename) as ssh_client:
+                    exec_command(ssh_client, self.server.ip_wan, cmd)
             
     def run(self):
         try:
@@ -216,7 +122,10 @@ class Experiment:
                 self.name), e)
             logging.info('Deleting all generated logs')
             # zip all experiment logs (that exist)
-            for log in self.logs.values():
+            # DON'T DELETE DESCRIPTION LOG!!
+            logs = self.logs.copy()
+            logs.pop('description_log')
+            for log in logs.values():
                 if os.path.isfile(log):
                     os.remove(log)
                 else:
@@ -328,21 +237,18 @@ class Experiment:
         insmod_cmd = ('sudo insmod '
                       '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
                       '&& sudo chmod 444 /proc/net/tcpprobe ')
-        ssh_client = get_ssh_client(self.client.ip_wan,
-                                    username=self.client.username,
-                                    key_filename=self.client.key_filename)
-        logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
-                                                   insmod_cmd))
-        try:
+        with get_ssh_client(self.client.ip_wan,
+                            username=self.client.username,
+                            key_filename=self.client.key_filename) as ssh_client:
+            logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
+                                                       insmod_cmd))
             _, stdout, stderr = ssh_client.exec_command(insmod_cmd)
             exit_status = stdout.channel.recv_exit_status()
             if exit_status != 0:
                 raise RuntimeError(
                     'Got a non-zero exit status running cmd: {}.\n{}'.format(
                         insmod_cmd, stderr.read()))
-        finally:
-            ssh_client.close()
-
+            
         try:
             start_tcpprobe_cmd = 'cat /proc/net/tcpprobe'
             start_tcpprobe = RemoteCommand(start_tcpprobe_cmd,
@@ -356,11 +262,10 @@ class Experiment:
         except:
             # need to still rmmod if we can't create the remote command
             # for some reason
-            ssh_client = get_ssh_client(self.client.ip_wan,
-                                        username=self.client.username,
-                                        key_filename=self.client.key_filename)
-            ssh_client.exec_command('sudo rmmod tcp_probe_ray')
-            ssh_client.close()
+            with get_ssh_client(self.client.ip_wan,
+                                username=self.client.username,
+                                key_filename=self.client.key_filename) as ssh_client:
+                ssh_client.exec_command('sudo rmmod tcp_probe_ray')
         return stack.enter_context(start_tcpprobe())
 
     @contextmanager
@@ -388,6 +293,7 @@ class Experiment:
 
     @contextmanager
     def _run_bess(self):
+        stderr = None
         try:
             start_bess(self)
             # give bess some time to start
@@ -397,23 +303,27 @@ class Experiment:
                '| tail -1 '
                '| awk "{{print $4}}" ').format(self.server.ip_lan,
                                                self.client.ip_lan)
-            ssh_client = get_ssh_client(self.server.ip_wan,
-                                        username=self.server.username, 
-                                        key_filename=self.server.key_filename)
-            logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
-                                                       cmd))
-            _, stdout, stderr = ssh_client.exec_command(cmd)
-            line = stdout.readline()
-            # parse out avg rtt from last line of ping output
-            avg_rtt = float(line.split('=')[-1].split('/')[1])
-            logging.info('Got an avg rtt of {}'.format(avg_rtt))
-            if not (avg_rtt > 0):
-                raise RuntimeError('Did not see an avg_rtt greater than 0.')
-            yield
+            with get_ssh_client(self.server.ip_wan,
+                                username=self.server.username, 
+                                key_filename=self.server.key_filename) as ssh_client:
+                logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
+                                                           cmd))
+                _, stdout, stderr = ssh_client.exec_command(cmd)
+                line = stdout.readline()
+                stderr = stderr.read()
+                # parse out avg rtt from last line of ping output
+                avg_rtt = float(line.split('=')[-1].split('/')[1])
+                logging.info('Got an avg rtt of {}'.format(avg_rtt))
+                if not (avg_rtt > 0):
+                    raise RuntimeError('Did not see an avg_rtt greater than 0.')
         except Exception as e:
-            raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr.readline()), e)
+            raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr), e)
         finally:
-            stop_bess()
+            # this try, finally might be overkill
+            try:
+                yield
+            finally:
+                stop_bess()
 
     def _run_all_flows(self, stack):
         # get wait times for each flow
@@ -662,33 +572,6 @@ def get_interface_ip(ifname):
     ip, mask = ip.split()[1].split('/')
     return ip, mask
 
-def run_local_command(cmd, shell=False):
-    """Run local command return stdout"""
-    logging.info('Running cmd: {}'.format(cmd))
-    if shell:
-        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
-    else:
-        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
-    return proc.stdout.decode('utf-8')
-
-def get_ssh_client(ip_addr, username, key_filename=None):
-    ssh_client = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(ip_addr, username=username, key_filename=key_filename)
-    return ssh_client
-
-def exec_command(ssh_client, ip_addr, cmd):
-    # will retry if there is an exception
-    try:
-        logging.info('Running cmd ({}): {}'.format(ip_addr, cmd))
-        ssh_client.exec_command(cmd)
-    except paramiko.ssh_exception.SSHException as e:
-        time.sleep(5)
-        logging.warning('Retrying failed cmd ({}): {}'.format(ip_addr, cmd))
-        ssh_client.exec_command(cmd)
-    finally:
-        ssh_client.close()
-        
 def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
