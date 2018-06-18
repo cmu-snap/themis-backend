@@ -138,7 +138,7 @@ class ExperimentAnalyzer:
         if self._flow_names is None:
             # flow names will be cubic, cubic-2, cubic-3 if there are more
             # than one flow with the same ccalg name
-            flow_ccalgs = [f'{port}-{ccalg}' for port, ccalg in self.flow_sender_ports.items()]
+            flow_ccalgs = ['{}-{}'.format(port, ccalg) for port, ccalg in self.flow_sender_ports.items()]
             flow_ccalgs = sorted(flow_ccalgs)
 
             flow_names = {}
@@ -147,7 +147,7 @@ class ExperimentAnalyzer:
                 port, ccalg = flow_ccalg.split('-')
                 seen_ccalgs_counter[ccalg] += 1
                 if seen_ccalgs_counter[ccalg] > 1:
-                    flow_names[port] = f'{ccalg}-{seen_ccalgs_counter[ccalg]}'
+                    flow_names[port] = '{}-{}'.format(ccalg, seen_ccalgs_counter[ccalg])
                 else:
                     flow_names[port] = ccalg
             self._flow_names = flow_names
@@ -175,7 +175,7 @@ class ExperimentAnalyzer:
                     tcpprobe['srtt'] = tcpprobe['srtt'] * MICROSECONDS_TO_MILLISECONDS
                     tcpprobe['time'] = tcpprobe['time'].apply(lambda x: dt.timedelta(seconds=x))
                     tcpprobe = tcpprobe.set_index('time')
-                    senders = [f'192.0.0.1:{port}' for port in  self.flow_sender_ports.keys()]
+                    senders = ['192.0.0.1:{}'.format(port) for port in  self.flow_sender_ports.keys()]
                     tcpprobe = tcpprobe[tcpprobe.sender.isin(senders)]
                     tcpprobe.to_csv(tcpprobe_log_localpath, header=True)
             else:
@@ -248,15 +248,11 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
     tarfile_remotepaths = []
     if remote:
         print('Searching for experiments on remote machine: {}'.format(REMOTE_IP_ADDR))
-        ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR,
-                                            username=REMOTE_USERNAME)
-        try:
+        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
                 tarfile_remotepaths += [filename.strip() for filename in stdout.readlines()]
-        finally:
-            ssh_client.close()
         print('Found {} experiment(s) on remote machine: {}'.format(len(tarfile_remotepaths), tarfile_remotepaths))
     else:
         print('Not searching remote machine for experiments.')
@@ -285,28 +281,27 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
         tarfile_localpath = os.path.join(
             DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
         if not os.path.isfile(tarfile_localpath):
-            ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME)
-            try:
+            with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
                 sftp_client = ssh_client.open_sftp()
-                print('Copying remotepath {} to localpath {}'.format(
-                    tarfile_remotepath, tarfile_localpath))
-                sftp_client.get(tarfile_remotepath,
-                                tarfile_localpath)
-                sftp_client.close()
-            finally:
-                ssh_client.close()
+                try:
+                    print('Copying remotepath {} to localpath {}'.format(
+                        tarfile_remotepath, tarfile_localpath))
+                    sftp_client.get(tarfile_remotepath,
+                                    tarfile_localpath)
+                finally:
+                    sftp_client.close()
         # get experiment description file & stored in processed data path
         experiment_description_filename = '{}.json'.format(experiment_name)
         experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
                                                         experiment_description_filename)
         if not os.path.isfile(experiment_description_localpath):
             with untarfile(tarfile_localpath, experiment_description_filename) as f:
-                experiment_description = json.load(f)
+                experiment_description = json.loads(f.read().decode('utf-8-sig'))
+            with open(experiment_description_localpath, 'w') as f:
+                json.dump(experiment_description, f)
         else:
             with open(experiment_description_localpath) as f:
                 experiment_description = json.load(f)
-        with open(experiment_description_localpath, 'w') as f:
-            json.dump(experiment_description, f)
         experiments[experiment_name] = Experiment(tarfile_localpath=tarfile_localpath,
                                                     **experiment_description)
     experiment_analyzers = {experiment_name:ExperimentAnalyzer(experiment)
@@ -316,7 +311,7 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
 @contextmanager
 def untarfile(tar_filename, filename):
     try:
-        with tarfile.open(tar_filename) as tar:
+        with tarfile.open(tar_filename, 'r:gz') as tar:
             # get experiment description file
             #experiment_description_filename = '{}.json'.format(experiment_name)
             print('Extracting file {} from {}'.format(filename, tar_filename))
@@ -330,7 +325,7 @@ def untarfile(tar_filename, filename):
 def untarfile_extract(tar_filename, filename):
     file_localpath = os.path.join(DATAPATH_RAW, filename)
     try:
-        with tarfile.open(tar_filename) as tar:
+        with tarfile.open(tar_filename, 'r:gz') as tar:
             # get experiment description file
             #experiment_description_filename = '{}.json'.format(experiment_name)
             print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
