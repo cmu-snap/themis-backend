@@ -1,6 +1,10 @@
-CODEPATH = '/Users/rware/Documents/research/code/cctestbed'
-DATAPATH_RAW = '/Users/rware/Documents/research/data/cctestbed/raw'
-DATAPATH_PROCESSED = '/Users/rware/Documents/research/data/cctestbed/processed'
+#CODEPATH = '/Users/rware/Documents/research/code/cctestbed'
+#DATAPATH_RAW = '/Users/rware/Documents/research/data/cctestbed/raw'
+#DATAPATH_PROCESSED = '/Users/rware/Documents/research/data/cctestbed/processed'
+
+CODEPATH = '/home/ranysha/cctestbed'
+DATAPATH_RAW = '/home/ranysha/cctestbed/data-raw'
+DATAPATH_PROCESSED = '/home/ranysha/cctestbed/data-processed'
 
 import sys
 sys.path.insert(0, CODEPATH)
@@ -86,26 +90,33 @@ class ExperimentAnalyzer:
         if (self._df_queue is None) or (not os.path.isfile(queue_log_localpath)):
             # cleanup data and store processed data
             if not os.path.isfile(queue_log_localpath):
-                with untarfile(self.experiment.tarfile_localpath, queue_log_tarpath) as f:
-                    df = pd.read_csv(f, header=0, skipinitialspace=True,
-                            names=['dequeued', 'time', 'src', 'seq', 'datalen',
-                                    'size', 'dropped', 'queued', 'batch'])
-                    df['lineno'] = df.index + 1 # save old index as lineno
-                    # add time as index
-                    df['time'] = pd.to_datetime(df['time'], unit='ns')
-                    df = df.set_index('time').sort_index()
-                    # change src from hex to a number
-                    df['src'] = df['src'].apply(lambda x: str(int(x,16)))
-                    # add per flow queue occupancy
-                    df_enq = pd.get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src']).astype('int8')
-                    df_deq = pd.get_dummies(df[df.dequeued==1]['src']).astype('int8').replace(1,-1)
-                    df_flows = df_enq.append(df_deq).sort_index().cumsum()
-                    df = df.join(df_flows).sort_index().ffill()
-                    # IF THERE'S AN ERROR HERE, PROBABLY MESSED UP LINE IN DF QUEUE DATA
-                    #rename_src_ports = {src_hex:int(str(src_hex), 16) for src_hex in df.src.unique()}
-                    #df = df.rename(columns = rename_src_ports)
-                    df.to_csv(queue_log_localpath, header=True)
-                    self._df_queue = df
+                if not os.path.isfile(os.path.join(DATAPATH_RAW, queue_log_tarpath)):
+                    with untarfile(self.experiment.tarfile_localpath, queue_log_tarpath) as f:
+                        # remove header=0, since there is no header
+                        df = pd.read_csv(f, skipinitialspace=True,
+                                names=['dequeued', 'time', 'src', 'seq', 'datalen',
+                                        'size', 'dropped', 'queued', 'batch'])
+                else:
+                    with open(os.path.join(DATAPATH_RAW, queue_log_tarpath)) as f:
+                        df = pd.read_csv(f, skipinitialspace=True,
+                                names=['dequeued', 'time', 'src', 'seq', 'datalen',
+                                        'size', 'dropped', 'queued', 'batch'])
+                df['lineno'] = df.index + 1 # save old index as lineno
+                # add time as index
+                df['time'] = pd.to_datetime(df['time'], infer_datetime_format=True, unit='ns')
+                df = df.set_index('time').sort_index()
+                # change src from hex to a number
+                df['src'] = df['src'].apply(lambda x: str(int(x,16)))
+                # add per flow queue occupancy
+                df_enq = pd.get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src']).astype('int8')
+                df_deq = pd.get_dummies(df[df.dequeued==1]['src']).astype('int8').replace(1,-1)
+                df_flows = df_enq.append(df_deq).sort_index().cumsum()
+                df = df.join(df_flows).sort_index().ffill()
+                # IF THERE'S AN ERROR HERE, PROBABLY MESSED UP LINE IN DF QUEUE DATA
+                #rename_src_ports = {src_hex:int(str(src_hex), 16) for src_hex in df.src.unique()}
+                #df = df.rename(columns = rename_src_ports)
+                df.to_csv(queue_log_localpath, header=True)
+                self._df_queue = df
             else:
                 with open(queue_log_localpath) as f:
                     df = pd.read_csv(f, header=0, skipinitialspace=True, index_col='time')
@@ -220,56 +231,84 @@ class ExperimentAnalyzer:
     def __str__(self):
         return str(self.experiment)
 
+### helper functions
 
-def load_experiments(experiment_name_pattern):
+def load_experiments(experiment_name_patterns, remote=True, force_local=False):
     """
-    experiment_name_pattern : str
-        Should be a pattern that will be called with *{}*.format(experiment_name_pattern)
+    experiment_name_pattern : list of str
+        Should be a pattern that will be called with '{}.tar.gz'.format(experiment_name_pattern)
+    remote : bool, (default: True)
+        If True, look for experiments remotely. If False, don't look for experiments remotely,
+        only locally.
+    force_local : bool, (default: False)
+        If True, always look for local experiments. If False, only look for local experiments,
+        if no remote experiments are found.
     """
-    ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR,
-                                           username=REMOTE_USERNAME)
-    try:
-        _, stdout, _ = ssh_client.exec_command(
-            'ls -1 /tmp/*{}*.tar.gz'.format(experiment_name_pattern))
-        tarfile_remotepaths = [filename.strip() for filename in stdout.readlines()]
-        print('Found experiments on remote machine: {}'.format(tarfile_remotepaths))
+    assert(type(experiment_name_patterns) is list)
+    tarfile_remotepaths = []
+    if remote:
+        print('Searching for experiments on remote machine: {}'.format(REMOTE_IP_ADDR))
+        ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR,
+                                            username=REMOTE_USERNAME)
+        try:
+            for experiment_name_pattern in experiment_name_patterns:
+                _, stdout, _ = ssh_client.exec_command(
+                    'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
+                tarfile_remotepaths += [filename.strip() for filename in stdout.readlines()]
+        finally:
+            ssh_client.close()
+        print('Found {} experiment(s) on remote machine: {}'.format(len(tarfile_remotepaths), tarfile_remotepaths))
+    else:
+        print('Not searching remote machine for experiments.')
+
+    if force_local or len(tarfile_remotepaths) == 0:
+        num_local_files = 0
+        for experiment_name_pattern in experiment_name_patterns:
+            local_filepaths = glob.glob(os.path.join(DATAPATH_RAW, experiment_name_pattern))
+            tarfile_remotepaths += local_filepaths
+            num_local_files += len(local_filepaths)
         if len(tarfile_remotepaths) == 0:
-            tarfile_remotepaths = glob.glob(os.path.join(DATAPATH_RAW, experiment_name_pattern))
-            if len(tarfile_remotepaths) == 0:
-                raise ValueError(('Found no experiments on remote or local machine '
-                                '{} with name pattern *{}*').format(
-                                    REMOTE_IP_ADDR, experiment_name_pattern))
-        ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME)
-        experiments = {}
-        for tarfile_remotepath in tarfile_remotepaths:
-            # check if tarfile already here
-            # copy tarfile from remote machine to local machine (data directory)
-            experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
-            tarfile_localpath = os.path.join(
-                DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
-            if not os.path.isfile(tarfile_localpath):
+            raise ValueError(('Found no experiments on remote or local machine '
+                            '{} with name pattern {}').format(
+                                REMOTE_IP_ADDR, experiment_name_pattern))
+        if num_local_files > 0:
+            print('Found {} experiment(s) on local machine: {}'.format(num_local_files,
+                                                                        tarfile_remotepaths[-num_local_files:]))
+        else:
+            print('Found 0 experiment(s) on local machines.')
+
+    experiments = {}
+    for tarfile_remotepath in tarfile_remotepaths:
+        # check if tarfile already here
+        # copy tarfile from remote machine to local machine (data directory)
+        experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
+        tarfile_localpath = os.path.join(
+            DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
+        if not os.path.isfile(tarfile_localpath):
+            ssh_client = cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME)
+            try:
                 sftp_client = ssh_client.open_sftp()
                 print('Copying remotepath {} to localpath {}'.format(
                     tarfile_remotepath, tarfile_localpath))
                 sftp_client.get(tarfile_remotepath,
                                 tarfile_localpath)
                 sftp_client.close()
-            # get experiment description file & stored in processed data path
-            experiment_description_filename = '{}.json'.format(experiment_name)
-            experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
-                                                            experiment_description_filename)
-            if not os.path.isfile(experiment_description_localpath):
-                with untarfile(tarfile_localpath, experiment_description_filename) as f:
-                    experiment_description = json.load(f)
-            else:
-                with open(experiment_description_localpath) as f:
-                    experiment_description = json.load(f)
-            with open(experiment_description_localpath, 'w') as f:
-                json.dump(experiment_description, f)
-            experiments[experiment_name] = Experiment(tarfile_localpath=tarfile_localpath,
-                                                        **experiment_description)
-    finally:
-        ssh_client.close()
+            finally:
+                ssh_client.close()
+        # get experiment description file & stored in processed data path
+        experiment_description_filename = '{}.json'.format(experiment_name)
+        experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
+                                                        experiment_description_filename)
+        if not os.path.isfile(experiment_description_localpath):
+            with untarfile(tarfile_localpath, experiment_description_filename) as f:
+                experiment_description = json.load(f)
+        else:
+            with open(experiment_description_localpath) as f:
+                experiment_description = json.load(f)
+        with open(experiment_description_localpath, 'w') as f:
+            json.dump(experiment_description, f)
+        experiments[experiment_name] = Experiment(tarfile_localpath=tarfile_localpath,
+                                                    **experiment_description)
     experiment_analyzers = {experiment_name:ExperimentAnalyzer(experiment)
                                 for experiment_name, experiment in experiments.items()}
     return experiment_analyzers
@@ -306,7 +345,7 @@ def untarfile_extract(tar_filename, filename):
 ##### PLOTS ######
 
 def plot_queue(experiment_analyzer, window_size, include_ports=False,
-                zoom=None, hline=None, plot=True, drops=False, size=False, save=False):
+                zoom=None, hline=None, plot=True, drops=False, size=False, save=False, **kwargs):
     df_queue = experiment_analyzer.df_queue
     queue = df_queue.rename(columns=experiment_analyzer.flow_names)
     sender_ports = list(experiment_analyzer.flow_names.keys())
@@ -324,7 +363,7 @@ def plot_queue(experiment_analyzer, window_size, include_ports=False,
         queue = queue[flow_names]
     if plot:
         if len(flow_names) > 1:
-            ax = queue.plot(xlim=zoom)
+            ax = queue.plot(xlim=zoom, **kwargs)
             ax.set_xlabel('time (seconds)')
             ax.set_ylabel('num packets in queue')
         else:
@@ -341,13 +380,13 @@ def plot_queue(experiment_analyzer, window_size, include_ports=False,
                             marker='x',
                             color=colors[1],
                             ax=axes))
-                queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom, ax=axes)
+                queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom, ax=axes, **kwargs)
                 axes.set_xlabel('time (seconds)')
                 axes.set_ylabel('num packets in queue')
             else:
                 queue = queue[flow_names]
                 #ax = queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom)
-                ax = queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom)
+                ax = queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom, **kwargs)
                 ax.set_xlabel('time (seconds)')
                 ax.set_ylabel('num packets in queue')
                 if hline:
@@ -407,7 +446,7 @@ def get_goodput_fraction(experiment_analyzers):
     goodput_fraction_table = []
     for _, analyzer in experiment_analyzers.items():
         each_ccalgs_rows = defaultdict(list)
-        goodput = analyzer.get_total_goodput(interval=(150,500))
+        goodput = analyzer.get_total_goodput(interval=(150,290))
         for row in goodput.index:
             ccalg = row.split('-')[0]
             each_ccalgs_rows[ccalg].append(row)
@@ -417,5 +456,38 @@ def get_goodput_fraction(experiment_analyzers):
             goodput_fraction_row[ccalg] = goodput[rows].sum() / goodput.sum()
             goodput_fraction_row['bdp'] = '{} mbps, {} ms'.format(
                 analyzer.experiment.btlbw, analyzer.experiment.flows[0].rtt)
+            goodput_fraction_row['queue_size'] = analyzer.experiment.queue_size
         goodput_fraction_table.append(goodput_fraction_row)
     return pd.DataFrame.from_dict(goodput_fraction_table)
+
+def get_tcpprobe_columns_per_flow(experiment_analyzer, col):
+    """Return tcpprobe dataframe with a column per flow for a given value 'col'.
+    Parameters:
+    -----------
+    experiment_analyzer : ExperimentAnalyzer
+        experiment we want to get tcpprobe dataframe from
+    column: list of str
+        columns we want to get values for individually from each flow
+    """
+    #assert(type(cols) is list)
+    tcpprobe = experiment_analyzer.df_tcpprobe.copy()
+    tcpprobe['sender'] = tcpprobe['sender'].apply(lambda x: x.split(':')[-1])
+    tcpprobe = tcpprobe.pivot(columns='sender', values=col)
+    flow_sender_ports = list(experiment_analyzer.flow_sender_ports.keys())
+    tcpprobe = tcpprobe[flow_sender_ports].rename(columns=experiment_analyzer.flow_names)
+    return tcpprobe
+
+def get_tcpprobe_avg(experiment_analyzer):
+    """Get avg per flow """
+    pass
+
+def get_queue_occupancy_per_flow(experiment_analyzer, window_size):
+    flow_sender_ports = list(experiment_analyzer.flow_sender_ports.keys())
+    queue_occupancy = (experiment_analyzer
+                        .df_queue[flow_sender_ports]
+                        .resample('{}ms'.format(window_size))
+                        .last()
+                        .ffill())
+    queue_occupancy.index = (queue_occupancy.index - queue_occupancy.index[0]).total_seconds()
+    return queue_occupancy
+
