@@ -218,7 +218,7 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			// ADDED by RAY
 			const struct tcp_congestion_ops *ca_ops =
 			  inet_csk(sk)->icsk_ca_ops;
-			if (!(strcmp(ca_ops->name, "bbr"))) {
+			if (!(strcmp(ca_ops->name, "bbr")) || !(strcmp(ca_ops->name, "bbr_ray"))) {
 			  struct bbr *bbr = inet_csk_ca(sk);
 			  u64 bw = bbr_bw(sk);
 			  p->bbr_bw_lo = (u32)bw;
