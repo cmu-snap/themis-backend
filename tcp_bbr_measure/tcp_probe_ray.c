@@ -227,6 +227,9 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			  p->bbr_pacing_gain = bbr->pacing_gain;
 			  p->bbr_cwnd_gain = bbr->cwnd_gain;
 			}
+			else {
+			  pr_info("not bbr %s",ca_ops->name);
+			}
 			// END
 
 			tcp_probe.head = (tcp_probe.head + 1) & (bufsize - 1);
