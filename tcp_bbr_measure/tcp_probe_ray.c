@@ -227,9 +227,6 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			  p->bbr_pacing_gain = bbr->pacing_gain;
 			  p->bbr_cwnd_gain = bbr->cwnd_gain;
 			}
-			else {
-			  pr_info("not bbr %s",ca_ops->name);
-			}
 			// END
 
 			tcp_probe.head = (tcp_probe.head + 1) & (bufsize - 1);
@@ -361,7 +358,7 @@ static __init int tcpprobe_init(void)
 	if (ret)
 		goto err1;
 
-	pr_info("probe registered (port=%d/fwmark=%u) bufsize=%u\n",
+	pr_info("probe registered (port=%d/fwmark=%u) bufsize=%u version=1.0\n",
 		port, fwmark, bufsize);
 	return 0;
  err1:
