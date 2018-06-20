@@ -103,7 +103,12 @@ class Experiment:
                                     username=self.server.username,
                                     key_filename=self.server.key_filename) as ssh_client:
                     exec_command(ssh_client, self.server.ip_wan, cmd)
-            
+
+    def write_description_log(self):
+        # save experiment to json file
+        with open(self.logs['description_log'], 'w') as f:
+            json.dump(self.__dict__, f)
+                    
     def run(self):
         try:
             # make sure old stuff closed
@@ -235,7 +240,7 @@ class Experiment:
     def _run_tcpprobe(self, stack):
         # assumes that tcp_bbr_measure is installed @ /opt/tcp_bbr_measure on iperf client
         insmod_cmd = ('sudo insmod '
-                      '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
+                      '/opt/cctestbed/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
                       '&& sudo chmod 444 /proc/net/tcpprobe ')
         with get_ssh_client(self.client.ip_wan,
                             username=self.client.username,
@@ -293,6 +298,7 @@ class Experiment:
 
     @contextmanager
     def _run_bess(self):
+        self.write_description_log()
         stderr = None
         try:
             start_bess(self)
@@ -461,10 +467,10 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
                          config_filename=config_filename)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
-
+        exp.write_description_log()
         # save experiment to json file
-        with open(exp.logs['description_log'], 'w') as f:
-            json.dump(exp.__dict__, f)
+        #with open(exp.logs['description_log'], 'w') as f:
+        #    json.dump(exp.__dict__, f)
     return experiments
 
 def start_bess(experiment):
@@ -575,18 +581,24 @@ def get_interface_ip(ifname):
 def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
-    experiments = load_experiments(config, args.config_file,
-                                   experiment_names=experiment_names,
-                                   force=args.force,
-                                   random_seed=args.seed)
-    logging.info('Going to run {} experiments'.format(len(experiments)))
-    for experiment in experiments.values():
-        # retry experiments one time if they fail
-        try:
-            experiment.run()
-        except:
-            logging.warning('Retrying experiment {}'.format(experiment.name))
-            experiment.run()
+    logging.info('Going to repeat experiments {} times'.format(args.repeat))
+    for num_repeat in range(args.repeat):
+        logging.info('REPTITION {}: '.format(num_repeat))
+        experiments = load_experiments(config, args.config_file,
+                                       experiment_names=experiment_names,
+                                       force=args.force,
+                                       random_seed=args.seed)
+        logging.info('Going to run {} experiments'.format(len(experiments)))
+        for experiment in experiments.values():
+            # retry experiments one time if they fail
+            try:
+                experiment.run()
+            except:
+                logging.warning('Retrying experiment {}'.format(experiment.name))
+                experiment.run()
+        
+        args.force = True  # need to force future repetitions of experiments
+
 
 def parse_args():
     """Parse commandline arguments"""
@@ -596,6 +608,7 @@ def parse_args():
     parser.add_argument('--force', '-f', action='store_true', help='Force experiments that were already run to run again')
     parser.add_argument('--randomize', dest='seed', type=int,
                         help='Randomize flow start time between 0 & 10 seconds with given random seed')
+    parser.add_argument('--repeat', type=int, default=1, help='Repeat experiments some number of times')
     args = parser.parse_args()
     if args.seed is not None:
         random.seed(args.seed)
