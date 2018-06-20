@@ -1,12 +1,15 @@
 install_iperf3() {
     # install latest version of iperf3
-    wget http://downloads.es.net/pub/iperf/iperf-3-current.tar.gz
-    tar -xzf iperf-3-current.tar.gz
-    cd iperf-3.*
+    #wget http://downloads.es.net/pub/iperf/iperf-3-current.tar.gz
+    wget  https://github.com/esnet/iperf/archive/3.5.tar.gz
+    #tar -xzf iperf-3-current.tar.gz
+    tar -xvzf 3.5.tar.gz
+    cd iperf-3*
     ./configure && make && sudo make install
+    sudo apt-get remove lib32z1
     sudo apt-get install lib32z1 # need this for some reason for iperf3
     cd ..
-    sudo rm -r iperf-3.* iperf-3-current.tar.gz
+    sudo rm -r iperf-3* 3.5.tar.gz
 }
 
 upgrade_kernel() {

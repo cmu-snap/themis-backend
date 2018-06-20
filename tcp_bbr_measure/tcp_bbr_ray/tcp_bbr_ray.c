@@ -422,10 +422,9 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 		goto done;
 
 	/* If we're below target cwnd, slow start cwnd toward target cwnd. */
-	//if (gain == 2) {
-	  //  gain = 4;
-	//  gain = 2;
-	//}
+	if (gain == 2*BBR_UNIT) {
+	    gain = 4*BBR_UNIT;
+	}
 	target_cwnd = bbr_target_cwnd(sk, bw, gain);
 	if (bbr_full_bw_reached(sk))  /* only cut cwnd if we filled the pipe */
 		cwnd = min(cwnd + acked, target_cwnd);
