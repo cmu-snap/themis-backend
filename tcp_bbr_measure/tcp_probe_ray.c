@@ -358,7 +358,7 @@ static __init int tcpprobe_init(void)
 	if (ret)
 		goto err1;
 
-	pr_info("probe registered (port=%d/fwmark=%u) bufsize=%u\n",
+	pr_info("probe registered (port=%d/fwmark=%u) bufsize=%u version=1.0\n",
 		port, fwmark, bufsize);
 	return 0;
  err1:
