@@ -233,7 +233,7 @@ class ExperimentAnalyzer:
 
 ### helper functions
 
-def load_experiments(experiment_name_patterns, remote=True, force_local=False):
+def load_experiments(experiment_name_patterns, remote=True, force_local=False, remote_ip=REMOTE_IP_ADDR, remote_username=REMOTE_USERNAME):
     """
     experiment_name_pattern : list of str
         Should be a pattern that will be called with '{}.tar.gz'.format(experiment_name_pattern)
@@ -247,8 +247,8 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
     if remote:
-        print('Searching for experiments on remote machine: {}'.format(REMOTE_IP_ADDR))
-        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+        print('Searching for experiments on remote machine: {}'.format(remote_ip))
+        with cctestbed.get_ssh_client(remote_ip, username=remote_username) as ssh_client:
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
@@ -281,7 +281,7 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
         tarfile_localpath = os.path.join(
             DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
         if not os.path.isfile(tarfile_localpath):
-            with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+            with cctestbed.get_ssh_client(remote_ip, username=remote_username) as ssh_client:
                 sftp_client = ssh_client.open_sftp()
                 try:
                     print('Copying remotepath {} to localpath {}'.format(
