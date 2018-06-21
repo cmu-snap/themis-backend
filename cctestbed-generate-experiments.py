@@ -1,0 +1,218 @@
+import argparse
+import yaml
+import sys
+from itertools import product
+
+HOST_TARO = {'ifname_remote': 'ens13',
+             'ifname_local': 'ens3f0',
+             'ip_lan': '192.0.0.1',
+             'ip_wan': '128.2.208.128',
+             'pci': '05:00.0',
+             'key_filename': '/home/ranysha/.ssh/id_rsa',
+             'username': 'ranysha'}
+
+HOST_POTATO = {'ifname_remote': 'ens13',
+               'ifname_local': 'ens13',
+               'ip_lan': '192.0.0.4',
+               'ip_wan': '128.2.208.104',
+               'pci': '8b:00.0',
+               'key_filename': '/home/ranysha/.ssh/id_rsa',
+               'username': 'ranysha'}
+
+def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
+    config = {}
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+    #num_flows = [1,2,4,8,16,32]
+    num_flows = [1,4,16]
+    """"
+    # bbr alone experiments
+    for num_bbr_flows in num_flows:
+        experiment_name = 'bbr{}'.format(num_bbr_flows)
+        experiment = {'btlbw': btlbw,
+                      'queue_size': queue_size}
+        experiment['flows'] = [{'ccalg': 'bbr',
+                                'start_time': 0,
+                                'end_time': end_time,
+                                'rtt': rtt} for _ in range(num_bbr_flows)]
+        config['experiments'][experiment_name] = experiment
+    """
+    # cubic vs. bbr experiments
+    for num_cubic_flows, num_bbr_flows in product(num_flows, repeat=2):
+        experiment_name = 'cubic{}-bbr{}'.format(num_cubic_flows, num_bbr_flows)
+        experiment = {'btlbw': btlbw,
+                      'queue_size': queue_size}
+        cubic_flows = [{'ccalg': 'cubic',
+                        'start_time': 0,
+                        'end_time': end_time,
+                        'rtt': rtt} for _ in range(num_cubic_flows)]
+        bbr_flows = [{'ccalg': 'bbr',
+                      'start_time': 0,
+                      'end_time': end_time,
+                      'rtt': rtt} for _ in range(num_bbr_flows)]
+        experiment['flows'] = cubic_flows + bbr_flows
+        config['experiments'][experiment_name] = experiment
+    return config
+
+"""
+def cubic_bbr_bdp_config(server, client, end_time, bdp=32):
+    config = {}
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+    if bdp == 32:
+        queue_sizes = [8, 16, 32, 64, 128, 256, 512, 1024]
+        btlbw = 10
+        rtt = 40
+    elif bdp == 512:
+        queue_sizes = [128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+        btlbw = 100
+        rtt = 60
+    elif bdp == 256:
+        queue_sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+        btlbw = 1000
+        rtt = 3
+    elif bdp == 64:
+        queue_sizes = [16, 32, 64, 128, 256, 512, 1024, 2048]
+        btlbw = 10
+        rtt = 75
+    else:
+        raise ValueError("BDP must be one of {32, 256, 512}")
+
+    for size in queue_sizes:
+        experiment_name = 'cubic-bbr-{}bdp-{}q'.format(bdp, size)
+        experiment = {'btlbw': btlbw,
+                      'queue_size': size}
+        cubic_flows = [{'ccalg': 'cubic',
+                        'start_time': 0,
+                        'end_time': end_time,
+                        'rtt': rtt}]
+        bbr_flows = [{'ccalg': 'bbr',
+                      'start_time': 0,
+                      'end_time': end_time,
+                      'rtt': rtt}] 
+        experiment['flows'] = cubic_flows + bbr_flows
+        config['experiments'][experiment_name] = experiment
+    return config
+"""
+def cubic_bbr_bdp_config(server, client, end_time):
+    config = {}
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+
+                
+    experiment_params = [{'btlbw':400, 'rtt':30, 'bdp':1024},
+                         {'btlbw':10, 'rtt':3, 'bdp':4}]
+
+    for params in experiment_params:
+        btlbw  = params['btlbw']
+        rtt = params['rtt']
+        bdp = params['bdp']
+        queue_sizes_as_bdp = [0.25, 0.5, 1.0, 4.0, 16.0]
+        queue_sizes = list(map(lambda x: x*bdp, queue_sizes_as_bdp))
+                         
+        for size in queue_sizes:
+            if size >=4:
+                experiment_name = 'cubic-bbr-{}bw-{}rtt-{}q'.format(btlbw, rtt, int(size))
+                experiment = {'btlbw': btlbw,
+                              'queue_size': int(size)}
+                cubic_flows = [{'ccalg': 'cubic',
+                                'start_time': 0,
+                                'end_time': end_time,
+                                'rtt': rtt}]
+                bbr_flows = [{'ccalg': 'bbr',
+                              'start_time': 0,
+                              'end_time': end_time,
+                              'rtt': rtt}] 
+                experiment['flows'] = cubic_flows + bbr_flows
+                config['experiments'][experiment_name] = experiment
+    return config
+                         
+
+def bbr_config(server, client, end_time, bdp=32):
+    config = {}
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+    if bdp == 32:
+        #queue_sizes = [8, 16, 32, 64, 128, 256, 512, 1024]
+        queue_size = 1024
+        btlbw = 10
+        rtt = 40
+    elif bdp == 512:
+        #queue_sizes = [128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+        queue_size = 16384
+        btlbw = 100
+        rtt = 60
+    elif bdp == 256:
+        #queue_sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+        queue_size = 8192
+        btlbw = 1000
+        rtt = 3
+    else:
+        raise ValueError("BDP must be one of {32, 256, 512}")
+
+    num_flows = [1,2,4,8,16,32]
+    # bbr alone experiments
+    for num_bbr_flows in num_flows:
+        experiment_name = 'bbr{}-{}bdp'.format(num_bbr_flows, bdp)
+        experiment = {'btlbw': btlbw,
+                      'queue_size': queue_size}
+        experiment['flows'] = [{'ccalg': 'bbr',
+                                'start_time': 0,
+                                'end_time': end_time,
+                                'rtt': rtt} for _ in range(num_bbr_flows)]
+        config['experiments'][experiment_name] = experiment        
+    return config
+        
+
+def main(argv):
+    args = parse_args(argv)
+    print(args)
+    server = None
+    client = None
+    if args.server == 'potato':
+        server = HOST_POTATO
+    if args.client == 'taro':
+        client = HOST_TARO
+    if args.experiment_type == 'cubic-bbr':
+        config = cubic_bbr_config(server, client, btlbw=args.btlbw,
+                                  rtt=args.rtt, queue_size=args.queue_size,
+                                  end_time=args.end_time)
+    if args.experiment_type == 'cubic-bbr-bdp':
+        config = cubic_bbr_bdp_config(server, client,
+                                      end_time=args.end_time)
+    if args.experiment_type == 'bbr':
+        config = bbr_config(server, client, end_time=args.end_time, bdp=args.bdp)
+    with open(args.filename, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+    
+        
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description='Config file generator for cctestbed experiments')
+    parser.add_argument('experiment_type', choices=['cubic-bbr',
+                                                    'cubic-bbr-bdp',
+                                                    'bbr'],
+                        help='kind of experiment')
+    parser.add_argument('filename',
+                        help='filename for the generated config file')
+    parser.add_argument('client', choices=['taro'],
+                        help='client host')
+    parser.add_argument('server', choices=['potato'],
+                        help='server host')
+    parser.add_argument('--bdp', type = int, required=False,
+                        help='bandwidth delay product')
+    parser.add_argument('--btlbw', type=int, required=False, help='bottleneck bandwidth in mbps')
+    parser.add_argument('--rtt', type=int, required=False, help='round trip time for all flows in ms')
+    parser.add_argument('--queue_size', required=False, type=int,
+                        help='size of bottleneck queue in packets')
+    parser.add_argument('end_time', type=int, help='length of experiment in seconds')
+    args = parser.parse_args(argv)
+    return args
+    
+if __name__ == '__main__':
+    argv = sys.argv[1:]
+    main(argv)
