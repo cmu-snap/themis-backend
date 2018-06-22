@@ -22,7 +22,7 @@ import json
 import yaml
 import glob
 import subprocess
-
+import multiprocessing as mp
 
 REMOTE_IP_ADDR = '128.2.208.131'
 REMOTE_USERNAME = 'ranysha'
@@ -239,7 +239,7 @@ class ExperimentAnalyzer:
 
 ### helper functions
 
-def load_experiments(experiment_name_patterns, remote=True, force_local=False, remote_ip=REMOTE_IP_ADDR, remote_username=REMOTE_USERNAME):
+def load_experiments(experiment_name_patterns, remote=True, force_local=False):
     """
     experiment_name_pattern : list of str
         Should be a pattern that will be called with '{}.tar.gz'.format(experiment_name_pattern)
@@ -253,8 +253,8 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False, r
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
     if remote:
-        print('Searching for experiments on remote machine: {}'.format(remote_ip))
-        with cctestbed.get_ssh_client(remote_ip, username=remote_username) as ssh_client:
+        print('Searching for experiments on remote machine: {}'.format(REMOTE_IP_ADDR))
+        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
@@ -279,53 +279,65 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False, r
         else:
             print('Found 0 experiment(s) on local machines.')
 
-    experiments = {}
-    for tarfile_remotepath in tarfile_remotepaths:
-        # check if tarfile already here
-        # copy tarfile from remote machine to local machine (data directory)
-        experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
-        tarfile_localpath = os.path.join(
-            DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
-        if not os.path.isfile(tarfile_localpath):
-            with cctestbed.get_ssh_client(remote_ip, username=remote_username) as ssh_client:
-                sftp_client = ssh_client.open_sftp()
-                try:
-                    print('Copying remotepath {} to localpath {}'.format(
-                        tarfile_remotepath, tarfile_localpath))
-                    sftp_client.get(tarfile_remotepath,
-                                    tarfile_localpath)
-                finally:
-                    sftp_client.close()
-        # get experiment description file & stored in processed data path
-        experiment_description_filename = '{}.json'.format(experiment_name)
-        experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
-                                                        experiment_description_filename)
-        if not os.path.isfile(experiment_description_localpath):
-            with untarfile(tarfile_localpath, experiment_description_filename) as f:
-                experiment_description = json.loads(f.read().decode('utf-8-sig'))
-            with open(experiment_description_localpath, 'w') as f:
-                json.dump(experiment_description, f)
-        else:
-            with open(experiment_description_localpath) as f:
-                experiment_description = json.load(f)
-        experiments[experiment_name] = Experiment(tarfile_localpath=tarfile_localpath,
-                                                    **experiment_description)
+    #experiments = {}
+    with mp.Pool(10) as pool:
+        experiments = pool.map(get_experiment, tarfile_remotepaths)
+    #for tarfile_remotepath in tarfile_remotepaths:
+    #    experiment_name, exp = get_experiment(tarfile_remotepath)
+    #    experiments[experiment_name] = exp
     experiment_analyzers = {experiment_name:ExperimentAnalyzer(experiment)
-                                for experiment_name, experiment in experiments.items()}
+                                for experiment_name, experiment in experiments} #experiments.items()}
     return experiment_analyzers
 
+def get_experiment(tarfile_remotepath):
+    # check if tarfile already here
+    # copy tarfile from remote machine to local machine (data directory)
+    experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
+    tarfile_localpath = os.path.join(DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
+    if not os.path.isfile(tarfile_localpath):
+        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+            sftp_client = ssh_client.open_sftp()
+            try:
+                print('Copying remotepath {} to localpath {}'.format(
+                    tarfile_remotepath, tarfile_localpath))
+                sftp_client.get(tarfile_remotepath,
+                                tarfile_localpath)
+            finally:
+                sftp_client.close()
+    # get experiment description file & stored in processed data path
+    experiment_description_filename = '{}.json'.format(experiment_name)
+    experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
+                                                    experiment_description_filename)
+    if not os.path.isfile(experiment_description_localpath):
+        with untarfile(tarfile_localpath, experiment_description_filename) as f:
+            experiment_description = json.load(f)
+        with open(experiment_description_localpath, 'w') as f:
+            json.dump(experiment_description, f)
+    else:
+        with open(experiment_description_localpath) as f:
+            experiment_description = json.load(f)
+    experiment = Experiment(tarfile_localpath=tarfile_localpath,
+                            **experiment_description)
+    return experiment_name, experiment
+
+
 @contextmanager
-def untarfile(tar_filename, filename):
+def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
+    file_localpath = os.path.join(untar_dir, filename)
     try:
-        with tarfile.open(tar_filename, 'r:gz') as tar:
-            # get experiment description file
-            #experiment_description_filename = '{}.json'.format(experiment_name)
-            print('Extracting file {} from {}'.format(filename, tar_filename))
-            f = tar.extractfile(filename)
-            yield f
+        print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
+        cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
+                                                os.path.join(tar_filename),
+                                                filename)
+        completed_proc = subprocess.run(cmd, shell=True)
+        f = open(file_localpath)
+        yield f
     finally:
         f.close()
-        tar.close()
+        if delete_file:
+            print('Deleting file {}'.format(file_localpath))
+            os.remove(file_localpath)
+
 
 @contextmanager
 def untarfile_extract(tar_filename, filename):
