@@ -120,8 +120,9 @@ class Experiment:
                 self._run_tcpprobe(stack)
                 self._run_all_flows(stack)
             # compress all log files
-            self._compress_logs()
+            proc=self._compress_logs()
             logging.info('Finished experiment: {}'.format(self.name))
+            return proc 
         except Exception as e:
             logging.error('Error occurred while running experiment {}'.format(
                 self.name), e)
@@ -161,7 +162,6 @@ class Experiment:
         
     def _compress_logs(self):
         # will silently not compress logs that don't exists
-        logs = []
         # gather log names
         all_logs = list(self.logs.values())
         for flow in self.flows:
@@ -169,10 +169,12 @@ class Experiment:
                 all_logs.append(flow.server_log)
             if os.path.isfile(flow.client_log):
                 all_logs.append(flow.client_log)
-        logs = [os.path.basename(log) for log in all_logs if os.path.isfile(log)]
+        assert(os.path.isfile(self.config_filename))
+        logs = [os.path.basename(self.config_filename)]
+        logs += [os.path.basename(log) for log in all_logs if os.path.isfile(log)]
         if len(logs) == 0:
             logging.warning('Found no logs for this experiment to compress')
-        logging.info('Compressing logs {} into tarfile: {}'.format(len(logs), self.tar_filename))
+        logging.info('Compressing {} logs into tarfile: {}'.format(len(logs), self.tar_filename))
         cmd = 'cp {} {} && cd /tmp && tar -czf {} {} && rm -f {}'.format(
             self.config_filename,
             os.path.join('/tmp', os.path.basename(self.config_filename)),
@@ -186,7 +188,7 @@ class Experiment:
         # update config filename to be in /tmp/ (assumption with all other files)
         self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
         proc = subprocess.Popen(cmd, shell=True)
-        logging.info('Running background command {} (PID={})'.format(cmd, proc.pid))
+        logging.info('Running background command: {} (PID={})'.format(cmd, proc.pid))
         return proc
     
     def _delete_logs(self, delete_description=True):
@@ -602,6 +604,7 @@ def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
     logging.info('Going to repeat experiments {} times'.format(args.repeat))
+    completed_experiment_procs = []
     for num_repeat in range(args.repeat):
         logging.info('REPTITION {}: '.format(num_repeat))
         experiments = load_experiments(config, args.config_file,
@@ -610,15 +613,16 @@ def main(args):
                                        random_seed=args.seed)
         logging.info('Going to run {} experiments'.format(len(experiments)))
         for experiment in experiments.values():
-            # retry experiments one time if they fail
-            try:
-                experiment.run()
-            except:
-                logging.warning('Retrying experiment {}'.format(experiment.name))
-                experiment.run()
+            proc = experiment.run()
+            completed_experiment_procs.append(proc)
         
         args.force = True  # need to force future repetitions of experiments
-
+    for proc in completed_experiment_procs:
+        logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
+        proc.wait()
+        if proc.returncode !=0:
+            logging.warning('Error running cmd PID={}'.format(proc.pid))
+        
 
 def parse_args():
     """Parse commandline arguments"""
