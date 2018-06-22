@@ -65,12 +65,17 @@ class RemoteCommand:
             for log in self.logs:
                 logging.info('Copying remote file ({}): {}'.format(self.ip_addr,
                                                                    log))
-                logging.info('Starting local cmd: scp {}@{}:{} {}'.format(self.username, self.ip_addr, log,
-                                                                          os.path.join('/tmp', log)))
-                proc = subprocess.Popen(['scp',
-                                         '{}@{}:{}'.format(self.username, self.ip_addr, log),
-                                         os.path.join('/tmp', log)],
-                                        stdout = subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if self.key_filename is None:
+                    cmd = 'scp {}@{}:{} /tmp/'.format(self.username, self.ip_addr,
+                                                os.path.join('/tmp', log))
+                else:
+                    cmd = 'scp -i {} {}@{}:{} /tmp/'.format(self.key_filename, self.username,
+                                                      self.ip_addr,
+                                                      os.path.join('/tmp',log))
+                logging.info('Starting local cmd: {}'.format(cmd))
+                proc = subprocess.Popen(shlex.split(cmd),
+                                        stdout = subprocess.DEVNULL,
+                                        stderr=subprocess.PIPE)
                 stack.callback(proc.kill) # should always kill process if there is an error
                 scp_procs.append(proc)
 
@@ -80,6 +85,7 @@ class RemoteCommand:
                 proc.wait() 
                 if proc.returncode != 0:
                     logging.warning('Could not find file "{}" on remote server "{}"'.format(log, self.ip_addr))
+                    logging.warning(proc.stderr.read())
                 else:
                     logging.info('Remove remote file ({}): {}'.format(self.ip_addr,
                                                                       log))

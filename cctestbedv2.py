@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-from command import RemoteCommand, run_local_command, get_ssh_client, exec_command
+from cctestbed.command import RemoteCommand, run_local_command, get_ssh_client, exec_command
 
 from collections import namedtuple, OrderedDict
 from datetime import datetime
@@ -49,7 +49,7 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
 
 class Experiment:
     def __init__(self, name, btlbw, queue_size,
-                 flows, server, client, config_filename):
+                 flows, server, client, config_filename, server_nat_ip=None):
         self.exp_time = (datetime.now().isoformat()
                             .replace(':','').replace('-','').split('.')[0])
         self.name = name
@@ -84,6 +84,13 @@ class Experiment:
             new_flow = flow._replace(client_log=client_log,
                                      server_log=server_log)
             self.flows.append(new_flow)
+        # deal with having server behind a NAT
+        # TODO: FIX THIS STRAWMAN SOLUTION
+        if server_nat_ip is None:
+            self.server_nat_ip = self.server.ip_lan
+        else:
+            self.server_nat_ip = server_nat_ip
+            
 
     def cleanup_last_experiment(self):
         logging.info('Cleaning up last experiment just in case...')
@@ -120,29 +127,11 @@ class Experiment:
                 self._run_tcpprobe(stack)
                 self._run_all_flows(stack)
             # compress all log files
-            self._compress_logs()
+            proc = self._compress_logs()
             logging.info('Finished experiment: {}'.format(self.name))
         except Exception as e:
             logging.error('Error occurred while running experiment {}'.format(
                 self.name), e)
-            """
-            logging.info('Deleting all generated logs')
-            # DON'T DELETE DESCRIPTION LOG!!
-            logs = self.logs.copy()
-            logs.pop('description_log')
-            for log in logs.values():
-                if os.path.isfile(log):
-                    os.remove(log)
-                else:
-                    logging.warning('Log file does not exist: {}'.format(log))
-            # zip flow iperf logs
-            for flow in self.flows:
-                for log in [flow.server_log, flow.client_log]:
-                    if os.path.isfile(log):
-                        os.remove(log)
-                    else:
-                        logging.warning('Log file does not exist: {}'.format(log))
-            """
             self._delete_logs(delete_description=False)
             raise e
         
@@ -194,7 +183,7 @@ class Experiment:
         logs = self.logs.copy()
         if not delete_description:
             logs.pop('description_log')
-        for log in logs:
+        for log in logs.values():
             if os.path.isfile(log):
                 os.remove(log)
             else:
@@ -326,12 +315,12 @@ class Experiment:
             # check that i can ping between machines
             cmd = ('ping -c 4 -I {} {} '
                '| tail -1 '
-               '| awk "{{print $4}}" ').format(self.server.ip_lan,
-                                               self.client.ip_lan)
-            with get_ssh_client(self.server.ip_wan,
-                                username=self.server.username, 
-                                key_filename=self.server.key_filename) as ssh_client:
-                logging.info('Running cmd ({}): {}'.format(self.server.ip_wan,
+               '| awk "{{print $4}}" ').format(self.client.ip_lan,
+                                               self.server_nat_ip)
+            with get_ssh_client(self.client.ip_wan,
+                                username=self.client.username, 
+                                key_filename=self.client.key_filename) as ssh_client:
+                logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
                                                            cmd))
                 _, stdout, stderr = ssh_client.exec_command(cmd)
                 line = stdout.readline()
@@ -397,7 +386,7 @@ class Experiment:
                                 #'--window 100K '
                                 '--zerocopy '
                                 '--json '
-                                '--logfile {} ').format(self.server.ip_lan,
+                                '--logfile {} ').format(self.server_nat_ip,
                                                         flow.server_port,
                                                         self.client.ip_lan,
                                                         flow.client_port,
@@ -441,6 +430,9 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
     """Create experiments from config file and output to config"""
     client = Host(**config['client'])
     server = Host(**config['server'])
+    server_nat_ip = None
+    if 'server_nat_ip' in config:
+        server_nat_ip = config['server_nat_ip']
     experiments = OrderedDict()
     def is_completed_experiment(experiment_name, force):
         num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
@@ -484,7 +476,8 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
                          btlbw=int(experiment['btlbw']),
                          queue_size=int(experiment['queue_size']),
                          flows=flows, server=server, client=client,
-                         config_filename=config_filename)
+                         config_filename=config_filename,
+                         server_nat_ip=server_nat_ip)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
         exp.write_description_log()
