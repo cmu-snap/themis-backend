@@ -102,6 +102,11 @@ class ExperimentAnalyzer:
                                 names=['dequeued', 'time', 'src', 'seq', 'datalen',
                                         'size', 'dropped', 'queued', 'batch'])
                 df['lineno'] = df.index + 1 # save old index as lineno
+                bad_lines = df[df.isna().any(1)]
+                if not bad_lines.empty:
+                    bad_lines = bad_lines['lineno'].tolist()
+                    print('Dropping {} bad lines: {}'.format(len(bad_lines), bad_lines))
+                    df = df.dropna(axis='rows', how='any')
                 # add time as index
                 df['time'] = pd.to_datetime(df['time'], infer_datetime_format=True, unit='ns')
                 df = df.set_index('time').sort_index()
@@ -119,7 +124,8 @@ class ExperimentAnalyzer:
                 self._df_queue = df
             else:
                 with open(queue_log_localpath) as f:
-                    df = pd.read_csv(f, header=0, skipinitialspace=True, index_col='time')
+                    df = pd.read_csv(f, header=0,
+                                     skipinitialspace=True, index_col='time')
                     df.index = pd.to_datetime(df.index)
                     df['src'] = df['src'].astype('str')
                     self._df_queue = df
