@@ -145,13 +145,10 @@ def get_ssh_client(ip_addr, username, key_filename=None):
     try:
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        logging.info('Opening ssh client')
         ssh_client.connect(ip_addr, username=username, key_filename=key_filename,
                            banner_timeout=60, auth_timeout=60, timeout=60)
-        logging.info('Opened')
         yield ssh_client
     finally:
-        logging.info('Closing ssh_client')
         ssh_client.close()
 
 def exec_command(ssh_client, ip_addr, cmd):

@@ -103,7 +103,12 @@ class Experiment:
                                     username=self.server.username,
                                     key_filename=self.server.key_filename) as ssh_client:
                     exec_command(ssh_client, self.server.ip_wan, cmd)
-            
+
+    def write_description_log(self):
+        # save experiment to json file
+        with open(self.logs['description_log'], 'w') as f:
+            json.dump(self.__dict__, f)
+                    
     def run(self):
         try:
             # make sure old stuff closed
@@ -120,8 +125,8 @@ class Experiment:
         except Exception as e:
             logging.error('Error occurred while running experiment {}'.format(
                 self.name), e)
+            """
             logging.info('Deleting all generated logs')
-            # zip all experiment logs (that exist)
             # DON'T DELETE DESCRIPTION LOG!!
             logs = self.logs.copy()
             logs.pop('description_log')
@@ -137,6 +142,8 @@ class Experiment:
                         os.remove(log)
                     else:
                         logging.warning('Log file does not exist: {}'.format(log))
+            """
+            self._delete_logs(delete_description=False)
             raise e
         
     def get_wait_times(self):
@@ -153,34 +160,51 @@ class Experiment:
         return wait_times
         
     def _compress_logs(self):
-        # will only issue a warning if a log file doesn't exist
-        # this allows experiments to be run with some logs omitted
-        with tarfile.open(self.tar_filename, mode='w:gz') as experiment_tarfile:
-            # zip experiment logs including description config file
-            experiment_tarfile.add(self.config_filename, arcname=os.path.basename(self.config_filename))
-            logging.info('Renaming config_filename in experiment from {} to {}'.format(
-                self.config_filename,
-                os.path.join('/tmp' , os.path.basename(self.config_filename))))
-            # MAYBE: don't do this:
-            # update config filename to be in /tmp/ (assumption with all other files)
-            self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
-            logging.info('Compressing logs into tarfile: {}'.format(self.tar_filename))
-            # zip all experiment logs (that exist)
-            for log in self.logs.values():
+        # will silently not compress logs that don't exists
+        logs = []
+        # gather log names
+        all_logs = list(self.logs.values())
+        for flow in self.flows:
+            if os.path.isfile(flow.server_log):
+                all_logs.append(flow.server_log)
+            if os.path.isfile(flow.client_log):
+                all_logs.append(flow.client_log)
+        logs = [os.path.basename(log) for log in all_logs if os.path.isfile(log)]
+        if len(logs) == 0:
+            logging.warning('Found no logs for this experiment to compress')
+        logging.info('Compressing logs {} into tarfile: {}'.format(len(logs), self.tar_filename))
+        cmd = 'cp {} {} && cd /tmp && tar -czf {} {} && rm -f {}'.format(
+            self.config_filename,
+            os.path.join('/tmp', os.path.basename(self.config_filename)),
+            os.path.basename(self.tar_filename),
+            ' '.join(logs),
+            ' && rm -f '.join(logs))
+        logging.info('Renaming config_filename in experiment from {} to {}'.format(
+            self.config_filename,
+            os.path.join('/tmp' , os.path.basename(self.config_filename))))
+        # MAYBE: don't do this:
+        # update config filename to be in /tmp/ (assumption with all other files)
+        self.config_filename = os.path.join('/tmp', os.path.basename(self.config_filename))
+        proc = subprocess.Popen(cmd, shell=True)
+        logging.info('Running background command {} (PID={})'.format(cmd, proc.pid))
+        return proc
+    
+    def _delete_logs(self, delete_description=True):
+        logging.info('[{}] Deleting all generated logs'.format(self.name))
+        logs = self.logs.copy()
+        if not delete_description:
+            logs.pop('description_log')
+        for log in logs:
+            if os.path.isfile(log):
+                os.remove(log)
+            else:
+                logging.warning('Log file does not exist: {}'.format(log))
+        for flow in self.flows:
+            for log in [flow.server_log, flow.client_log]:
                 if os.path.isfile(log):
-                    experiment_tarfile.add(log, arcname=os.path.basename(log))
                     os.remove(log)
                 else:
                     logging.warning('Log file does not exist: {}'.format(log))
-            # zip flow iperf logs
-            for flow in self.flows:
-                for log in [flow.server_log, flow.client_log]:
-                    if os.path.isfile(log):
-                        experiment_tarfile.add(log, arcname=os.path.basename(log))
-                        os.remove(log)
-                    else:
-                        logging.warning('Log file does not exist: {}'.format(log))
-        assert(os.path.exists(self.tar_filename))
 
     def _validate(self):
         # check queue log has all lines with the same number of columns
@@ -193,11 +217,11 @@ class Experiment:
         raise NotImplementedError()
 
     def _show_bess_pipeline(self):
-        cmd = '/opt/bess/bessctl/bessctl show pipeline'
+        cmd = 'sudo /opt/bess/bessctl/bessctl show pipeline'
         logging.info('\n'+run_local_command(cmd))
-        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        cmd = 'sudo /opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         logging.info('\n'+run_local_command(cmd))
-        cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
+        cmd = 'sudo /opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
         logging.info('\n'+run_local_command(cmd))
 
 
@@ -235,7 +259,7 @@ class Experiment:
     def _run_tcpprobe(self, stack):
         # assumes that tcp_bbr_measure is installed @ /opt/tcp_bbr_measure on iperf client
         insmod_cmd = ('sudo insmod '
-                      '/opt/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
+                      '/opt/cctestbed/tcp_bbr_measure/tcp_probe_ray.ko port=0 full=1 '
                       '&& sudo chmod 444 /proc/net/tcpprobe ')
         with get_ssh_client(self.client.ip_wan,
                             username=self.client.username,
@@ -293,6 +317,7 @@ class Experiment:
 
     @contextmanager
     def _run_bess(self):
+        self.write_description_log()
         stderr = None
         try:
             start_bess(self)
@@ -393,7 +418,7 @@ class Experiment:
         # last flow should be the last one
         sleep_time = flow.end_time - flow.start_time + 1
         logging.info('Sleep for {}s'.format(sleep_time))
-        time.sleep(sleep_time)
+        time.sleep(sleep_time) 
         self._show_bess_pipeline()
 
     def __repr__(self):
@@ -418,7 +443,8 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
     server = Host(**config['server'])
     experiments = OrderedDict()
     def is_completed_experiment(experiment_name, force):
-        experiment_done = len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0
+        num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
+        experiment_done = len(num_completed) > 0
         if experiment_done:
             if force:
                 logging.warning(
@@ -447,7 +473,7 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
                 flow['start_time'] = random.randint(0,10)
             assert(flow['start_time'] < flow['end_time'])
             flows.append(Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
-                              end_time=flow['end_time'], rtt=flow['rtt'],
+                              end_time=flow['end_time'], rtt=int(flow['rtt']),
                               server_port=server_port, client_port=client_port,
                               client_log=None, server_log=None))
             server_port += 1
@@ -455,16 +481,16 @@ def load_experiments(config, config_filename, random_seed=None, experiment_names
         # sort flows according to their start times so they can be run in order
         flows.sort(key=lambda x: x.start_time)
         exp = Experiment(name=experiment_name,
-                         btlbw=experiment['btlbw'],
-                         queue_size=experiment['queue_size'],
+                         btlbw=int(experiment['btlbw']),
+                         queue_size=int(experiment['queue_size']),
                          flows=flows, server=server, client=client,
                          config_filename=config_filename)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
-
+        exp.write_description_log()
         # save experiment to json file
-        with open(exp.logs['description_log'], 'w') as f:
-            json.dump(exp.__dict__, f)
+        #with open(exp.logs['description_log'], 'w') as f:
+        #    json.dump(exp.__dict__, f)
     return experiments
 
 def start_bess(experiment):
@@ -575,18 +601,24 @@ def get_interface_ip(ifname):
 def main(args):
     config = load_config_file(args.config_file)
     experiment_names = args.names
-    experiments = load_experiments(config, args.config_file,
-                                   experiment_names=experiment_names,
-                                   force=args.force,
-                                   random_seed=args.seed)
-    logging.info('Going to run {} experiments'.format(len(experiments)))
-    for experiment in experiments.values():
-        # retry experiments one time if they fail
-        try:
-            experiment.run()
-        except:
-            logging.warning('Retrying experiment {}'.format(experiment.name))
-            experiment.run()
+    logging.info('Going to repeat experiments {} times'.format(args.repeat))
+    for num_repeat in range(args.repeat):
+        logging.info('REPTITION {}: '.format(num_repeat))
+        experiments = load_experiments(config, args.config_file,
+                                       experiment_names=experiment_names,
+                                       force=args.force,
+                                       random_seed=args.seed)
+        logging.info('Going to run {} experiments'.format(len(experiments)))
+        for experiment in experiments.values():
+            # retry experiments one time if they fail
+            try:
+                experiment.run()
+            except:
+                logging.warning('Retrying experiment {}'.format(experiment.name))
+                experiment.run()
+        
+        args.force = True  # need to force future repetitions of experiments
+
 
 def parse_args():
     """Parse commandline arguments"""
@@ -596,6 +628,7 @@ def parse_args():
     parser.add_argument('--force', '-f', action='store_true', help='Force experiments that were already run to run again')
     parser.add_argument('--randomize', dest='seed', type=int,
                         help='Randomize flow start time between 0 & 10 seconds with given random seed')
+    parser.add_argument('--repeat', type=int, default=1, help='Repeat experiments some number of times')
     args = parser.parse_args()
     if args.seed is not None:
         random.seed(args.seed)
