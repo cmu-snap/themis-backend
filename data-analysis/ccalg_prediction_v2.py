@@ -202,6 +202,12 @@ class CCAlgClassifier:
         return self._training_samples
 
     @property
+    def classifier(self):
+        if self._classifier is None:
+            self._classifier = neighbors.KNeighborsClassifier(n_neighbors=1)
+        return self._classifier
+
+    @property
     def predicted_labels(self):
         if len(self._predicted_labels) == 0:
             predicted_labels = model_selection.cross_val_predict(
@@ -212,9 +218,5 @@ class CCAlgClassifier:
                 self._predicted_labels[experiment_name] = predicted_labels[idx]
         return self._predicted_labels
 
-    @property
-    def classifier(self):
-        if self._classifier is None:
-            self._classifier = neighbors.KNeighborsClassifier(n_neighbors=1)
-        return self._classifier
+
 
