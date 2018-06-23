@@ -1,3 +1,7 @@
+import sys
+sys.path.append('../')
+
+
 from cctestbedv2 import Flow, Host
 
 import os
