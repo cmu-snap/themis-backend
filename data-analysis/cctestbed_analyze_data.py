@@ -239,7 +239,7 @@ class ExperimentAnalyzer:
 
 ### helper functions
 
-def load_experiments(experiment_name_patterns, remote=True, force_local=False):
+def load_experiments(experiment_name_patterns, remote=True, force_local=False, remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR):
     """
     experiment_name_pattern : list of str
         Should be a pattern that will be called with '{}.tar.gz'.format(experiment_name_pattern)
@@ -253,20 +253,24 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False):
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
     if remote:
-        print('Searching for experiments on remote machine: {}'.format(REMOTE_IP_ADDR))
-        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+        print('Searching for experiments on remote machine: {}'.format(remote_ip))
+        with cctestbed.get_ssh_client(ip_addr=remote_ip,
+                                      username=remote_username) as ssh_client:
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
-                tarfile_remotepaths += [filename.strip() for filename in stdout.readlines()]
-        print('Found {} experiment(s) on remote machine: {}'.format(len(tarfile_remotepaths), tarfile_remotepaths))
+                tarfile_remotepaths += [filename.strip()
+                                        for filename in stdout.readlines()]
+        print('Found {} experiment(s) on remote machine: {}'.format(
+            len(tarfile_remotepaths), tarfile_remotepaths))
     else:
         print('Not searching remote machine for experiments.')
 
     if force_local or len(tarfile_remotepaths) == 0:
         num_local_files = 0
         for experiment_name_pattern in experiment_name_patterns:
-            local_filepaths = glob.glob(os.path.join(DATAPATH_RAW, experiment_name_pattern))
+            local_filepaths = glob.glob(os.path.join(DATAPATH_RAW,
+                                                     experiment_name_pattern))
             tarfile_remotepaths += local_filepaths
             num_local_files += len(local_filepaths)
         if len(tarfile_remotepaths) == 0:
