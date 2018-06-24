@@ -268,22 +268,26 @@ class ExperimentAnalyzer:
 
 class ExperimentAnalyzers(dict):
 
-    def _regex_match(regex, key):
-        if regex.match(key):
-            return key
-        else:
-            return None
-
-    def get_matching(self, pattern):
+    def get_matching_pool(self, pattern):
         """Return subset of ExperimentAnalyzers dict that match given
         regex pattern.
         """
         regex = re.compile(pattern)
-        pool_chunksize = int(len(dict) / mp.cpu_count()) + 1
+        pool_chunksize = int(len(self) / mp.cpu_count()) + 1
         with mp.Pool() as pool:
-            matching = pool.map(_regex_match, self.keys())
+            matching = pool.starmap(regex_match, zip(it.repeat(regex), self.keys()), chunksize=pool_chunksize)
         return {key:self[key] for key in matching if key is not None}
 
+    def get_matching(self, pattern):
+        # this one seems to actually be faster than get_matching_pool
+        regex = re.compile(pattern)
+        return {key:value for key,value in self.items() if regex.match(key)}
+
+def regex_match(regex, key):
+    if regex.match(key):
+        return key
+    else:
+        return None
 
 @contextmanager
 def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
@@ -304,7 +308,6 @@ def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
 
 def untarfile_extract(*args):
     raise NotImplementedError
-
 
 def load_experiments(experiment_name_patterns, remote=True, force_local=False,
                         remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR):
@@ -358,15 +361,13 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
     num_tarfiles = len(tarfile_remotepaths)
     num_tarfiles_per_process = int(num_tarfiles / num_proc) + 1
     with mp.Pool(num_proc) as pool:
-        experiments = pool.starmap(get_experiment, zip(tarfile_remotepaths,
-                                                        it.repeat(remote_ip, num_tarfiles),
-                                                        it.repeat(remote_username, num_tarfiles)),
+        analyzers = pool.starmap(get_experiment, zip(tarfile_remotepaths,
+                                                    it.repeat(remote_ip, num_tarfiles),
+                                                    it.repeat(remote_username, num_tarfiles)),
                                                     chunksize=num_tarfiles_per_process)
-    #for tarfile_remotepath in tarfile_remotepaths:
-    #    experiment_name, exp = get_experiment(tarfile_remotepath)
-    #    experiments[experiment_name] = exp
-    experiment_analyzers = ExperimentAnalyzers(
-        {experiment_name:ExperimentAnalyzer(experiment) for experiment_name, experiment in experiments}) #experiments.items()}
+    experiment_analyzers = ExperimentAnalyzers()
+    for analyzer in analyzers:
+        experiment_analyzers[analyzer.experiment.name] = analyzer
     return experiment_analyzers
 
 def get_experiment(tarfile_remotepath, remote_ip, remote_username):
@@ -375,7 +376,7 @@ def get_experiment(tarfile_remotepath, remote_ip, remote_username):
     experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
     tarfile_localpath = os.path.join(DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
     if not os.path.isfile(tarfile_localpath):
-        with get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+        with get_ssh_client(remote_ip, username=remote_username) as ssh_client:
             sftp_client = ssh_client.open_sftp()
             try:
                 print('Copying remotepath {} to localpath {}'.format(
@@ -398,4 +399,5 @@ def get_experiment(tarfile_remotepath, remote_ip, remote_username):
             experiment_description = json.load(f)
     experiment = Experiment(tarfile_localpath=tarfile_localpath,
                             **experiment_description)
-    return experiment_name, experiment
+    experiment_analyzer = ExperimentAnalyzer(experiment)
+    return experiment_analyzer
