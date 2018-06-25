@@ -14,6 +14,7 @@ import re
 import glob
 import multiprocessing as mp
 import itertools as it
+import numpy as np
 
 CODEPATH = '/home/ranysha/cctestbed'
 DATAPATH_RAW = '/home/ranysha/cctestbed/data-raw'
@@ -75,7 +76,7 @@ Each experiment has it's own experiment analyzer
 Lazily populate dataframes for queue, tcpprobe
 """
 class ExperimentAnalyzer:
-    def __init__(self, experiment):
+    def __init__(self, experiment, load_queue=False):
         self.experiment = experiment
         self._df_queue = None
         self._df_tcpprobe = None
@@ -83,18 +84,90 @@ class ExperimentAnalyzer:
         self._df_tcpdump_server = None
         self._flow_sender_ports = None
         self._flow_names = None
-
-        # path to HDF5 store of queue; lazily poulated after hdf_queue_path called
+         # path to HDF5 store of queue; lazily poulated after hdf_queue_path called
         self._hdf_queue_path = None
 
+        if load_queue:
+            with self.hdf_queue() as _: #None
+                pass
+
+    def _create_hdf_queue(self, raw_queue_log_tarpath, raw_queue_log_localpath, processed_queue_log_localpath):
+        # haven't created HDF5 store yet; create it now
+        sort_cmd = 'sort -k 2 -o {} {}'.format(raw_queue_log_localpath,
+                                                raw_queue_log_localpath)
+        with untarfile(self.experiment.tarfile_localpath, raw_queue_log_tarpath, postprocess_cmd=sort_cmd) as f:
+            with pd.HDFStore(processed_queue_log_localpath, mode='w') as store:
+                df = pd.read_csv(f, names = ['dequeued',
+                                                'time',
+                                                'src',
+                                                'seq',
+                                                'datalen',
+                                                'size',
+                                                'dropped',
+                                                'queued',
+                                                'batch'],
+                                    converters = {'seq': lambda x: int(x, 16),
+                                                'src': lambda x: int(x, 16)},
+                                    dtype={'dequeued': bool,
+                                        'time': np.uint64,
+                                        'datalen': np.uint16,
+                                        'size': np.uint32,
+                                        'dropped':bool,
+                                        'queued': np.uint16,
+                                        'batch': np.uint16})
+                df['seq'] = df['seq'].astype( np.uint32)
+                df['src'] = df['src'].astype( np.uint16)
+                #chunk['time'] = pd.to_datetime(chunk['time'], infer_datetime_format=True, unit='ns')
+                df['lineno'] = df.index + 1
+                df = df.set_index('time')
+                df_enq = (pd
+                        .get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src'])
+                        .astype(np.uint8))
+                df_deq = (pd
+                        .get_dummies(df[df.dequeued==1]['src'])
+                        .replace(1,-1)
+                        .astype(np.int8))
+                df_flows = (df_enq
+                            .append(df_deq)
+                            .sort_index()
+                            .cumsum()
+                            .fillna(0)
+                            .astype(np.uint32))
+                df = (df
+                    .reset_index()
+                    .join(df_flows.reset_index().drop('time', axis=1))
+                    .sort_index()
+                    .ffill())
+                df.time = pd.to_datetime(df.time,
+                                        infer_datetime_format=True,
+                                        unit='ns')
+                df = df.set_index('time')
+                store.append('df_queue',
+                            df,
+                            format='table',
+                            data_columns=['src', 'dropped', 'dequeued'])
+
     @contextmanager
-    def hdf_queue(self):
-        if self._hdf_queue_path is None:
-            # haven't created HDF5 store yet; create it now
-            pass
+    def hdf_queue(self, mode='r'):
+        if (self._hdf_queue_path is None) or (not os.path.isfile(self._hdf_queue_path)):
+            raw_queue_log_tarpath = self.experiment.logs['queue_log']
+            raw_queue_log_localpath = os.path.join(DATAPATH_RAW, raw_queue_log_tarpath)
+            processed_queue_log_localpath =  os.path.join(DATAPATH_PROCESSED,
+                                                    '{}.h5'.format(os.path.join(
+                                                    raw_queue_log_tarpath[:-len('.txt')])))
+            if not os.path.isfile(processed_queue_log_localpath):
+                print('Creating HDF store for queue')
+                self._create_hdf_queue(raw_queue_log_tarpath, raw_queue_log_localpath, processed_queue_log_localpath)
+            self._hdf_queue_path = processed_queue_log_localpath
+        store = pd.HDFStore(self._hdf_queue_path, mode=mode)
+        try:
+            yield store
+        finally:
+            store.close()
 
     @property
     def df_queue(self):
+        raise NotImplementedError
         queue_log_tarpath = self.experiment.logs['queue_log']
         queue_log_localpath = os.path.join(DATAPATH_PROCESSED,
                                             '{}.csv'.format(os.path.join(queue_log_tarpath[:-len('.txt')])))
@@ -104,9 +177,27 @@ class ExperimentAnalyzer:
                 if not os.path.isfile(os.path.join(DATAPATH_RAW, queue_log_tarpath)):
                     with untarfile(self.experiment.tarfile_localpath, queue_log_tarpath) as f:
                         # remove header=0, since there is no header
-                        df = pd.read_csv(f, skipinitialspace=True,
-                                names=['dequeued', 'time', 'src', 'seq', 'datalen',
-                                        'size', 'dropped', 'queued', 'batch'])
+                        #df = pd.read_csv(f, skipinitialspace=True,
+                        #        names=['dequeued', 'time', 'src', 'seq', 'datalen',
+                        #                'size', 'dropped', 'queued', 'batch'])
+                        df = pd.read_csv(f, names = ['dequeued',
+                                                    'time',
+                                                    'src',
+                                                    'seq',
+                                                    'datalen',
+                                                    'size',
+                                                    'dropped',
+                                                    'queued',
+                                                    'batch'],
+                                        converters = {'seq': lambda x: int(x, 16),
+                                                    'src': lambda x: int(x, 16)},
+                                        dtype={'dequeued': bool,
+                                            'time':np.uint64,
+                                            'datalen':np.uint16,
+                                            'size':np.uint32,
+                                            'dropped':bool,
+                                            'queued': np.uint16,
+                                            'batch':np.uint16})
                 else:
                     with open(os.path.join(DATAPATH_RAW, queue_log_tarpath)) as f:
                         df = pd.read_csv(f, skipinitialspace=True,
@@ -146,7 +237,7 @@ class ExperimentAnalyzer:
     @property
     def flow_sender_ports(self):
         if self._flow_sender_ports is None:
-            self._flow_sender_ports = {str(flow.client_port):flow.ccalg
+            self._flow_sender_ports = {flow.client_port:flow.ccalg
                                         for flow in self.experiment.flows}
         return self._flow_sender_ports
 
@@ -164,9 +255,9 @@ class ExperimentAnalyzer:
                 port, ccalg = flow_ccalg.split('-')
                 seen_ccalgs_counter[ccalg] += 1
                 if seen_ccalgs_counter[ccalg] > 1:
-                    flow_names[port] = '{}-{}'.format(ccalg, seen_ccalgs_counter[ccalg])
+                    flow_names[int(port)] = '{}-{}'.format(ccalg, seen_ccalgs_counter[ccalg])
                 else:
-                    flow_names[port] = ccalg
+                    flow_names[int(port)] = ccalg
             self._flow_names = flow_names
         return self._flow_names
 
@@ -237,6 +328,33 @@ class ExperimentAnalyzer:
         #goodput_describe = (transfer_size / transfer_time).describe().T
         return goodput
 
+    def get_goodput(self, interval=None):
+        #dequeued = self.df_queue[self.df_queue.dequeued==1]
+        with self.hdf_queue() as hdf_queue:
+            src_query = 'src=' + ' | src='.join(map(lambda x: str(5555+x),
+                                                    range(len(self.experiment.flows))))
+            dequeued = hdf_queue.select('df',
+                                        where='dequeued=1 & ({})'.format(src_query),
+                                        columns=['src', 'datalen'])
+
+        df_queue_path = self.df_queue
+        dequeued = pd.read_hdf(df_queue_path,'df', where='dequeued=1',
+                               columns=['src', 'datalen'])
+        # total goodput
+        if interval:
+            dequeued.index = (dequeued.index - dequeued.index[0]).total_seconds()
+            dequeued = dequeued[interval[0]:interval[1]]
+            dequeued.index = dequeued.index - dequeued.index[0] # noramlize again
+            goodput = (dequeued.groupby('src')['datalen'].sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / dequeued.index.max()
+        else:
+            goodput = (dequeued.groupby('src')['datalen'].sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / (dequeued.index.max() - dequeued.index.min()).total_seconds()
+        goodput.index = goodput.index = goodput.index.astype('str')
+        goodput = goodput.rename(self.flow_names)[list(self.flow_names.values())]
+        # TODO: only get total goodput for a specific ccalg
+        #goodput = goodput.rename(flows)[list(flows.values())]
+        #goodput_describe = (transfer_size / transfer_time).describe().T
+        return goodput
+
     @property
     def df_tcpdump_server(self):
         raise NotImplementedError()
@@ -290,14 +408,17 @@ def regex_match(regex, key):
         return None
 
 @contextmanager
-def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
+def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True, postprocess_cmd=None):
     file_localpath = os.path.join(untar_dir, filename)
     try:
         print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
         cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
-                                                os.path.join(tar_filename),
+                                                tar_filename,
                                                 filename)
-        subprocess.run(cmd, shell=True)
+        subprocess.run(cmd, shell=True, check=True)
+        if postprocess_cmd is not None:
+            print('Running postprocess cmd: {}'.format(postprocess_cmd))
+            subprocess.run(postprocess_cmd, shell=True, check=True)
         f = open(file_localpath)
         yield f
     finally:
@@ -310,8 +431,9 @@ def untarfile_extract(*args):
     raise NotImplementedError
 
 def load_experiments(experiment_name_patterns, remote=True, force_local=False,
-                        remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR):
-    """
+                        remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR,
+                        load_queue=False):
+    """Load all experiments into experiment analyzers
     experiment_name_pattern : list of str
         Should be a pattern that will be called
         with '{}.tar.gz'.format(experiment_name_pattern)
@@ -363,14 +485,16 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
     with mp.Pool(num_proc) as pool:
         analyzers = pool.starmap(get_experiment, zip(tarfile_remotepaths,
                                                     it.repeat(remote_ip, num_tarfiles),
-                                                    it.repeat(remote_username, num_tarfiles)),
+                                                    it.repeat(remote_username, num_tarfiles),
+                                                    it.repeat(load_queue, num_tarfiles)),
                                                     chunksize=num_tarfiles_per_process)
     experiment_analyzers = ExperimentAnalyzers()
     for analyzer in analyzers:
-        experiment_analyzers[analyzer.experiment.name] = analyzer
+        experiment_analyzers['{}-{}'.format(analyzer.experiment.name,
+                                            analyzer.experiment.exp_time)] = analyzer
     return experiment_analyzers
 
-def get_experiment(tarfile_remotepath, remote_ip, remote_username):
+def get_experiment(tarfile_remotepath, remote_ip, remote_username, load_queue):
     # check if tarfile already here
     # copy tarfile from remote machine to local machine (data directory)
     experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
@@ -399,5 +523,5 @@ def get_experiment(tarfile_remotepath, remote_ip, remote_username):
             experiment_description = json.load(f)
     experiment = Experiment(tarfile_localpath=tarfile_localpath,
                             **experiment_description)
-    experiment_analyzer = ExperimentAnalyzer(experiment)
+    experiment_analyzer = ExperimentAnalyzer(experiment, load_queue=load_queue)
     return experiment_analyzer
