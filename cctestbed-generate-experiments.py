@@ -19,6 +19,22 @@ HOST_POTATO = {'ifname_remote': 'ens13',
                'key_filename': '/home/ranysha/.ssh/id_rsa',
                'username': 'ranysha'}
 
+HOST_CLIENT = {'ifname_remote': 'enp6s0f0',
+               'ifname_local': 'enp6s0f0',
+               'ip_lan':'192.0.0.4',
+               'ip_wan':'128.104.222.151',
+               'pci':'06:00.0',
+               'key_filename':None,
+               'username':'rware'}
+
+HOST_SERVER = {'ifname_remote':'enp6s0f0',
+               'ifname_local':'enp6s0f1',
+               'ip_lan':'192.0.0.2',
+               'ip_wan':'128.104.222.148',
+               'pci':'06:00.1',
+               'key_filename':None,
+               'username':'rware'}
+
 def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
     config = {}
     config['server'] = server
@@ -103,8 +119,14 @@ def cubic_bbr_bdp_config(server, client, end_time):
     config['experiments'] = {}
 
                 
-    experiment_params = [{'btlbw':400, 'rtt':30, 'bdp':1024},
-                         {'btlbw':10, 'rtt':3, 'bdp':4}]
+    #experiment_params = [{'btlbw':400, 'rtt':30, 'bdp':1024},
+    #                     {'btlbw':10, 'rtt':3, 'bdp':4}]
+
+    experiment_params = [{'btlbw':100, 'rtt':1, 'bdp':8},
+                         {'btlbw':15, 'rtt':100, 'bdp':128},
+                         {'btlbw':120, 'rtt':100, 'bdp':1024}]
+                         #{'btlbw':400, 'rtt':30, 'bdp':1024},
+                         #{'btlbw':10, 'rtt':3, 'bdp':4}]
 
     for params in experiment_params:
         btlbw  = params['btlbw']
@@ -177,6 +199,10 @@ def main(argv):
         server = HOST_POTATO
     if args.client == 'taro':
         client = HOST_TARO
+    if args.server == 'server':
+        server = HOST_SERVER
+    if args.client == 'client':
+        client = HOST_CLIENT
     if args.experiment_type == 'cubic-bbr':
         config = cubic_bbr_config(server, client, btlbw=args.btlbw,
                                   rtt=args.rtt, queue_size=args.queue_size,
@@ -199,9 +225,9 @@ def parse_args(argv):
                         help='kind of experiment')
     parser.add_argument('filename',
                         help='filename for the generated config file')
-    parser.add_argument('client', choices=['taro'],
+    parser.add_argument('client', choices=['taro','client'],
                         help='client host')
-    parser.add_argument('server', choices=['potato'],
+    parser.add_argument('server', choices=['potato','server'],
                         help='server host')
     parser.add_argument('--bdp', type = int, required=False,
                         help='bandwidth delay product')
