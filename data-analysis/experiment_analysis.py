@@ -1,43 +1,27 @@
-#CODEPATH = '/Users/rware/Documents/research/code/cctestbed'
-#DATAPATH_RAW = '/Users/rware/Documents/research/data/cctestbed/raw'
-#DATAPATH_PROCESSED = '/Users/rware/Documents/research/data/cctestbed/processed'
+import sys
+sys.path.append('../')
+
+from cctestbedv2 import Flow, Host, get_ssh_client
+
+import os
+import tarfile
+import json
+import pandas as pd
+from collections import Counter
+from contextlib import contextmanager
+import subprocess
+import re
+import glob
+import multiprocessing as mp
+import itertools as it
 
 CODEPATH = '/home/ranysha/cctestbed'
 DATAPATH_RAW = '/home/ranysha/cctestbed/data-raw'
 DATAPATH_PROCESSED = '/home/ranysha/cctestbed/data-processed'
-
-import sys
-sys.path.insert(0, CODEPATH)
-
-from collections import namedtuple, Counter, defaultdict
-from contextlib import contextmanager
-import cctestbedv2 as cctestbed
-import matplotlib.pyplot as plt
-import pandas as pd
-import datetime as dt
-import paramiko
-import os
-import tarfile
-import json
-import yaml
-import glob
-import subprocess
-import multiprocessing as mp
-
-REMOTE_IP_ADDR = '128.2.208.131'
-REMOTE_USERNAME = 'ranysha'
 BYTES_TO_BITS = 8
 BITS_TO_MEGABITS = 1.0 / 1000000.0
-MILLISECONDS_TO_SECONDS = 1.0 / 1000.0
-
-Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
-Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
-                           'server_port', 'client_port', 'client_log', 'server_log'])
-
-# Goal is to leave raw data in tarfile in DATAPATH_RAW and store all processed data in DATAPATH_PROCESSED
-
-# TODO: don't load experiment if files already exist
-
+REMOTE_IP_ADDR = '128.2.208.131'
+REMOTE_USERNAME = 'ranysha'
 
 class Experiment:
     def __init__(self, **kwargs):
@@ -67,6 +51,24 @@ class Experiment:
                            indent=4)
         return attrs
 
+    def __eq__(self, other):
+        return self.name.__eq__(other.name)
+
+    def __lt__(self, other):
+        return self.name.__lt__(other.name)
+
+    def __le__(self, other):
+        return self.name.__le__(other.name)
+
+    def __gt__(self, other):
+        return self.name.__gt__(other.name)
+
+    def __ge__(self, other):
+        return self.name.__ge__(other.name)
+
+    def __ne__(self, other):
+        return self.name.__ne__(other.name)
+
 """
 Each experiment has it's own experiment analyzer
 
@@ -81,6 +83,15 @@ class ExperimentAnalyzer:
         self._df_tcpdump_server = None
         self._flow_sender_ports = None
         self._flow_names = None
+
+        # path to HDF5 store of queue; lazily poulated after hdf_queue_path called
+        self._hdf_queue_path = None
+
+    @contextmanager
+    def hdf_queue(self):
+        if self._hdf_queue_path is None:
+            # haven't created HDF5 store yet; create it now
+            pass
 
     @property
     def df_queue(self):
@@ -237,25 +248,87 @@ class ExperimentAnalyzer:
     def __str__(self):
         return str(self.experiment)
 
-### helper functions
+    def __eq__(self, other):
+        return self.experiment.__eq__(other.experiment)
 
-def load_experiments(experiment_name_patterns, remote=True, force_local=False, remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR):
+    def __lt__(self, other):
+        return self.experiment.__lt__(other.experiment)
+
+    def __le__(self, other):
+        return self.experiment.__le__(other.experiment)
+
+    def __gt__(self, other):
+        return self.experiment.__gt__(other.experiment)
+
+    def __ge__(self, other):
+        return self.experiment.__ge__(other.experiment)
+
+    def __ne__(self, other):
+        return self.experiment.__ne__(other.experiment)
+
+class ExperimentAnalyzers(dict):
+
+    def get_matching_pool(self, pattern):
+        """Return subset of ExperimentAnalyzers dict that match given
+        regex pattern.
+        """
+        regex = re.compile(pattern)
+        pool_chunksize = int(len(self) / mp.cpu_count()) + 1
+        with mp.Pool() as pool:
+            matching = pool.starmap(regex_match, zip(it.repeat(regex), self.keys()), chunksize=pool_chunksize)
+        return {key:self[key] for key in matching if key is not None}
+
+    def get_matching(self, pattern):
+        # this one seems to actually be faster than get_matching_pool
+        regex = re.compile(pattern)
+        return {key:value for key,value in self.items() if regex.match(key)}
+
+def regex_match(regex, key):
+    if regex.match(key):
+        return key
+    else:
+        return None
+
+@contextmanager
+def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
+    file_localpath = os.path.join(untar_dir, filename)
+    try:
+        print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
+        cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
+                                                os.path.join(tar_filename),
+                                                filename)
+        subprocess.run(cmd, shell=True)
+        f = open(file_localpath)
+        yield f
+    finally:
+        f.close()
+        if delete_file:
+            print('Deleting file {}'.format(file_localpath))
+            os.remove(file_localpath)
+
+def untarfile_extract(*args):
+    raise NotImplementedError
+
+def load_experiments(experiment_name_patterns, remote=True, force_local=False,
+                        remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR):
     """
     experiment_name_pattern : list of str
-        Should be a pattern that will be called with '{}.tar.gz'.format(experiment_name_pattern)
+        Should be a pattern that will be called
+        with '{}.tar.gz'.format(experiment_name_pattern)
     remote : bool, (default: True)
-        If True, look for experiments remotely. If False, don't look for experiments remotely,
+        If True, look for experiments remotely.
+        If False, don't look for experiments remotely,
         only locally.
     force_local : bool, (default: False)
-        If True, always look for local experiments. If False, only look for local experiments,
+        If True, always look for local experiments.
+        If False, only look for local experiments,
         if no remote experiments are found.
     """
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
     if remote:
         print('Searching for experiments on remote machine: {}'.format(remote_ip))
-        with cctestbed.get_ssh_client(ip_addr=remote_ip,
-                                      username=remote_username) as ssh_client:
+        with get_ssh_client(ip_addr=remote_ip, username=remote_username) as ssh_client:
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
@@ -276,7 +349,7 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False, r
         if len(tarfile_remotepaths) == 0:
             raise ValueError(('Found no experiments on remote or local machine '
                             '{} with name pattern {}').format(
-                                REMOTE_IP_ADDR, experiment_name_pattern))
+                                remote_ip, experiment_name_pattern))
         if num_local_files > 0:
             print('Found {} experiment(s) on local machine: {}'.format(num_local_files,
                                                                         tarfile_remotepaths[-num_local_files:]))
@@ -284,22 +357,26 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False, r
             print('Found 0 experiment(s) on local machines.')
 
     #experiments = {}
-    with mp.Pool(10) as pool:
-        experiments = pool.map(get_experiment, tarfile_remotepaths)
-    #for tarfile_remotepath in tarfile_remotepaths:
-    #    experiment_name, exp = get_experiment(tarfile_remotepath)
-    #    experiments[experiment_name] = exp
-    experiment_analyzers = {experiment_name:ExperimentAnalyzer(experiment)
-                                for experiment_name, experiment in experiments} #experiments.items()}
+    num_proc = 10
+    num_tarfiles = len(tarfile_remotepaths)
+    num_tarfiles_per_process = int(num_tarfiles / num_proc) + 1
+    with mp.Pool(num_proc) as pool:
+        analyzers = pool.starmap(get_experiment, zip(tarfile_remotepaths,
+                                                    it.repeat(remote_ip, num_tarfiles),
+                                                    it.repeat(remote_username, num_tarfiles)),
+                                                    chunksize=num_tarfiles_per_process)
+    experiment_analyzers = ExperimentAnalyzers()
+    for analyzer in analyzers:
+        experiment_analyzers[analyzer.experiment.name] = analyzer
     return experiment_analyzers
 
-def get_experiment(tarfile_remotepath):
+def get_experiment(tarfile_remotepath, remote_ip, remote_username):
     # check if tarfile already here
     # copy tarfile from remote machine to local machine (data directory)
     experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
     tarfile_localpath = os.path.join(DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
     if not os.path.isfile(tarfile_localpath):
-        with cctestbed.get_ssh_client(REMOTE_IP_ADDR, username=REMOTE_USERNAME) as ssh_client:
+        with get_ssh_client(remote_ip, username=remote_username) as ssh_client:
             sftp_client = ssh_client.open_sftp()
             try:
                 print('Copying remotepath {} to localpath {}'.format(
@@ -322,189 +399,5 @@ def get_experiment(tarfile_remotepath):
             experiment_description = json.load(f)
     experiment = Experiment(tarfile_localpath=tarfile_localpath,
                             **experiment_description)
-    return experiment_name, experiment
-
-
-@contextmanager
-def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True):
-    file_localpath = os.path.join(untar_dir, filename)
-    try:
-        print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
-        cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
-                                                os.path.join(tar_filename),
-                                                filename)
-        completed_proc = subprocess.run(cmd, shell=True)
-        f = open(file_localpath)
-        yield f
-    finally:
-        f.close()
-        if delete_file:
-            print('Deleting file {}'.format(file_localpath))
-            os.remove(file_localpath)
-
-
-@contextmanager
-def untarfile_extract(tar_filename, filename):
-    file_localpath = os.path.join(DATAPATH_RAW, filename)
-    try:
-        with tarfile.open(tar_filename, 'r:gz') as tar:
-            # get experiment description file
-            #experiment_description_filename = '{}.json'.format(experiment_name)
-            print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
-            tar.extract(filename, path=DATAPATH_RAW)
-        # return path to the file
-        yield file_localpath
-    finally:
-        os.remove(file_localpath)
-
-
-
-##### PLOTS ######
-
-def plot_queue(experiment_analyzer, window_size, include_ports=False,
-                zoom=None, hline=None, plot=True, drops=False, size=False, save=False, **kwargs):
-    df_queue = experiment_analyzer.df_queue
-    queue = df_queue.rename(columns=experiment_analyzer.flow_names)
-    sender_ports = list(experiment_analyzer.flow_names.keys())
-    flow_names = list(experiment_analyzer.flow_names.values())
-    start_time = df_queue[df_queue.sort_index().src.isin(sender_ports)].index[0]
-
-    if size:
-        queue = queue[['size'] + flow_names]
-    else:
-        queue = queue[flow_names]
-    queue = queue.loc[start_time:]
-    queue = queue.resample('{}ms'.format(window_size)).mean().ffill()
-    queue.index = (queue.index - queue.index[0]).total_seconds()
-    if len(flow_names) == 1:
-        queue = queue[flow_names]
-    if plot:
-        if len(flow_names) > 1:
-            ax = queue.plot(xlim=zoom, **kwargs)
-            ax.set_xlabel('time (seconds)')
-            ax.set_ylabel('num packets in queue')
-        else:
-            if drops:
-                _, axes = plt.subplots()
-                colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-                tmp = df_queue[df_queue.dropped==1]
-                tmp.index = (tmp.index - df_queue.index[0]).total_seconds()
-                ((tmp['dropped']+tmp['dropped']+128)
-                    .reset_index()
-                    .plot
-                    .scatter(x='time (s)',
-                            y='dropped',
-                            marker='x',
-                            color=colors[1],
-                            ax=axes))
-                queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom, ax=axes, **kwargs)
-                axes.set_xlabel('time (seconds)')
-                axes.set_ylabel('num packets in queue')
-            else:
-                queue = queue[flow_names]
-                #ax = queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom)
-                ax = queue.plot(title='Average Queue Size ({}ms window)'.format(window_size), xlim=zoom, **kwargs)
-                ax.set_xlabel('time (seconds)')
-                ax.set_ylabel('num packets in queue')
-                if hline:
-                    ax.axhline(y=hline, linewidth=4, color='r')
-        if save:
-            return ax
-    return queue
-
-def get_goodput_timeseries(experiment_analyzer, window_size):
-    df_queue = experiment_analyzer.df_queue
-    transfer_time = window_size * MILLISECONDS_TO_SECONDS
-    transfer_size = (df_queue[df_queue.dequeued==1]
-                     .groupby('src')
-                     .datalen
-                     .resample('{}ms'.format(window_size))
-                     .sum()
-                     .unstack(level='src')
-                     .fillna(0))
-    transfer_size = (transfer_size * BYTES_TO_BITS) * BITS_TO_MEGABITS
-    goodput = transfer_size / transfer_time
-    goodput.index = (goodput.index - goodput.index[0]).total_seconds()
-    goodput = goodput.rename(columns=experiment_analyzer.flow_names) # this won't work when the flows have the same name!
-    goodput = goodput[list(experiment_analyzer.flow_names.values())]
-    return goodput
-
-def get_goodput_timeseries_ccalg(goodput):
-    goodput_ccalg_avg = pd.DataFrame()
-    goodput_ccalg_std = pd.DataFrame()
-    each_ccalgs_columns = defaultdict(list)
-    for col in goodput.columns:
-        ccalg = col.split('-')[0]
-        each_ccalgs_columns[ccalg].append(col)
-    for ccalg, cols in each_ccalgs_columns.items():
-        col_name = '{} {} flows'.format(len(cols), ccalg)
-        goodput_ccalg_avg[col_name] = goodput[cols].mean(1)
-        goodput_ccalg_std[col_name] = goodput[cols].std(1)
-    return goodput_ccalg_avg, goodput_ccalg_std
-
-def plot_goodput(experiment_analyzer, window_size=None, save=False, ccalg=False, **kwargs):
-    """Return the table used for plotting"""
-    if window_size is None:
-        # use the rtt of the first flow as the window size
-        window_size = experiment_analyzer.experiment.flows[0].rtt
-    goodput = get_goodput_timeseries(experiment_analyzer, window_size)
-    if ccalg:
-        goodput, goodput_ccalg_std = get_goodput_timeseries_ccalg(goodput)
-        ax = goodput.plot(yerr=goodput_ccalg_std, **kwargs)
-    else:
-        ax = goodput.plot(**kwargs)
-    ax.set_xlabel('time (seconds)')
-    ax.set_ylabel('goodput (mbps)')
-    if save:
-        return ax
-    return goodput
-
-def get_goodput_fraction(experiment_analyzers):
-    goodput_fraction_table = []
-    for _, analyzer in experiment_analyzers.items():
-        each_ccalgs_rows = defaultdict(list)
-        goodput = analyzer.get_total_goodput(interval=(150,290))
-        for row in goodput.index:
-            ccalg = row.split('-')[0]
-            each_ccalgs_rows[ccalg].append(row)
-        goodput_fraction_row = {}
-        for ccalg, rows in each_ccalgs_rows.items():
-            goodput_fraction_row['num_{}_flows'.format(ccalg)] = len(rows)
-            goodput_fraction_row[ccalg] = goodput[rows].sum() / goodput.sum()
-            goodput_fraction_row['bdp'] = '{} mbps, {} ms'.format(
-                analyzer.experiment.btlbw, analyzer.experiment.flows[0].rtt)
-            goodput_fraction_row['queue_size'] = analyzer.experiment.queue_size
-        goodput_fraction_table.append(goodput_fraction_row)
-    return pd.DataFrame.from_dict(goodput_fraction_table)
-
-def get_tcpprobe_columns_per_flow(experiment_analyzer, col):
-    """Return tcpprobe dataframe with a column per flow for a given value 'col'.
-    Parameters:
-    -----------
-    experiment_analyzer : ExperimentAnalyzer
-        experiment we want to get tcpprobe dataframe from
-    column: list of str
-        columns we want to get values for individually from each flow
-    """
-    #assert(type(cols) is list)
-    tcpprobe = experiment_analyzer.df_tcpprobe.copy()
-    tcpprobe['sender'] = tcpprobe['sender'].apply(lambda x: x.split(':')[-1])
-    tcpprobe = tcpprobe.pivot(columns='sender', values=col)
-    flow_sender_ports = list(experiment_analyzer.flow_sender_ports.keys())
-    tcpprobe = tcpprobe[flow_sender_ports].rename(columns=experiment_analyzer.flow_names)
-    return tcpprobe
-
-def get_tcpprobe_avg(experiment_analyzer):
-    """Get avg per flow """
-    pass
-
-def get_queue_occupancy_per_flow(experiment_analyzer, window_size):
-    flow_sender_ports = list(experiment_analyzer.flow_sender_ports.keys())
-    queue_occupancy = (experiment_analyzer
-                        .df_queue[flow_sender_ports]
-                        .resample('{}ms'.format(window_size))
-                        .last()
-                        .ffill())
-    queue_occupancy.index = (queue_occupancy.index - queue_occupancy.index[0]).total_seconds()
-    return queue_occupancy
-
+    experiment_analyzer = ExperimentAnalyzer(experiment)
+    return experiment_analyzer
