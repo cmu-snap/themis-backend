@@ -19,6 +19,37 @@ HOST_POTATO = {'ifname_remote': 'ens13',
                'key_filename': '/home/ranysha/.ssh/id_rsa',
                'username': 'ranysha'}
 
+HOST_AWS = {'ifname_remote': 'eth0',
+            'ifname_local': 'ens3f0',
+            'ip_lan': '172.31.21.221',
+            'ip_wan': '35.160.118.3',
+            'pci': '05:00.0',
+            'key_filename': '/home/ranysha/.ssh/rware.pem',
+            'username': 'ubuntu'}
+
+def all_ccalgs_config(server, client, btlbw, rtt, end_time):
+    config = {}
+    if not client['ip_lan'].startswith('192.0.0'):
+        config['server_nat_ip'] = '128.2.208.128'
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+
+    ccalgs = ['bbr', 'cubic', 'reno']
+    queue_sizes = [64, 128, 256, 512, 1024, 2048, 4096]
+    for ccalg in ccalgs:
+        for size in queue_sizes:
+            experiment_name = '{}-{}bw-{}rtt-{}q'.format(ccalg,btlbw, rtt, int(size))
+            experiment = {'btlbw': btlbw,
+                          'queue_size': int(size)}
+            flows = [{'ccalg': ccalg,
+                      'start_time': 0,
+                      'end_time': end_time,
+                      'rtt': rtt}]
+            experiment['flows'] = flows
+            config['experiments'][experiment_name] = experiment
+    return config
+
 def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
     config = {}
     config['server'] = server
@@ -55,47 +86,6 @@ def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
         config['experiments'][experiment_name] = experiment
     return config
 
-"""
-def cubic_bbr_bdp_config(server, client, end_time, bdp=32):
-    config = {}
-    config['server'] = server
-    config['client'] = client
-    config['experiments'] = {}
-    if bdp == 32:
-        queue_sizes = [8, 16, 32, 64, 128, 256, 512, 1024]
-        btlbw = 10
-        rtt = 40
-    elif bdp == 512:
-        queue_sizes = [128, 256, 512, 1024, 2048, 4096, 8192, 16384]
-        btlbw = 100
-        rtt = 60
-    elif bdp == 256:
-        queue_sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
-        btlbw = 1000
-        rtt = 3
-    elif bdp == 64:
-        queue_sizes = [16, 32, 64, 128, 256, 512, 1024, 2048]
-        btlbw = 10
-        rtt = 75
-    else:
-        raise ValueError("BDP must be one of {32, 256, 512}")
-
-    for size in queue_sizes:
-        experiment_name = 'cubic-bbr-{}bdp-{}q'.format(bdp, size)
-        experiment = {'btlbw': btlbw,
-                      'queue_size': size}
-        cubic_flows = [{'ccalg': 'cubic',
-                        'start_time': 0,
-                        'end_time': end_time,
-                        'rtt': rtt}]
-        bbr_flows = [{'ccalg': 'bbr',
-                      'start_time': 0,
-                      'end_time': end_time,
-                      'rtt': rtt}] 
-        experiment['flows'] = cubic_flows + bbr_flows
-        config['experiments'][experiment_name] = experiment
-    return config
-"""
 def cubic_bbr_bdp_config(server, client, end_time):
     config = {}
     config['server'] = server
@@ -177,6 +167,8 @@ def main(argv):
         server = HOST_POTATO
     if args.client == 'taro':
         client = HOST_TARO
+    if args.client == 'aws':
+        client = HOST_AWS
     if args.experiment_type == 'cubic-bbr':
         config = cubic_bbr_config(server, client, btlbw=args.btlbw,
                                   rtt=args.rtt, queue_size=args.queue_size,
@@ -186,20 +178,25 @@ def main(argv):
                                       end_time=args.end_time)
     if args.experiment_type == 'bbr':
         config = bbr_config(server, client, end_time=args.end_time, bdp=args.bdp)
+    if args.experiment_type == 'all-ccalgs':
+        config = all_ccalgs_config(server, client, end_time=args.end_time,
+                            btlbw=args.btlbw, rtt=args.rtt)
     with open(args.filename, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
-    
+    print('EXPERIMENTS:\n')
+    print('\n'.join(config['experiments'].keys()))
         
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         description='Config file generator for cctestbed experiments')
     parser.add_argument('experiment_type', choices=['cubic-bbr',
                                                     'cubic-bbr-bdp',
-                                                    'bbr'],
+                                                    'bbr',
+                                                    'all-ccalgs'],
                         help='kind of experiment')
     parser.add_argument('filename',
                         help='filename for the generated config file')
-    parser.add_argument('client', choices=['taro'],
+    parser.add_argument('client', choices=['taro', 'aws'],
                         help='client host')
     parser.add_argument('server', choices=['potato'],
                         help='server host')
