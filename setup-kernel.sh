@@ -1,6 +1,9 @@
 install_iperf3() {
     # install latest version of iperf3
     #wget http://downloads.es.net/pub/iperf/iperf-3-current.tar.gz
+    sudo apt-get update
+    sudo apt-get install build-essential
+    sudo apt-get install emacs24
     wget  https://github.com/esnet/iperf/archive/3.5.tar.gz
     #tar -xzf iperf-3-current.tar.gz
     tar -xvzf 3.5.tar.gz
