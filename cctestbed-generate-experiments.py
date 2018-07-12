@@ -43,6 +43,30 @@ HOST_AWS = {'ifname_remote': 'eth0',
             'key_filename': '/home/ranysha/.ssh/rware.pem',
             'username': 'ubuntu'}
 
+HOST_AWS_LONDON = {'ifname_remote': 'eth0',
+                   'ifname_local': 'ens3f0',
+                   'ip_lan': '172.31.28.46',
+                   'ip_wan': '18.130.112.215',
+                   'pci': '05:00.0',
+                   'key_filename': '/home/ranysha/.ssh/rware-london.pem',
+                   'username':'ubuntu'}
+
+HOST_AWS_TOKYO = {'ifname_remote': 'eth0',
+                  'ifname_local': 'ens3f0',
+                  'ip_lan': '172.31.47.182',
+                  'ip_wan': '18.179.13.219',
+                  'pci': '05:00.0',
+                  'key_filename': '/home/ranysha/.ssh/rware-tokyo.pem',
+                  'username': 'ubuntu'}
+
+hosts = {'potato': HOST_POTATO,
+         'taro': HOST_TARO,
+         'aws': HOST_AWS,
+         'aws_london': HOST_AWS_LONDON,
+         'aws_tokyo': HOST_AWS_TOKYO,
+         'client': HOST_CLIENT,
+         'server': HOST_SERVER}
+
 def all_ccalgs_config(server, client, btlbw, rtt, end_time):
     config = {}
     if not client['ip_lan'].startswith('192.0.0'):
@@ -186,16 +210,8 @@ def main(argv):
     print(args)
     server = None
     client = None
-    if args.server == 'potato':
-        server = HOST_POTATO
-    if args.client == 'taro':
-        client = HOST_TARO
-    if args.server == 'server':
-        server = HOST_SERVER
-    if args.client == 'client':
-        client = HOST_CLIENT
-    if args.client == 'aws':
-        client = HOST_AWS
+    server = hosts[args.server]
+    
     if args.experiment_type == 'cubic-bbr':
         config = cubic_bbr_config(server, client, btlbw=args.btlbw,
                                   rtt=args.rtt, queue_size=args.queue_size,
@@ -223,7 +239,8 @@ def parse_args(argv):
                         help='kind of experiment')
     parser.add_argument('filename',
                         help='filename for the generated config file')
-    parser.add_argument('client', choices=['taro','client','aws'],
+    parser.add_argument('client', choices=['taro','client','aws',
+                                           'aws-london', 'aws-tokyo'],
                         help='client host')
     parser.add_argument('server', choices=['potato','server'],
                         help='server host')
