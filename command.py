@@ -66,10 +66,10 @@ class RemoteCommand:
                 logging.info('Copying remote file ({}): {}'.format(self.ip_addr,
                                                                    log))
                 if self.key_filename is None:
-                    cmd = 'scp {}@{}:{} /tmp/'.format(self.username, self.ip_addr,
+                    cmd = 'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {}@{}:{} /tmp/'.format(self.username, self.ip_addr,
                                                 os.path.join('/tmp', log))
                 else:
-                    cmd = 'scp -i {} {}@{}:{} /tmp/'.format(self.key_filename, self.username,
+                    cmd = 'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {} {}@{}:{} /tmp/'.format(self.key_filename, self.username,
                                                       self.ip_addr,
                                                       os.path.join('/tmp',log))
                 logging.info('Starting local cmd: {}'.format(cmd))

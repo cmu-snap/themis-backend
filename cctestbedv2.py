@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-from cctestbed.command import RemoteCommand, run_local_command, get_ssh_client, exec_command
+from command import RemoteCommand, run_local_command, get_ssh_client, exec_command
 
 from collections import namedtuple, OrderedDict
 from datetime import datetime
@@ -131,8 +131,7 @@ class Experiment:
             logging.info('Finished experiment: {}'.format(self.name))
             return proc 
         except Exception as e:
-            logging.error('Error occurred while running experiment {}'.format(
-                self.name), e)
+            logging.error('Error occurred while running experiment '+self.name)
             self._delete_logs(delete_description=False)
             raise e
         
@@ -428,7 +427,8 @@ def load_config_file(config_filename):
         config = yaml.safe_load(f)
     return config
 
-def load_experiments(config, config_filename, random_seed=None, experiment_names=None, force=False):
+def load_experiments(config, config_filename,
+                     random_seed=None, experiment_names=None, force=False):
     """Create experiments from config file and output to config"""
     client = Host(**config['client'])
     server = Host(**config['server'])
