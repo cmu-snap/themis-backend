@@ -301,9 +301,9 @@ class Experiment:
             yield pid
         finally:
             logging.info('Cleaning up cmd: {}'.format(cmd))
+            run_local_command('kill {}'.format(pid))
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
-            run_local_command('kill {}'.format(pid))
 
     @contextmanager
     def _run_bess(self):
@@ -342,7 +342,10 @@ class Experiment:
 
     def _run_all_flows(self, stack):
         # get wait times for each flow
-        wait_times = self.get_wait_times()
+        if len(self.flows) > 1:
+            wait_times = self.get_wait_times()
+        else:
+            wait_times = [0]
         # run bess and monitor
         stack.enter_context(self._run_bess())
         # give bess some time to start
