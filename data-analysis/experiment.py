@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from cctestbedv2 import Flow, Host, get_ssh_client
+from cctestbedv2 import Flow, Host, get_ssh_client, run_local_command
 
 import os
 import tarfile
@@ -15,6 +15,7 @@ import glob
 import multiprocessing as mp
 import itertools as it
 import numpy as np
+import datetime as dt
 
 CODEPATH = '/home/ranysha/cctestbed'
 DATAPATH_RAW = '/home/ranysha/cctestbed/data-raw'
@@ -88,13 +89,24 @@ class ExperimentAnalyzer:
         self._hdf_queue_path = None
 
         if load_queue:
-            with self.hdf_queue() as _: #None
-                pass
+            try:
+                with self.hdf_queue() as _: #None
+                    pass
+            except Exception as e:
+                print('Error creating hdf queue for experiment: {}\n {}'.format(experiment.name, e))
 
     def _create_hdf_queue(self, raw_queue_log_tarpath, raw_queue_log_localpath, processed_queue_log_localpath):
         # haven't created HDF5 store yet; create it now
-        sort_cmd = 'sort -k 2 -o {} {}'.format(raw_queue_log_localpath,
-                                                raw_queue_log_localpath)
+        find_bad_lines_cmd = 'grep ^.*,.*,.*,.*,.*,.*,.*,.*,.*$ {} -v -n'.format(raw_queue_log_localpath)
+        badlines = run_local_command(find_bad_lines_cmd, shell=False).split('\n')
+        if len(badlines) >= 1 and badlines[0] != '':
+            sort_cmd = 'sort -k 2 -o {} {}'.format(raw_queue_log_localpath, raw_queue_log_localpath)
+            print('Found {} bad lines:\n {}'.format(len(badlines), badlines))
+        else:
+            tmp_queue_filename = raw_queue_log_localpath + '.tmp'
+            sort_cmd = 'sort -k 2 -o {} {} && grep ^.*,.*,.*,.*,.*,.*,.*,.*,.*$ {} > {} && mv {} {} '.format(
+                        raw_queue_log_localpath, raw_queue_log_localpath, raw_queue_log_localpath, tmp_queue_filename, tmp_queue_filename, raw_queue_log_localpath)
+
         with untarfile(self.experiment.tarfile_localpath, raw_queue_log_tarpath, postprocess_cmd=sort_cmd) as f:
             with pd.HDFStore(processed_queue_log_localpath, mode='w') as store:
                 df = pd.read_csv(f, names = ['dequeued',
@@ -106,15 +118,15 @@ class ExperimentAnalyzer:
                                                 'dropped',
                                                 'queued',
                                                 'batch'],
-                                    converters = {'seq': lambda x: int(x, 16),
-                                                'src': lambda x: int(x, 16)},
+                                    converters = {'seq': tohex,
+                                                'src': tohex},
                                     dtype={'dequeued': bool,
                                         'time': np.uint64,
                                         'datalen': np.uint16,
                                         'size': np.uint32,
                                         'dropped':bool,
                                         'queued': np.uint16,
-                                        'batch': np.uint16})
+                                        'batch': np.uint16}, skip_blank_lines=True)
                 df['seq'] = df['seq'].astype( np.uint32)
                 df['src'] = df['src'].astype( np.uint16)
                 #chunk['time'] = pd.to_datetime(chunk['time'], infer_datetime_format=True, unit='ns')
@@ -165,6 +177,7 @@ class ExperimentAnalyzer:
         finally:
             store.close()
 
+    """
     @property
     def df_queue(self):
         raise NotImplementedError
@@ -189,7 +202,7 @@ class ExperimentAnalyzer:
                                                     'dropped',
                                                     'queued',
                                                     'batch'],
-                                        converters = {'seq': lambda x: int(x, 16),
+                                        converters = {'seq': lambda x: int(x, 16) ,
                                                     'src': lambda x: int(x, 16)},
                                         dtype={'dequeued': bool,
                                             'time':np.uint64,
@@ -233,6 +246,7 @@ class ExperimentAnalyzer:
                     self._df_queue = df
 
         return self._df_queue
+    """
 
     @property
     def flow_sender_ports(self):
@@ -410,29 +424,70 @@ def regex_match(regex, key):
 @contextmanager
 def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True, postprocess_cmd=None):
     file_localpath = os.path.join(untar_dir, filename)
+    print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
+    cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
+                                            tar_filename,
+                                            filename)
+    # untar file
     try:
-        print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
-        cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
-                                                tar_filename,
-                                                filename)
-        subprocess.run(cmd, shell=True, check=True)
-        if postprocess_cmd is not None:
+        completed_proc = subprocess.run(cmd, shell=True, check=False, stderr=subprocess.PIPE)
+        completed_proc.check_returncode()
+    except subprocess.CalledProcessError as e:
+        print('STDERR:', completed_proc.stderr)
+    # run postprocess cmd
+    if postprocess_cmd is not None:
+        try:
             print('Running postprocess cmd: {}'.format(postprocess_cmd))
-            subprocess.run(postprocess_cmd, shell=True, check=True)
+            completed_proc = subprocess.run(postprocess_cmd, shell=True, check=False, stderr=subprocess.PIPE)
+            completed_proc.check_returncode()
+        except subprocess.CalledProcessError as e:
+            print('STDERR:', completed_proc.stderr)
+            raise e
+    # open file and return open file
+    try:
         f = open(file_localpath)
         yield f
     finally:
+        # close file and delete when exiting context manager
         f.close()
         if delete_file:
             print('Deleting file {}'.format(file_localpath))
             os.remove(file_localpath)
 
-def untarfile_extract(*args):
-    raise NotImplementedError
+@contextmanager
+def untarfile_extract(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True, postprocess_cmd=None):
+    file_localpath = os.path.join(untar_dir, filename)
+    print('Extracting file {} from {} to {}'.format(filename, tar_filename, file_localpath))
+    cmd = 'cd {} && tar -xzvf {} {}'.format(untar_dir,
+                                            tar_filename,
+                                            filename)
+    # untar file
+    try:
+        completed_proc = subprocess.run(cmd, shell=True, check=False, stderr=subprocess.PIPE)
+        completed_proc.check_returncode()
+    except subprocess.CalledProcessError as e:
+        print('STDERR:', completed_proc.stderr)
+    # run postprocess cmd
+    if postprocess_cmd is not None:
+        try:
+            print('Running postprocess cmd: {}'.format(postprocess_cmd))
+            completed_proc = subprocess.run(postprocess_cmd, shell=True, check=False, stderr=subprocess.PIPE)
+            completed_proc.check_returncode()
+        except subprocess.CalledProcessError as e:
+            print('STDERR:', completed_proc.stderr)
+            raise e
+    # return path to file
+    try:
+        yield file_localpath
+    finally:
+        # delete file when exiting context manager
+        if delete_file:
+            print('Deleting file {}'.format(file_localpath))
+            os.remove(file_localpath)
 
 def load_experiments(experiment_name_patterns, remote=True, force_local=False,
                         remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR,
-                        load_queue=False):
+                        load_queue=False, clean=False):
     """Load all experiments into experiment analyzers
     experiment_name_pattern : list of str
         Should be a pattern that will be called
@@ -445,9 +500,17 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
         If True, always look for local experiments.
         If False, only look for local experiments,
         if no remote experiments are found.
+    clean: bool
+        If True, delete all local files matching this exp_name_pattern
+        before downloading again.
     """
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
+    # i feel like this code is too dangerous since there is a rm command ...
+    if clean:
+        for experiment_name_pattern in experiment_name_patterns:
+            print('Deleting local files matching experiment pattern: {}'.format(experiment_name_pattern))
+            run_local_command('rm {}.h5'.format(os.path.join(DATAPATH_PROCESSED, experiment_name_pattern)))
     if remote:
         print('Searching for experiments on remote machine: {}'.format(remote_ip))
         with get_ssh_client(ip_addr=remote_ip, username=remote_username) as ssh_client:
@@ -465,7 +528,7 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
         num_local_files = 0
         for experiment_name_pattern in experiment_name_patterns:
             local_filepaths = glob.glob(os.path.join(DATAPATH_RAW,
-                                                     experiment_name_pattern))
+                                                     experiment_name_pattern +'.tar.gz'))
             tarfile_remotepaths += local_filepaths
             num_local_files += len(local_filepaths)
         if len(tarfile_remotepaths) == 0:
@@ -500,15 +563,13 @@ def get_experiment(tarfile_remotepath, remote_ip, remote_username, load_queue):
     experiment_name = os.path.basename(tarfile_remotepath[:-len('.tar.gz')])
     tarfile_localpath = os.path.join(DATAPATH_RAW, '{}.tar.gz'.format(experiment_name))
     if not os.path.isfile(tarfile_localpath):
-        with get_ssh_client(remote_ip, username=remote_username) as ssh_client:
-            sftp_client = ssh_client.open_sftp()
-            try:
-                print('Copying remotepath {} to localpath {}'.format(
+        print('Copying remotepath {} to localpath {}'.format(
                     tarfile_remotepath, tarfile_localpath))
-                sftp_client.get(tarfile_remotepath,
-                                tarfile_localpath)
-            finally:
-                sftp_client.close()
+        cmd = 'scp {}@{}:{} {}'.format(remote_username, remote_ip,
+                                        tarfile_remotepath, tarfile_localpath)
+        subprocess.run(cmd, check=True, shell=True,
+                        stdout = subprocess.DEVNULL,
+                        stderr=subprocess.PIPE)
     # get experiment description file & stored in processed data path
     experiment_description_filename = '{}.json'.format(experiment_name)
     experiment_description_localpath = os.path.join(DATAPATH_PROCESSED,
@@ -521,7 +582,21 @@ def get_experiment(tarfile_remotepath, remote_ip, remote_username, load_queue):
     else:
         with open(experiment_description_localpath) as f:
             experiment_description = json.load(f)
-    experiment = Experiment(tarfile_localpath=tarfile_localpath,
-                            **experiment_description)
+    try:
+        experiment = Experiment(tarfile_localpath=tarfile_localpath,
+                                **experiment_description)
+    except TypeError as e:
+        print('Encountered type error when creaing experiment. Try old JSON file format...')
+        with open(experiment_description_localpath) as f:
+            experiment_description = json.loads(json.loads(f.read().replace('=', ':')))
+        experiment = Experiment(tarfile_localpath=tarfile_localpath,
+                                **experiment_description)
     experiment_analyzer = ExperimentAnalyzer(experiment, load_queue=load_queue)
     return experiment_analyzer
+
+def tohex(x):
+    try:
+        return int(x, 16)
+    except ValueError:
+        print("Value error converting {} to hex".format(x))
+        return 0
