@@ -90,7 +90,9 @@ class Experiment:
             self.server_nat_ip = self.server.ip_lan
         else:
             self.server_nat_ip = server_nat_ip
-            
+
+        # will store measured rtt
+        self.rtt_measured = None
 
     def cleanup_last_experiment(self):
         logging.info('Cleaning up last experiment just in case...')
@@ -313,8 +315,8 @@ class Experiment:
             start_bess(self)
             # give bess some time to start
             time.sleep(3)
-            # check that i can ping between machines
-            cmd = ('ping -c 4 -I {} {} '
+            # check that i can ping between machines and store measured rtt in metadata
+            cmd = ('ping -c 10 -I {} {} '
                '| tail -1 '
                '| awk "{{print $4}}" ').format(self.client.ip_lan,
                                                self.server_nat_ip)
@@ -331,6 +333,7 @@ class Experiment:
                 logging.info('Got an avg rtt of {}'.format(avg_rtt))
                 if not (avg_rtt > 0):
                     raise RuntimeError('Did not see an avg_rtt greater than 0.')
+                self.rtt_measured = avg_rtt
         except Exception as e:
             raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr), e)
         finally:
@@ -439,6 +442,7 @@ def load_experiments(config, config_filename,
     if 'server_nat_ip' in config:
         server_nat_ip = config['server_nat_ip']
     experiments = OrderedDict()
+    
     def is_completed_experiment(experiment_name, force):
         num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
         experiment_done = len(num_completed) > 0
@@ -485,10 +489,8 @@ def load_experiments(config, config_filename,
                          server_nat_ip=server_nat_ip)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
-        exp.write_description_log()
         # save experiment to json file
-        #with open(exp.logs['description_log'], 'w') as f:
-        #    json.dump(exp.__dict__, f)
+        exp.write_description_log()
     return experiments
 
 def start_bess(experiment):

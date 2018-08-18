@@ -70,8 +70,12 @@ def get_key_name(ec2):
     if len(key_pairs) == 0:
         return None
     else:
-        return key_pairs[0]['KeyName']
-
+        # key name must start with rware
+        for key_pair in key_pairs:
+            if key_pair['KeyName'].startswith('rware'):
+                return key_pair['KeyName']
+        return None
+    
 def create_key_pair(ec2, region_name):
     response = ec2.create_key_pair(KeyName='rware-{}'.format(region_name))
     key_pair_name = response['KeyName']
@@ -100,6 +104,9 @@ def _region_start_instance(ec2, image_id=None):
             available_zone = zone['ZoneName']
             region_name = zone['RegionName']
             break
+    # force specifici availability zone us-west-1c
+    if region_name == 'us-west-1':
+        available_zone = 'us-west-1c'
     if available_zone is None:
         raise RuntimeError('Could not find any available zones')
     # get key name
@@ -219,9 +226,6 @@ def setup_ec2(ec2, instance, git_secret, ec2_username='ubuntu'):
     logging.info(stdout)
     cmds = [
     'cd /opt/cctestbed/tcp_bbr_measure && make',
-    'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
-    'sudo modprobe tcp_bbr',
-    'sudo ethtool -K eth0 tx off sg off tso off',
     'echo net.core.wmem_max = 16777216 | sudo tee -a /etc/sysctl.conf',
     'echo net.core.rmem_max = 16777216 | sudo tee -a /etc/sysctl.conf',
     'echo net.core.wmem_default = 16777216 | sudo tee -a /etc/sysctl.conf', 
@@ -232,78 +236,19 @@ def setup_ec2(ec2, instance, git_secret, ec2_username='ubuntu'):
     ]
     for cmd in cmds:
         exit_status, stdout = run_ec2_command(ec2, instance, cmd)
-        logging.info(stdout)
+        logging.info(stdout)    
 
-
-def _setup_ec2(instance, 
-              ec2_username='ubuntu', nat_username='ranysha'):
-    assert(instance.public_ip_address is not None)
-    """
-    cmds_before_reboot =[
-        'sudo chown -R /ubuntu /opt/ && cd /opt && git clone git@github.com:rware/cctestbed.git',
-        'sudo chown -R ubuntu /opt/cctestbed',
-        'cd /opt/cctestbed && /bin/bash setup-kernel.sh upgrade_kernel']
-    for cmd in cmds_before_reboot:
-        with command.get_ssh_client(
-                ip_addr=instance.public_ip_address,
-                username=ec2_username,
-                key_filename='/home/ranysha/.ssh/rware-{}.pem'.format(
-                    instance.key_name)) as ssh_client:
-            _, stdout, stderr = command.exec_command(
-                ssh_client, instance.public_ip_address, cmd)
-            if stdout.channel.recv_exit_status() != 0:
-                raise RuntimeError('Encountered error running cmd. {}'.format(
-                    stderr.read()))
-    """
-    
-    # shouldnt take more than 2 minutes to reboot
-    #logging.info('Wating for 120 seconds for reboot')
-    #time.sleep(120)
-    sysctl_changes = ['net.core.wmem_max = 16777216',
-                      'net.core.rmem_max = 16777216',
-                      'net.core.wmem_default = 16777216', 
-                      'net.core.rmem_default = 16777216',
-                      'net.ipv4.tcp_wmem = 10240 16777216 16777216',
-                      'net.ipv4.tcp_rmem = 10240 16777216 16777216']
-    """
-    sudoers_changes = [
-        '"ubuntu $aws_hostname = (root) NOPASSWD: /usr/sbin/tcpdump"',
-        '"ubuntu $aws_hostname = (root) NOPASSWD: /bin/kill"',
-        '"ubuntu $aws_hostname = (root) NOPASSWD: /sbin/insmod"',
-        '"ubuntu $aws_hostname = (r oot) NOPASSWD: /bin/chmod"',
-        '"ubuntu $aws_hostname = (root) NOPASSWD: /sbin/rmmod"',
-        '"ubuntu $aws_hostname = (root) NOPASSWD: /bin/rm"']
-    """
-    cmds_after_reboot = [
-        'cd /opt/cctestbed && ./setup-kernel.sh install_iperf3',
-        'cd /opt/cctestbed/tcp_bbr_measure && make',
+def install_kernel_modules(ec2, instance, ec2_username='ubuntu'):
+    cmds = [
         'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
         'sudo modprobe tcp_bbr',
-        'sudo ethtool -K eth0 tx off sg off tso off',
-        'aws_hostname=$(hostname)']
-    for sysctl_change in sysctl_changes:
-        cmds_after_reboot.append(
-            'echo {} | sudo tee -a /etc/sysctl.conf'.format(sysctl_change))
-    """
-    for sudoers_change in sudoers_changes:
-        cmds_after_reboot.append(
-            'echo {} | sudo tee -a /etc/sudoers.d/cctestbed'.format(sudoers_change))
-    """
-    #print('\n'.join(cmds_before_reboot))
-    #print('\n'.join(cmds_after_reboot))
-    for cmd in cmds_after_reboot:
-        with command.get_ssh_client(
-                ip_addr=instance.public_ip_address,
-                username=ec2_username,
-                key_filename='/home/ranysha/.ssh/rware-{}.pem'.format(
-                    instance.key_name)) as ssh_client:
-            _, stdout, stderr = command.exec_command(ssh_client, instance.public_ip_address, cmd)
-            if stdout.channel.recv_exit_status() != 0:
-                raise RuntimeError('Encountered error running cmd. {}'.format(
-                    stderr.read()))
-    #print(cmd_update_nat)
-    
+        'sudo ethtool -K eth0 tx off sg off tso off'
+    ]
+    for cmd in cmds:
+        exit_status, stdout = run_ec2_command(ec2, instance, cmd, ec2_username)
+        logging.info(stdout)    
 
+        
 @contextmanager
 def add_nat_rule(instance, nat_ip='128.2.208.128', nat_username='ranysha',
                  nat_key_filename='/home/ranysha/.ssh/id_rsa'):
@@ -313,7 +258,7 @@ def add_nat_rule(instance, nat_ip='128.2.208.128', nat_username='ranysha',
     finally:
         with command.get_ssh_client(ip_addr=nat_ip, username=nat_username,
                                     key_filename=nat_key_filename) as ssh_client:
-            cmd = 'sudo iptables -t nat --delete PREROUTING 5'
+            cmd = 'sudo iptables -t nat --delete PREROUTING 4'
             _, stdout, stderr = command.exec_command(ssh_client, nat_ip, cmd)
 
 def _add_nat_rule(instance, nat_ip='128.2.208.128', nat_username='ranysha',
@@ -346,7 +291,7 @@ def get_ec2_experiments(instance, ec2, region):
     with open(config_filename, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
     experiments = cctestbed.load_experiments(config,
-                                             config_filename)
+                                             config_filename, force=True)
     return experiments
 
 def run_ec2_experiments(experiments, instance):
@@ -380,32 +325,13 @@ def get_region_image(region):
         return None
     assert(len(aws_images) == 1)
     return aws_images[0]
-            
-def create_ec2_image(instance):
-    """Create EC2 image for this cctestbed experiments in this region"""
-    """
-    ec2_region = get_ec2(region)
-    instance = get_instance(region)
-    if instance is None:
-        if get_key_name(ec2_region) is None:
-            create_key_pair(ec2_region, region)
-        instance = _region_start_instance(ec2_region)
-        instance.wait_until_running()
-        instance.load()
-        image = instance.create_image(Name=region)
-        return image, instance
-    else:
-        image = get_region_image(region)
-        if image is None:
-            # create image from running instance
-            image = instance.create_image(Name=region)
-        return instance
-    """
-    pass
-    
+                
 def main(git_secret, force_create_instance=False):
-    regions = get_all_regions()
-    skip_regions = ['ca-central-1', 'ap-south-1', 'eu-west-3', 'eu-west-2', 'eu-west-1', 'ap-northeast-1', 'ap-northeast-2', 'us-west-2', 'sa-east-1','ap-southeast-1','ap-southeast-2', 'eu-central-1', 'us-east-1','us-east-2','us-west-1'] 
+    regions = ['us-west-1']
+    skip_regions = []
+    #get_all_regions()
+    #skip_regions = ['ap-south-1', 'eu-west-1', 'ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2', 'eu-central-1', 'us-east-1','us-east-2','us-west-1', 'ca-central-1', 'eu-west-3', 'eu-west-2'] 
+
     logging.info('Found {} regions: {}'.format(len(regions), regions))
     # TODO: wait for all created images to be created
     created_images = []
@@ -435,6 +361,9 @@ def main(git_secret, force_create_instance=False):
             except Exception as e:
                 instance.stop()
                 raise e
+        wait_for_ssh(ec2_region, instance, ec2_username='ubuntu')
+        # need to install kernel modules every time
+        install_kernel_modules(ec2_region, instance, ec2_username='ubuntu')
         try:
             experiments = get_ec2_experiments(instance, ec2_region, region)
             run_ec2_experiments(experiments, instance)
@@ -473,7 +402,7 @@ def _main():
         if region_has_instance(ec2):
             logging.warning('Region already has a running instance so skipping')
             continue
-        if get_key_name(ec2) is None:
+        if get_key_name(ec2, region) is None:
             logging.warning('Creating key pair for region {}'.format(region))
             create_key_pair(ec2, region)
         logging.info('Creating instance for region {}'.format(region))
