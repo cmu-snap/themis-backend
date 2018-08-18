@@ -284,7 +284,8 @@ def get_ec2_experiments(instance, ec2, region):
         btlbw=10,
         rtt=1,
         end_time=60,
-        exp_name_suffix=region.replace('-',''))
+        exp_name_suffix=region.replace('-',''),
+        queue_sizes=[64, 128, 256, 512, 1024])
     config_filename = 'experiments-all-ccalgs-aws-{}.yaml'.format(
         region.replace('-',''))
     logging.info('Writing config file {}'.format(config_filename))
@@ -327,7 +328,7 @@ def get_region_image(region):
     return aws_images[0]
                 
 def main(git_secret, force_create_instance=False):
-    regions = ['us-west-1']
+    regions = ['us-east-1']
     skip_regions = []
     #get_all_regions()
     #skip_regions = ['ap-south-1', 'eu-west-1', 'ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2', 'eu-central-1', 'us-east-1','us-east-2','us-west-1', 'ca-central-1', 'eu-west-3', 'eu-west-2'] 

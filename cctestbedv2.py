@@ -333,7 +333,7 @@ class Experiment:
                 logging.info('Got an avg rtt of {}'.format(avg_rtt))
                 if not (avg_rtt > 0):
                     raise RuntimeError('Did not see an avg_rtt greater than 0.')
-                self.rtt_measured = avg_rtt
+            self.rtt_measured = avg_rtt
         except Exception as e:
             raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr), e)
         finally:
@@ -342,7 +342,9 @@ class Experiment:
                 yield
             finally:
                 stop_bess()
-
+        # need to update description log with avg rtt
+        self.write_description_log() 
+                
     def _run_all_flows(self, stack):
         # get wait times for each flow
         if len(self.flows) > 1:
