@@ -105,8 +105,12 @@ def _region_start_instance(ec2, image_id=None):
             region_name = zone['RegionName']
             break
     # force specifici availability zone us-west-1c
+    # TODO: remove this hard coding and keep retrying zones
+    # until succesful if there is an error
     if region_name == 'us-west-1':
         available_zone = 'us-west-1c'
+    if region_name == 'ap-northeast-1':
+        available_zone = 'ap-northeast-1c'
     if available_zone is None:
         raise RuntimeError('Could not find any available zones')
     # get key name
@@ -285,7 +289,8 @@ def get_ec2_experiments(instance, ec2, region):
         rtt=1,
         end_time=60,
         exp_name_suffix=region.replace('-',''),
-        queue_sizes=[64, 128, 256, 512, 1024])
+        queue_sizes=[32, 64, 128, 256, 512, 1024, 2048])
+        #queue_sizes=[32, 64, 128, 256, 512])
     config_filename = 'experiments-all-ccalgs-aws-{}.yaml'.format(
         region.replace('-',''))
     logging.info('Writing config file {}'.format(config_filename))
@@ -326,12 +331,35 @@ def get_region_image(region):
         return None
     assert(len(aws_images) == 1)
     return aws_images[0]
-                
+
+
+def get_taro_experiments():
+    regions = get_all_regions()
+    for region in regions:
+        exp_tarfiles = glob.glob(
+            '/tmp/*{}-20180818*.tar.gz'.format(region.replace('-','')))
+        for tarfile_localpath in exp_tarfiles:
+            experiment_name = tarfile_remotepath[:-len('.tar.gz')]
+            experiment_description_filename = '{}.json'.format(experiment_name)
+            with untarfile(tarfile_localpath, experiment_description_filename) as f:
+                experiment_description = json.load(f)
+            with open(experiment_description_localpath, 'w') as f:
+                json.dump(experiment_description, f)
+                experiment = Experiment(tarfile_localpath=tarfile_localpath,
+                                        **experiment_description)
+            break
+        break
+    return experiment
+
+
+        
+
 def main(git_secret, force_create_instance=False):
-    regions = ['us-east-1']
+    #regions = ['ap-south-1', 'eu-west-1']
     skip_regions = []
     #get_all_regions()
-    #skip_regions = ['ap-south-1', 'eu-west-1', 'ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2', 'eu-central-1', 'us-east-1','us-east-2','us-west-1', 'ca-central-1', 'eu-west-3', 'eu-west-2'] 
+    
+    regions = ['ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2', 'eu-central-1', 'us-east-1','us-east-2','us-west-1', 'ca-central-1', 'eu-west-3', 'eu-west-2', 'us-west-2'] 
 
     logging.info('Found {} regions: {}'.format(len(regions), regions))
     # TODO: wait for all created images to be created
@@ -383,7 +411,8 @@ def main(git_secret, force_create_instance=False):
                     instance.create_image(Name=region)
                 except Exception as e:
                     logging.error('Error while trying to create image: {}', e)
-    
+
+"""
 def _main():
     # for each ec2 region, if there isn't already a running instance
     # 1- create key pair if there isn't one already; get_key_pair_path
@@ -446,8 +475,9 @@ def _main():
                 if proc.returncode != 0:
                     logging.warning('Error running cmd PID={}'.format(proc.pid))
         break
+"""
 
 if __name__ == '__main__':
-    git_secret = getpass.getpass('Github secret: ')
-    main(git_secret, True)
-    #pass
+    #git_secret = getpass.getpass('Github secret: ')
+    #main(git_secret, True)
+    pass

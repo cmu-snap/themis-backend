@@ -112,6 +112,32 @@ def all_ccalgs_config(server, client, btlbw, rtt, end_time, exp_name_suffix=None
             config['experiments'][experiment_name] = experiment
     return config
 
+def ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_name_suffix=None):
+    config = {}
+    if not client['ip_lan'].startswith('192.0.0'):
+        config['server_nat_ip'] = '128.2.208.128'
+    config['server'] = server
+    config['client'] = client
+    config['experiments'] = {}
+
+    ccalgs = ['bbr', 'cubic', 'reno']
+    for ccalg in ccalgs:
+        if exp_name_suffix is None:
+            experiment_name = '{}-{}bw-{}rtt-{}q'.format(
+                ccalg,btlbw, rtt, int(queue_size))
+        else:
+            experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
+                ccalg,btlbw, rtt, int(queue_size), exp_name_suffix)
+            experiment = {'btlbw': btlbw,
+                          'queue_size': int(queue_size)}
+            flows = [{'ccalg': ccalg,
+                      'start_time': 0,
+                      'end_time': end_time,
+                      'rtt': rtt}]
+            experiment['flows'] = flows
+            config['experiments'][experiment_name] = experiment
+    return config
+    
 
 def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
     config = {}
@@ -244,6 +270,9 @@ def main(argv):
     if args.experiment_type == 'all-ccalgs':
         config = all_ccalgs_config(server, client, end_time=args.end_time,
                             btlbw=args.btlbw, rtt=args.rtt)
+    if args.experiment_type == 'ccalg-predict':
+        config = ccalg_predict_config(server, client, end_time=args.end_time, queue_size=args.queue_size,
+                                   btlbw=args.btlbw, rtt=args.rtt, exp_name_suffix=args.exp_name_suffix)        
     with open(args.filename, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
     print('EXPERIMENTS:\n')
@@ -255,7 +284,8 @@ def parse_args(argv):
     parser.add_argument('experiment_type', choices=['cubic-bbr',
                                                     'cubic-bbr-bdp',
                                                     'bbr',
-                                                    'all-ccalgs'],
+                                                    'all-ccalgs',
+                                                    'ccalg-predict'],
                         help='kind of experiment')
     parser.add_argument('filename',
                         help='filename for the generated config file')
@@ -270,6 +300,7 @@ def parse_args(argv):
     parser.add_argument('--rtt', type=int, required=False, help='round trip time for all flows in ms')
     parser.add_argument('--queue_size', required=False, type=int,
                         help='size of bottleneck queue in packets')
+    parser.add_argument('--exp_name_suffix', required=False, help='experiment name suffix')
     parser.add_argument('end_time', type=int, help='length of experiment in seconds')
     args = parser.parse_args(argv)
     return args
