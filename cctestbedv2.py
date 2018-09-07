@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/binenv python3
 
 from command import RemoteCommand, run_local_command, get_ssh_client, exec_command
 
@@ -308,32 +308,52 @@ class Experiment:
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
 
     @contextmanager
-    def _run_bess(self):
+    def _run_bess(self, ping_source='client', skip_ping=False):
         self.write_description_log()
         stderr = None
         try:
             start_bess(self)
             # give bess some time to start
-            time.sleep(3)
+            time.sleep(5)
+            # changing to ping between server and client
             # check that i can ping between machines and store measured rtt in metadata
+            if ping_source == 'client':
+                ping_source_ip = self.client.ip_lan
+                ping_dest_ip = self.server_nat_ip
+                ping_ssh_ip = self.client.ip_wan
+                ping_ssh_username = self.client.username
+                ping_ssh_key_filename = self.client.key_filename
+            elif ping_source == 'server':
+                ping_source_ip = self.server.ip_lan
+                ping_dest_ip = self.client.ip_wan
+                ping_ssh_ip = self.server.ip_wan
+                ping_ssh_username = self.server.username
+                ping_ssh_key_filename = self.server.key_filename
             cmd = ('ping -c 10 -I {} {} '
                '| tail -1 '
-               '| awk "{{print $4}}" ').format(self.client.ip_lan,
-                                               self.server_nat_ip)
-            with get_ssh_client(self.client.ip_wan,
-                                username=self.client.username, 
-                                key_filename=self.client.key_filename) as ssh_client:
-                logging.info('Running cmd ({}): {}'.format(self.client.ip_wan,
+               '| awk "{{print $4}}" ').format(ping_source_ip,
+                                               ping_dest_ip)
+            with get_ssh_client(ping_ssh_ip,
+                                username=ping_ssh_username, 
+                                key_filename=ping_ssh_key_filename) as ssh_client:
+                logging.info('Running cmd ({}): {}'.format(ping_ssh_ip,
                                                            cmd))
                 _, stdout, stderr = ssh_client.exec_command(cmd)
                 line = stdout.readline()
                 stderr = stderr.read()
-                # parse out avg rtt from last line of ping output
-                avg_rtt = float(line.split('=')[-1].split('/')[1])
-                logging.info('Got an avg rtt of {}'.format(avg_rtt))
-                if not (avg_rtt > 0):
-                    raise RuntimeError('Did not see an avg_rtt greater than 0.')
-            self.rtt_measured = avg_rtt
+                try:
+                    # parse out avg rtt from last line of ping output
+                    avg_rtt = float(line.split('=')[-1].split('/')[1])
+                    logging.info('Got an avg rtt of {}'.format(avg_rtt))
+                    if not (avg_rtt > 0):
+                        raise RuntimeError('Did not see an avg_rtt greater than 0.')
+                    self.rtt_measured = avg_rtt
+                except Exception as e:
+                    if skip_ping:
+                        logging.error('Couldnt compute the avg rtt.\n', e)
+                        self.rtt_measured = None
+                    else:
+                        raise e
         except Exception as e:
             raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr), e)
         finally:
@@ -341,7 +361,8 @@ class Experiment:
             try:
                 yield
             finally:
-                stop_bess()
+                if ping_source == 'client':
+                    stop_bess()
         # need to update description log with avg rtt
         self.write_description_log() 
                 
@@ -505,7 +526,10 @@ def start_bess(experiment):
 
 def stop_bess():
     cmd = 'sudo /opt/bess/bessctl/bessctl daemon stop'
-    run_local_command(cmd)
+    try:
+        run_local_command(cmd, timeout=60)
+    except Exception as e:
+        logging.error('Couldnt shutdown bess')
 
 def connect_dpdk(server, client, dpdk_driver='igb_uio'):
     # check if DPDK already connected

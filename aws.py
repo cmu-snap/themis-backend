@@ -11,6 +11,12 @@ import cctestbedv2 as cctestbed
 import cctestbed_generate_experiments as generate_experiments
 from contextlib import contextmanager
 import getpass
+import glob
+import json
+import multiprocessing as mp
+import pandas as pd
+from data_analysis.experiment import untarfile
+from data_analysis.experiment import Experiment
 
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
@@ -334,27 +340,83 @@ def get_region_image(region):
 
 
 def get_taro_experiments():
+    """
     regions = get_all_regions()
+    exp_tarfiles = []
     for region in regions:
-        exp_tarfiles = glob.glob(
-            '/tmp/*{}-20180818*.tar.gz'.format(region.replace('-','')))
-        for tarfile_localpath in exp_tarfiles:
-            experiment_name = tarfile_remotepath[:-len('.tar.gz')]
-            experiment_description_filename = '{}.json'.format(experiment_name)
-            with untarfile(tarfile_localpath, experiment_description_filename) as f:
-                experiment_description = json.load(f)
-            with open(experiment_description_localpath, 'w') as f:
-                json.dump(experiment_description, f)
-                experiment = Experiment(tarfile_localpath=tarfile_localpath,
-                                        **experiment_description)
-            break
-        break
-    return experiment
+        exp_tarfiles.extend(glob.glob(
+            '/tmp/*{}-20180818*.tar.gz'.format(region.replace('-',''))))
+    with mp.Pool(mp.cpu_count()) as pool:
+        experiments_rtts = pool.map(_get_taro_experiments, exp_tarfiles,
+                                    chunksize = round(len(exp_tarfiles) / mp.cpu_count()))
+    df = pd.DataFrame.from_dict(experiments_rtts)
+    df.to_csv('/tmp/aws-experiments-rtts.csv')
+    logging.info('Writing csv file with /tmp/aws-experiments-rtts.csv')
+    df = pd.read_csv('/tmp/aws-experiments-rtts.csv')
+    rtts = df['rtt'].sort_values().unique()
+    """
+    experiments = {}
+    url_exp = pd.read_csv('url-exp-metadata-all.csv')
+    for queue_size in [128]:
+        for btlbw in [10]:
+            # get rtts
+            rtts = []
+            for _, row in url_exp[
+                    (url_exp.btlbw == btlbw) & (url_exp.queue_size == queue_size)].iterrows():
+                if row['rtt_measured_int'] == 0:
+                    if row['rtt_tcpdump'] < 1000:
+                        rtts.append(row['rtt_tcpdump'])
+                else:
+                    if row['rtt_measured_int'] < 1000:
+                        rtts.append(row['rtt_measured_int'])
+            rtts = set(rtts)
+            config = generate_experiments.ccalg_predict_config(
+                btlbw=btlbw,
+                rtts=rtts,
+                end_time=60,
+                exp_name_suffix='taro',
+                queue_sizes=[queue_size])
+            config_filename = 'experiments-ccalg-predict-{}bw-{}q-20180831.yaml'.format(
+                btlbw,
+                queue_size)
+            logging.info('Writing config file {}'.format(config_filename))
+            with open(config_filename, 'w') as f:
+                yaml.dump(config, f, default_flow_style=False)
+            experiments.update(cctestbed.load_experiments(config,
+                                                          config_filename, force=False))
+    return experiments
 
+def _get_taro_experiments(tarfile_localpath):
+    rtts = {}
+    experiment_name = os.path.basename(tarfile_localpath[:-len('.tar.gz')])
+    experiment_description_filename = '{}.json'.format(experiment_name)
+    with untarfile(tarfile_localpath, experiment_description_filename, untar_dir='/tmp') as f:
+        experiment_description = json.load(f)
+    experiment = Experiment(tarfile_localpath=tarfile_localpath,
+                            **experiment_description)
+    rtts['name'] = experiment_name #experiment.name
+    # will just chop decimal off since the base rtt is < 1ms so should
+    # get really close to estimated rtt -- floor decimal
+    rtts['rtt'] = int(experiment.rtt_measured)
+    return rtts
 
-        
+def main():
+    experiments = get_taro_experiments()
+    completed_experiment_procs = []
+    logging.info('Going to run {} experiments.'.format(len(experiments)))
 
-def main(git_secret, force_create_instance=False):
+    for experiment in experiments.values():
+        proc = experiment.run()
+        completed_experiment_procs.append(proc)
+
+    for proc in completed_experiment_procs:
+        logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
+        proc.wait()
+        if proc.returncode != 0:
+            logging.warning('Error running cmd PID={}'.format(proc.pid))
+    
+
+def _main(git_secret, force_create_instance=False):
     #regions = ['ap-south-1', 'eu-west-1']
     skip_regions = []
     #get_all_regions()
@@ -480,4 +542,6 @@ def _main():
 if __name__ == '__main__':
     #git_secret = getpass.getpass('Github secret: ')
     #main(git_secret, True)
-    pass
+    #pass
+    #get_taro_experiments
+    main()

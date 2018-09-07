@@ -137,13 +137,13 @@ class RemoteCommand:
     def __repr__(self):
         return 'RemoteCommand({})'.format(self.__str__())
 
-def run_local_command(cmd, shell=False):
+def run_local_command(cmd, shell=False, timeout=None):
     """Run local command return stdout"""
     logging.info('Running cmd: {}'.format(cmd))
     if shell:
-        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, timeout=timeout)
     else:
-        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE)
+        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE, timeout=timeout)
     return proc.stdout.decode('utf-8')
 
 @contextmanager

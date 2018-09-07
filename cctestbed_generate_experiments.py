@@ -112,7 +112,7 @@ def all_ccalgs_config(server, client, btlbw, rtt, end_time, exp_name_suffix=None
             config['experiments'][experiment_name] = experiment
     return config
 
-def ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_name_suffix=None):
+def _ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_name_suffix=None):
     config = {}
     if not client['ip_lan'].startswith('192.0.0'):
         config['server_nat_ip'] = '128.2.208.128'
@@ -137,7 +137,35 @@ def ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_n
             experiment['flows'] = flows
             config['experiments'][experiment_name] = experiment
     return config
-    
+
+
+def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes, exp_name_suffix=None):
+    config = {}
+    config['server'] = HOST_POTATO
+    config['client'] = HOST_TARO
+    config['experiments'] = {}
+
+    #ccalgs = ['bbr', 'cubic', 'reno']
+    ccalgs = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+    for rtt in rtts:
+        for queue_size in queue_sizes:
+            for ccalg in ccalgs:
+                if exp_name_suffix is None:
+                    experiment_name = '{}-{}bw-{}rtt-{}q'.format(
+                        ccalg,btlbw, rtt, int(queue_size))
+                else:
+                    experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
+                        ccalg,btlbw, rtt, int(queue_size), exp_name_suffix)
+                    experiment = {'btlbw': btlbw,
+                          'queue_size': int(queue_size)}
+                    flows = [{'ccalg': ccalg,
+                              'start_time': 0,
+                              'end_time': end_time,
+                              'rtt': int(rtt)}]
+                    experiment['flows'] = flows
+                    config['experiments'][experiment_name] = experiment
+    return config
+
 
 def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
     config = {}
@@ -306,5 +334,6 @@ def parse_args(argv):
     return args
     
 if __name__ == '__main__':
-    argv = sys.argv[1:]
-    main(argv)
+    #argv = sys.argv[1:]
+    #main(argv)
+    pass

@@ -18,7 +18,10 @@ def test_connect_dpdk(experiment):
 
 def test_connect_dpdk_aws():
     pass
-    
+
+def test_start_bess(experiment):
+    mut.start_bess(experiment)
+
 def test_experiment_run_bess(experiment):
     with experiment._run_bess():
         subprocess.run(['pgrep', 'bessd'], check=True)
@@ -124,7 +127,8 @@ def test_experiment_run_tcpdump_client(experiment):
 
 @pytest.mark.timeout(60)    
 def test_experiment_run(experiment):
-    experiment.run()
+    proc=experiment.run()
+    proc.wait(timeout=5)
     # TODO: check log compression
     open_files, open_connections = check_open_fileobjs()
     assert(len(open_files) == 0)
@@ -134,7 +138,9 @@ def test_experiment_run(experiment):
 def test_experiment_compress_logs(experiment):
     with ExitStack() as stack:
         experiment._run_all_flows(stack)
-    experiment._compress_logs()
+    proc = experiment._compress_logs()
+    assert(is_local_process_running(proc.pid))
+    proc.wait(timeout=5)
     # check that tarfile contains files with data in them
     assert(os.path.isfile(experiment.tar_filename))
     expected_zipped_files = [experiment.logs['queue_log'],

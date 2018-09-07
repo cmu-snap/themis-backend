@@ -5,9 +5,18 @@ import subprocess
 import os
 import psutil
 
+def pytest_addoption(parser):
+    parser.addoption("--config", action="store",
+                     default="/opt/cctestbed/tests/experiments-test.yaml",
+                     help="full path to config file")
+    
+@pytest.fixture
+def config_filename(request):
+    return request.config.getoption("--config")
+
 @pytest.fixture(name='config')
-def test_load_config_file():
-    config_filename = '/opt/cctestbed/tests/experiments-test.yaml'
+def test_load_config_file(config_filename):
+    #config_filename = '/opt/cctestbed/tests/experiments-test.yaml'
     config = cctestbed.load_config_file(config_filename)
     assert(config is not None)
     assert('client' in config)
@@ -15,9 +24,9 @@ def test_load_config_file():
     assert('experiments' in config)
     return config, config_filename
 
-@pytest.fixture(name='experiment', params=['cubic-cubic','cubic-bbr'])
+@pytest.fixture(name='experiment', params=['cubic','cubic-bbr'])
 def test_load_experiments(config, request):
-    experiments = cctestbed.load_experiments(config[0], config[1])
+    experiments = cctestbed.load_experiments(config[0], config[1], force=True)
     def remove_experiment_description_log():
         for experiment in experiments.values():
             # later tests could delete description log (see: compress_logs text)
