@@ -196,6 +196,10 @@ struct task_result QueueDelay::RunTask(Context *ctx, bess::PacketBatch *batch,
   
   uint32_t cnt = 0;
 
+  //if (num_pkts_ >= 1000) {
+  //  delay_ = 100;
+  //}
+  
   while (batch->cnt() != 1) {
     if (head_ == 0) {
       uint32_t deq = llring_sc_dequeue_burst(queue_, (void **)&head_, 1);
@@ -205,6 +209,9 @@ struct task_result QueueDelay::RunTask(Context *ctx, bess::PacketBatch *batch,
       }
     }
     uint64_t timestamp = get_attr<uint64_t>(this, ATTR_W_TIMESTAMP, head_);
+
+    
+    
     if (ctx->current_ns - timestamp >= (delay_ * MILLISECONDS_TO_NANOSECONDS)) {
       batch->add(head_);
       head_ = 0;
@@ -213,6 +220,8 @@ struct task_result QueueDelay::RunTask(Context *ctx, bess::PacketBatch *batch,
     else {
       break;
     }
+
+    
 
     /*
     if (num_pkts_ <= 100) {

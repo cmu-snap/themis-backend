@@ -70,7 +70,8 @@ class Experiment:
             'client_tcpdump_log': '/tmp/client-tcpdump-{}-{}.pcap'.format(
                 self.name, self.exp_time),
             'description_log': '/tmp/{}-{}.json'.format(self.name, self.exp_time),
-            'tcpprobe_log': '/tmp/tcpprobe-{}-{}.txt'.format(self.name, self.exp_time)
+            'tcpprobe_log': '/tmp/tcpprobe-{}-{}.txt'.format(self.name, self.exp_time),
+            'dig_log': '/tmp/dig-{}-{}.txt'.format(self.name, self.exp_time)
             }
         self.tar_filename = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         # update flow objects with log filenames
@@ -88,9 +89,12 @@ class Experiment:
         # TODO: FIX THIS STRAWMAN SOLUTION
         if server_nat_ip is None:
             self.server_nat_ip = self.server.ip_lan
+            self.dig = False
         else:
             self.server_nat_ip = server_nat_ip
-
+            # do a dig to figure out if using CDN
+            self.dig = True
+            
         # will store measured rtt
         self.rtt_measured = None
 
@@ -123,6 +127,8 @@ class Experiment:
             # make sure old stuff closed
             self.cleanup_last_experiment()
             logging.info('Running experiment: {}'.format(self.name))
+            #if self.dig:
+            #    self._run_dig()
             with ExitStack() as stack:
                 self._run_tcpdump('server', stack)
                 self._run_tcpdump('client', stack)
@@ -149,7 +155,13 @@ class Experiment:
             else:
                 wait_times.append(start_time)
         return wait_times
-        
+
+    def _run_dig(self):
+        run_local_command('dig -x {} > {}'.format(
+            self.client.ip_wan,
+            self.logs['dig_log']), shell=True)
+        return
+    
     def _compress_logs(self):
         # will silently not compress logs that don't exists
         # gather log names
