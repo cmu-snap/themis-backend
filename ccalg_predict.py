@@ -81,7 +81,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            start_flow_cmd = 'timeout 65s wget --connect-timeout=30 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
+            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=30 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -184,7 +184,7 @@ def main():
     logging.info('Found {} websites'.format(len(urls)))
     print('Found {} websites'.format(len(urls)))
     num_completed_websites = 0
-    for website in sorted(urls.iterkeys()):
+    for website in sorted(urls.keys()):
         if website not in skip_websites:
             file_size = urls[website]['file_size']
             url = urls[website]['url']
