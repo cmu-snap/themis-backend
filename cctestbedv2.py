@@ -362,7 +362,8 @@ class Experiment:
                     self.rtt_measured = avg_rtt
                 except Exception as e:
                     if skip_ping:
-                        logging.error('Couldnt compute the avg rtt.\n', e)
+                        logging.error('Couldnt compute the avg rtt.')
+                        loggng.error(e)
                         self.rtt_measured = None
                     else:
                         raise e
