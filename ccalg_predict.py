@@ -60,6 +60,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
                      server_nat_ip=server_nat_ip)
     
     logging.info('Running experiment: {}'.format(exp.name))
+    exp._run_dig()
     with ExitStack() as stack:
         # add DNAT rule
         stack.enter_context(add_dnat_rule(exp, url_ip))
@@ -80,7 +81,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            start_flow_cmd = 'wget --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
+            start_flow_cmd = 'timeout 65s wget --connect-timeout=30 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -167,14 +168,17 @@ def update_url_with_ip(url, url_ip):
 
 def main():
     # get urls
-    df = pd.read_csv('ccalg-predict-findfilesresults.txt', header=None,
+    # url_filename = 'ccalg-predict-findfilesresults.txt'
+    url_filename = 'urls_all_results.txt'
+    df = pd.read_csv(url_filename, header=None,
                      names=['website', 'url', 'file_size']).set_index('website')
     urls = df.to_dict(orient='index')
     # only do apple
-    urls = {'redcross.org':urls['redcross.org']}
+    #s = {'redcross.org':urls['redcross.org']}
     completed_experiment_procs = []
     #skip_websites = ['mlit.go.jp', 'arxiv.org'] # can't get arix.gov to work
-    skip_websites = []
+    skip_websites = ['tivoli.de']
+    logging.info('Found {} websites'.format(len(urls)))
     for website in urls:
         if website not in skip_websites:
             file_size = urls[website]['file_size']
@@ -182,9 +186,9 @@ def main():
             try:
                 # before this was 1,5,10,15 but too much
                 # gonna just do 5 & 10
-                for queue_size in [64]:# 128, 256, 512]:
-                    for btlbw in [10]:
-                        proc = run_experiment(website, url, btlbw, queue_size, force=True)
+                for queue_size in [64, 128, 256, 512]:
+                    for btlbw in [5, 10]:
+                        proc = run_experiment(website, url, btlbw, queue_size, force=False)
                         if proc is not None:
                             completed_experiment_procs.append(proc)
             except Exception as e:
