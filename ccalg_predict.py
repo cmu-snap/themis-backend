@@ -90,8 +90,11 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
             logging.info('Flow ran for {} seconds'.format(flow_end_time - flow_start_time))
         exp._show_bess_pipeline()
         if exit_status != 0:
-            logging.error(stdout.read())
-            raise RuntimeError('Error running flow.')
+            if exit_status == 124: # timeout exit status
+                logging.warning('Timeout. Flow longer than 65s.')
+            else:
+                logging.error(stdout.read())
+                raise RuntimeError('Error running flow.')
     proc = exp._compress_logs()
     return proc
         
@@ -177,8 +180,10 @@ def main():
     #s = {'redcross.org':urls['redcross.org']}
     completed_experiment_procs = []
     #skip_websites = ['mlit.go.jp', 'arxiv.org'] # can't get arix.gov to work
-    skip_websites = ['tivoli.de']
+    skip_websites = []
     logging.info('Found {} websites'.format(len(urls)))
+    print('Found {} websites'.format(len(urls)))
+    num_completed_websites = 0
     for website in urls:
         if website not in skip_websites:
             file_size = urls[website]['file_size']
@@ -186,15 +191,25 @@ def main():
             try:
                 # before this was 1,5,10,15 but too much
                 # gonna just do 5 & 10
-                for queue_size in [64, 128, 256, 512]:
-                    for btlbw in [5, 10]:
+                num_completed_experiments = 0
+                for queue_size in [64, 128, 256]:
+                    for btlbw in [5, 10, 15]:
+                        print('Running experiment {}/9 website={}, btlbw={}, queue_size={}.'.format(num_completed_experiments,
+                                                                                                     website,
+                                                                                                     btlbw,
+                                                                                                     queue_size))
+                        num_completed_experiments += 1
                         proc = run_experiment(website, url, btlbw, queue_size, force=False)
                         if proc is not None:
                             completed_experiment_procs.append(proc)
             except Exception as e:
                 logging.error('Error running experiment for website: {}'.format(website))
                 logging.error(e)
-                
+                print('Error running experiment for website: {}'.format(website))
+                print(e)
+        num_completed_websites += 1
+        print('Completed experiments for {}/{} websites'.format(len(urls)
+        
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
