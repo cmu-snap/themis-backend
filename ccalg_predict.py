@@ -184,7 +184,7 @@ def main():
     logging.info('Found {} websites'.format(len(urls)))
     print('Found {} websites'.format(len(urls)))
     num_completed_websites = 0
-    for website in urls:
+    for website in sorted(urls.iterkeys()):
         if website not in skip_websites:
             file_size = urls[website]['file_size']
             url = urls[website]['url']
@@ -208,7 +208,7 @@ def main():
                 print('Error running experiment for website: {}'.format(website))
                 print(e)
         num_completed_websites += 1
-        print('Completed experiments for {}/{} websites'.format(len(urls)
+        print('Completed experiments for {}/{} websites'.format(num_completed_websites, len(urls)))
         
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
