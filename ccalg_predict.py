@@ -81,7 +81,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=30 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
+            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=10 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -89,8 +89,11 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
             flow_end_time = time.time()
             logging.info('Flow ran for {} seconds'.format(flow_end_time - flow_start_time))
         exp._show_bess_pipeline()
+        cmd = 'sudo /opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
+                print('Timeout. Flow longer than 65s.')
                 logging.warning('Timeout. Flow longer than 65s.')
             else:
                 logging.error(stdout.read())
@@ -191,7 +194,7 @@ def main():
             try:
                 # before this was 1,5,10,15 but too much
                 # gonna just do 5 & 10
-                num_completed_experiments = 0
+                num_completed_experiments = 1
                 for queue_size in [64, 128, 256]:
                     for btlbw in [5, 10, 15]:
                         print('Running experiment {}/9 website={}, btlbw={}, queue_size={}.'.format(num_completed_experiments,
