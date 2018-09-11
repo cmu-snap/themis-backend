@@ -23,23 +23,23 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
         
-    client = cctestbed.Host(**{'ifname_remote': 'ens13',
-                 'ifname_local': 'ens3f0',
-                 'ip_lan': '192.0.0.1',
+    client = cctestbed.Host(**{'ifname_remote': 'enp6s0f1',
+                 'ifname_local': 'enp6s0f0',
+                 'ip_lan': '192.0.0.4',
                  'ip_wan': url_ip, #'ip_wan': '128.2.208.128',
-                 'pci': '05:00.0',
-                 'key_filename': '/home/ranysha/.ssh/id_rsa',
-                 'username': 'ranysha'})
+                 'pci': '06:00.0',
+                 'key_filename': None, 
+                 'username': 'rware'})
 
-    server = cctestbed.Host(**{'ifname_remote': 'ens13',
-                   'ifname_local': 'ens13',
-                   'ip_lan': '192.0.0.4',
-                   'ip_wan': '128.2.208.104',
-                   'pci': '8b:00.0',
-                   'key_filename': '/home/ranysha/.ssh/id_rsa',
-                   'username': 'ranysha'})
-
-    server_nat_ip = '128.2.208.128' # taro
+    server = cctestbed.Host(**{'ifname_remote': 'enp6s0f1',
+                   'ifname_local': 'enp6s0f1',
+                   'ip_lan': '192.0.0.2',
+                   'ip_wan': '128.104.222.116',
+                   'pci': '06:00.1',
+                   'key_filename': None,
+                   'username': 'rware'})
+  
+    server_nat_ip = '128.104.222.182' # taro
     server_port = 5201
     client_port = 5555
 
@@ -81,7 +81,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, force=False):
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=30 --tries=3 --bind-address 192.0.0.4 -P /tmp/ {}'.format(url)
+            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=30 --tries=3 --bind-address {} -P /tmp/ {}'.format(exp.server.ip_lan, url)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -104,7 +104,7 @@ def add_dnat_rule(exp, url_ip):
                                   exp.server.username,
                                   exp.server.key_filename) as ssh_client:
         # TODO: remove hard coding of the ip addr here
-        dnat_rule_cmd = 'sudo iptables -t nat -A PREROUTING -i enp11s0f0 --source {} -j DNAT --to-destination {}'.format(url_ip, exp.server.ip_lan)
+        dnat_rule_cmd = 'sudo iptables -t nat -A PREROUTING -i enp1s0f0 --source {} -j DNAT --to-destination {}'.format(url_ip, exp.server.ip_lan)
         cctestbed.exec_command(ssh_client, exp.server_nat_ip, dnat_rule_cmd)
     try:
         yield
