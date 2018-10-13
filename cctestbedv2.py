@@ -71,7 +71,9 @@ class Experiment:
                 self.name, self.exp_time),
             'description_log': '/tmp/{}-{}.json'.format(self.name, self.exp_time),
             'tcpprobe_log': '/tmp/tcpprobe-{}-{}.txt'.format(self.name, self.exp_time),
-            'dig_log': '/tmp/dig-{}-{}.txt'.format(self.name, self.exp_time)
+            'dig_log': '/tmp/dig-{}-{}.txt'.format(self.name, self.exp_time),
+            'rtt_log': '/tmp/rtt-{}-{}.txt'.format(self.name, self.exp_time),
+            'capinfos_log': '/tmp/capinfos-{}-{}.txt'.format(self.name, self.exp_time)
             }
         self.tar_filename = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         # update flow objects with log filenames
@@ -93,8 +95,7 @@ class Experiment:
         else:
             self.server_nat_ip = server_nat_ip
             # do a dig to figure out if using CDN
-            self.dig = True
-            
+            self.dig = True            
         # will store measured rtt
         self.rtt_measured = None
 
@@ -160,7 +161,30 @@ class Experiment:
         run_local_command('dig -x {} > {}'.format(
             self.client.ip_wan,
             self.logs['dig_log']), shell=True)
-        return
+        return        
+
+
+    def _compress_logs_url(self):
+        all_logs = list(self.logs.values())
+        for flow in self.flows:
+            if os.path.isfile(flow.server_log):
+                all_logs.append(flow.server_log)
+            if os.path.isfile(flow.client_log):
+                all_logs.append(flow.client_log)
+        logs = []
+        logs += [os.path.basename(log) for log in all_logs]
+        logging.info('Compressing {} logs into tarfile: {}'.format(len(logs), self.tar_filename))
+        cmd = '/bin/bash run-cctestbed-cleanup.sh {}-{} {} {} {} {}'.format(
+            self.name,
+            self.exp_time,
+            self.tar_filename,
+            self.config_filename,
+            self.logs['server_tcpdump_log'],
+            ' '.join(logs))
+        proc = subprocess.Popen(cmd, shell=True)
+        logging.info('Running background command: {} (PID={})'.format(cmd, proc.pid))
+        return proc
+        
     
     def _compress_logs(self):
         # will silently not compress logs that don't exists
@@ -171,8 +195,11 @@ class Experiment:
                 all_logs.append(flow.server_log)
             if os.path.isfile(flow.client_log):
                 all_logs.append(flow.client_log)
-        assert(os.path.isfile(self.config_filename))
-        logs = [os.path.basename(self.config_filename)]
+        if os.path.isfile(self.config_filename):
+            logs = [os.path.basename(self.config_filename)]
+        else:
+            logging.warning('Config filename is not a file: {}'.format(self.config_filename))
+            logs = []
         logs += [os.path.basename(log) for log in all_logs if os.path.isfile(log)]
         if len(logs) == 0:
             logging.warning('Found no logs for this experiment to compress')
@@ -221,11 +248,11 @@ class Experiment:
         raise NotImplementedError()
 
     def _show_bess_pipeline(self):
-        cmd = 'sudo /opt/bess/bessctl/bessctl show pipeline'
+        cmd = '/opt/bess/bessctl/bessctl show pipeline'
         logging.info('\n'+run_local_command(cmd))
-        cmd = 'sudo /opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         logging.info('\n'+run_local_command(cmd))
-        cmd = 'sudo /opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
+        cmd = '/opt/bess/bessctl/bessctl command module queue_delay0 get_status EmptyArg'
         logging.info('\n'+run_local_command(cmd))
 
 
@@ -302,7 +329,6 @@ class Experiment:
         with open(self.logs['queue_log'], 'w') as f:
             f.write('dequeued,time,src,seq,datalen,size,dropped,queued,batch\n')
         # only log "good" lines, those that start with 0 or 1
-        #cmd = 'tail -n1 -f /tmp/bessd.INFO | grep -e "^0" -e "^1" >> {} &'.format(self.logs['queue_log'])
         cmd = 'tail -n1 -f /tmp/bessd.INFO > {} &'.format(self.logs['queue_log'])
         logging.info('Running cmd: {}'.format(cmd))
         pid = None
@@ -319,6 +345,9 @@ class Experiment:
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
 
+            
+
+            
     @contextmanager
     def _run_bess(self, ping_source='client', skip_ping=False):
         self.write_description_log()
@@ -336,15 +365,20 @@ class Experiment:
                 ping_ssh_username = self.client.username
                 ping_ssh_key_filename = self.client.key_filename
             elif ping_source == 'server':
-                ping_source_ip = self.server.ip_lan
+                ping_source_ip = self.server.ifname_remote #self.server.ip_lan
                 ping_dest_ip = self.client.ip_wan
                 ping_ssh_ip = self.server.ip_wan
                 ping_ssh_username = self.server.username
                 ping_ssh_key_filename = self.server.key_filename
-            cmd = ('ping -c 10 -I {} {} '
-               '| tail -1 '
-               '| awk "{{print $4}}" ').format(ping_source_ip,
-                                               ping_dest_ip)
+            if ping_source == 'server':
+                cmd = ('nping -v-1 -H -c 5 -e {} {} '
+                       '| grep -oP "Avg rtt:\s+\K.*(?=ms)" ').format(ping_source_ip,
+                                                                     ping_dest_ip)
+            else:
+                cmd = ('ping -c 10 -I {} {} '
+                                      '| tail -1 '
+                                      '| awk "{{print $4}}" ').format(ping_source_ip,
+                                                                                                                     ping_dest_ip)
             with get_ssh_client(ping_ssh_ip,
                                 username=ping_ssh_username, 
                                 key_filename=ping_ssh_key_filename) as ssh_client:
@@ -355,7 +389,10 @@ class Experiment:
                 stderr = stderr.read()
                 try:
                     # parse out avg rtt from last line of ping output
-                    avg_rtt = float(line.split('=')[-1].split('/')[1])
+                    if ping_source == 'server':
+                        avg_rtt = float(line.strip())#float(line.split('=')[-1].split('/')[1])
+                    else:
+                         avg_rtt = float(line.split('=')[-1].split('/')[1])
                     logging.info('Got an avg rtt of {}'.format(avg_rtt))
                     if not (avg_rtt > 0):
                         raise RuntimeError('Did not see an avg_rtt greater than 0.')
@@ -368,7 +405,7 @@ class Experiment:
                     else:
                         raise e
         except Exception as e:
-            raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr), e)
+            raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr))
         finally:
             # this try, finally might be overkill
             try:
@@ -480,8 +517,11 @@ def load_experiments(config, config_filename,
     experiments = OrderedDict()
     
     def is_completed_experiment(experiment_name, force):
-        num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
-        experiment_done = len(num_completed) > 0
+        num_completed = run_local_command('grep -c {} completed_exps_taro.out'.format(
+            experiment_name))
+        #glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
+        # len num completed > -
+        experiment_done = (int(num_completed) > 0) or (len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0)
         if experiment_done:
             if force:
                 logging.warning(
@@ -530,15 +570,18 @@ def load_experiments(config, config_filename,
     return experiments
 
 def start_bess(experiment):
-    cmd = 'sudo /opt/bess/bessctl/bessctl daemon start'
-    run_local_command(cmd)
+    cmd = '/opt/bess/bessctl/bessctl daemon start'
+    try:
+        run_local_command(cmd)
+    except Exception as e:
+        pass
     cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
            "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(
                experiment.logs['description_log'])
     run_local_command(cmd)
 
 def stop_bess():
-    cmd = 'sudo /opt/bess/bessctl/bessctl daemon stop'
+    cmd = '/opt/bess/bessctl/bessctl daemon stop'
     try:
         run_local_command(cmd, timeout=60)
     except Exception as e:
