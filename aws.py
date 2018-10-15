@@ -355,30 +355,42 @@ def get_taro_experiments():
     df = pd.read_csv('/tmp/aws-experiments-rtts.csv')
     rtts = df['rtt'].sort_values().unique()
     """
+
+    QUEUE_SIZE_TABLE = {
+        35: {5:16, 10:32, 15:64},
+        85: {5:64, 10:128, 15:128},
+        130: {5:64, 10:128, 15:256},
+        275: {5:128, 10:256, 15:512}}
+    
     experiments = {}
-    url_exp = pd.read_csv('url-exp-metadata-all.csv')
-    for queue_size in [128]:
-        for btlbw in [10]:
+    #url_exp = pd.read_csv('url-exp-metadata-20180916.csv', na_values=['None'])
+    #for queue_size in [64, 128, 256]:
+    for rtt in [35, 85, 130, 275]:
+        for btlbw in [5, 10, 15]:
+            queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]
             # get rtts
+            """
             rtts = []
             for _, row in url_exp[
                     (url_exp.btlbw == btlbw) & (url_exp.queue_size == queue_size)].iterrows():
-                if row['rtt_measured_int'] == 0:
-                    if row['rtt_tcpdump'] < 1000:
-                        rtts.append(row['rtt_tcpdump'])
+                if row['rtt_measured_int'] is None and row['queue_size'] is None:
+                    continue
+                if row['rtt_measured_int'] is None:
+                    if float(row['rtt_tcpdump']) < 1000:
+                        rtts.append(int(float(row['rtt_tcpdump'])))
                 else:
-                    if row['rtt_measured_int'] < 1000:
-                        rtts.append(row['rtt_measured_int'])
+                    if float(row['rtt_measured_int']) < 1000:
+                        rtts.append(int(float(row['rtt_measured_int'])))
             rtts = set(rtts)
+            """
+            rtts = [rtt]
             config = generate_experiments.ccalg_predict_config(
                 btlbw=btlbw,
                 rtts=rtts,
                 end_time=60,
                 exp_name_suffix='taro',
                 queue_sizes=[queue_size])
-            config_filename = 'experiments-ccalg-predict-{}bw-{}q-20180831.yaml'.format(
-                btlbw,
-                queue_size)
+            config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-201801002.yaml'.format(btlbw, rtt)
             logging.info('Writing config file {}'.format(config_filename))
             with open(config_filename, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
@@ -405,9 +417,17 @@ def main():
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
 
+    running_experiment = 1
+    
     for experiment in experiments.values():
-        proc = experiment.run()
-        completed_experiment_procs.append(proc)
+        try:
+            print('Running experiments {}/{}'.format(running_experiment, len(experiments)))
+            cctestbed.run_local_command('/opt/bess/bessctl/bessctl daemon stop')
+            proc = experiment.run()
+            completed_experiment_procs.append(proc)
+            running_experiment += 1
+        except Exception as e:
+            print('ERROR RUNNING EXPERIMENT: {}'.format(e))
 
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))

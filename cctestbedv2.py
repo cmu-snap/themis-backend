@@ -28,8 +28,6 @@ Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
 
-
-
 # changes for aws experiments
 
 #USERNAME = getpass.getuser()
@@ -73,7 +71,8 @@ class Experiment:
             'tcpprobe_log': '/tmp/tcpprobe-{}-{}.txt'.format(self.name, self.exp_time),
             'dig_log': '/tmp/dig-{}-{}.txt'.format(self.name, self.exp_time),
             'rtt_log': '/tmp/rtt-{}-{}.txt'.format(self.name, self.exp_time),
-            'capinfos_log': '/tmp/capinfos-{}-{}.txt'.format(self.name, self.exp_time)
+            'capinfos_log': '/tmp/capinfos-{}-{}.txt'.format(self.name, self.exp_time),
+            'ping_log': '/tmp/ping-{}-{}.txt'.format(self.name, self.exp_time)
             }
         self.tar_filename = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         # update flow objects with log filenames
@@ -345,8 +344,23 @@ class Experiment:
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
 
-            
-
+    def _run_rtt_monitor(self, stack):
+        ping_source_ip = self.server.ifname_remote #self.server.ip_lan
+        ping_dest_ip = self.client.ip_wan
+        ping_ssh_ip = self.server.ip_wan
+        ping_ssh_username = self.server.username
+        ping_ssh_key_filename = self.server.key_filename
+        start_ping_cmd = ('nping --count 0 --delay 5s -e {} {}').format(
+            ping_source_ip,
+            ping_dest_ip)
+        start_ping = RemoteCommand(start_ping_cmd,
+                                   self.server.ip_wan,
+                                   stdout = self.logs['ping_log'],
+                                   stderr = self.logs['ping_log'],
+                                   logs=[self.logs['ping_log']],
+                                   username=self.server.username,
+                                   key_filename=self.server.key_filename)
+        stack.enter_context(start_ping())
             
     @contextmanager
     def _run_bess(self, ping_source='client', skip_ping=False):
