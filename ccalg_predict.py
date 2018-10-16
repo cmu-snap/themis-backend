@@ -10,6 +10,7 @@ import glob
 import traceback
 import os
 import yaml
+import datetime
 
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
@@ -23,6 +24,15 @@ def is_completed_experiment(experiment_name):
     if experiment_done:
         logging.warning(
             'Skipping completed experiment: {}'.format(experiment_name))
+    return experiment_done
+
+def ran_experiment_today(experiment_name):
+    today = datetime.datetime.now().isoformat()[:10].replace('-','')
+    num_completed = glob.glob('/tmp/{}-{}*.tar.gz'.format(experiment_name, today))
+    experiment_done = len(num_completed) > 0
+    if experiment_done:
+        logging.warning(
+            'Skipping completed experiment (today): {}'.format(experiment_name))
     return experiment_done
 
 def compute_rtt_from_tcpdump(tcpdump_filename):
@@ -103,6 +113,9 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
     if not force and is_completed_experiment(experiment_name):
         return
+    else:
+        if ran_experiment_today(experiment_name):
+            return
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
@@ -180,7 +193,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             filename = os.path.basename(url)
             if filename.strip() == '':
                 logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout 65s wget --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
+            start_flow_cmd = 'timeout 65s wget --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
