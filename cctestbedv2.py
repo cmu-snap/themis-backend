@@ -345,13 +345,17 @@ class Experiment:
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
 
     def _run_rtt_monitor(self, stack):
-        ping_source_ip = self.server.ifname_remote #self.server.ip_lan
+        ping_source_ip = self.server.ip_wan
+        #self.server.ifname_remote #self.server.ip_lan
         ping_dest_ip = self.client.ip_wan
         ping_ssh_ip = self.server.ip_wan
         ping_ssh_username = self.server.username
         ping_ssh_key_filename = self.server.key_filename
-        start_ping_cmd = ('nping --count 0 --delay 5s -e {} {}').format(
-            ping_source_ip,
+        # want out of band ping so try using basic ping
+        #start_ping_cmd = 'ping -i 5 -I {} {}'.format(ping_source_ip,
+        #                                          ping_dest_ip)
+        start_ping_cmd = ('nping --count 0 --delay 1s -e {} {}').format(
+            ping_source_ip
             ping_dest_ip)
         start_ping = RemoteCommand(start_ping_cmd,
                                    self.server.ip_wan,
