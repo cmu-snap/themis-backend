@@ -173,7 +173,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         time.sleep(5)
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
-        exp._run_rtt_monitor(stack)
+        stack.enter_context(exp._run_rtt_monitor())
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:

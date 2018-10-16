@@ -344,7 +344,8 @@ class Experiment:
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
 
-    def _run_rtt_monitor(self, stack):
+    @contextmanager
+    def _run_rtt_monitor(self):
         ping_source_ip = self.server.ip_wan
         #self.server.ifname_remote #self.server.ip_lan
         ping_dest_ip = self.client.ip_wan
@@ -354,9 +355,23 @@ class Experiment:
         # want out of band ping so try using basic ping
         #start_ping_cmd = 'ping -i 5 -I {} {}'.format(ping_source_ip,
         #                                          ping_dest_ip)
-        start_ping_cmd = ('nping --count 0 --delay 1s -e {} {}').format(
-            ping_source_ip
-            ping_dest_ip)
+        cmd = ('nping --count 0 --delay 1s {} > {} &').format(
+            ping_dest_ip,
+            self.logs['ping_log'])
+        logging.info('Running cmd: {}'.format(cmd))
+        pid = None
+        try:
+            os.system(cmd)
+            pid = run_local_command('pgrep -f "nping --count 0 --delay 1s"')
+            assert(pid)
+            pid = int(pid)
+            logging.info('PID={}'.format(pid))
+            yield pid
+        finally:
+            logging.info('Cleaning up cmd: {}'.format(cmd))
+            run_local_command('kill {}'.format(pid))
+
+        """
         start_ping = RemoteCommand(start_ping_cmd,
                                    self.server.ip_wan,
                                    stdout = self.logs['ping_log'],
@@ -364,7 +379,7 @@ class Experiment:
                                    logs=[self.logs['ping_log']],
                                    username=self.server.username,
                                    key_filename=self.server.key_filename)
-        stack.enter_context(start_ping())
+        """
             
     @contextmanager
     def _run_bess(self, ping_source='client', skip_ping=False):
