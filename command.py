@@ -116,8 +116,15 @@ class RemoteCommand:
                 if pid=='':
                     logging.error('Could not get PID after running cmd: {}.\n'.format(
                         self.cmd, cmd_stderr.read()))
-                    raise RuntimeError('Could not get PID after running cmd: {}'.format(
-                        self.cmd))
+                    # retry getting PID
+                    time.sleep(5)
+                    pid = self._get_pid(cmd)
+                    if pid == '':
+                        logging.error(
+                            'Could not get PID after running cmd: {}.\n'.format(
+                            self.cmd, cmd_stderr.read()))
+                        raise RuntimeError(
+                            'Could not get PID after running cmd: {}'.format(self.cmd))
                 # check if immediately got nonzero exit status
                 if cmd_ssh_channel.exit_status_ready():
                     if cmd_ssh_channel.recv_exit_status() != 0:

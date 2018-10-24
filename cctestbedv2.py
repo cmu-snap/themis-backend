@@ -22,7 +22,8 @@ import paramiko
 
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
-fileConfig(log_file_path)    
+fileConfig(log_file_path)
+logging.getLogger("paramiko").setLevel(logging.WARNING)  
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
@@ -97,10 +98,10 @@ class Experiment:
             self.dig = True            
         # will store measured rtt
         self.rtt_measured = None
-
+ 
     def cleanup_last_experiment(self):
         logging.info('Cleaning up last experiment just in case...')
-        run_local_command('pkill tail')
+        #run_local_command('pkill tail')
         cleanup_cmds = [('sudo pkill -9 tcpdump', ('server', 'client')),
                         ('sudo pkill -9 cat', ('client')),
                         ('sudo pkill iperf', ('server','client')),

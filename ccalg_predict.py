@@ -168,6 +168,18 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     
     logging.info('Running experiment: {}'.format(exp.name))
     #exp._run_dig()
+
+    # make sure tcpdump cleaned up
+    logging.info('Making sure tcpdump is cleaned up')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+                        
     with ExitStack() as stack:
         # add DNAT rule
         stack.enter_context(add_dnat_rule(exp, url_ip))
@@ -361,14 +373,14 @@ def main():
                         queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
                         print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(num_completed_experiments,website,btlbw,queue_size,rtt))
                         num_completed_experiments += 1
-                        proc = run_experiment(website, url, btlbw, queue_size, rtt, force=True)
+
+                        proc = run_experiment(website, url, btlbw, queue_size, rtt, force=False)
                         # spaghetti code to skip websites that don't work for given rtt
                         if proc == -1:
+                            num_completed_experiments += 1
                             break
                         elif proc is not None:
                             completed_experiment_procs.append(proc)
-                    if proc == -1:
-                        break
             except Exception as e:
                 logging.error('Error running experiment for website: {}'.format(website))
                 logging.error(e)

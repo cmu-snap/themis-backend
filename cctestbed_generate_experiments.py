@@ -19,20 +19,21 @@ HOST_POTATO = {'ifname_remote': 'ens13',
                'key_filename': '/home/ranysha/.ssh/id_rsa',
                'username': 'ranysha'}
 
-HOST_CLIENT = {'ifname_remote': 'enp6s0f0',
+
+HOST_CLIENT = {'ifname_remote': 'enp6s0f1',
                'ifname_local': 'enp6s0f0',
                'ip_lan':'192.0.0.4',
-               'ip_wan':'128.104.222.151',
+               'ip_wan':'128.104.222.182',
                'pci':'06:00.0',
-               'key_filename':None,
+               'key_filename':'/users/rware/.ssh/rware_turnip.pem',
                'username':'rware'}
 
-HOST_SERVER = {'ifname_remote':'enp6s0f0',
+HOST_SERVER = {'ifname_remote':'enp6s0f1',
                'ifname_local':'enp6s0f1',
                'ip_lan':'192.0.0.2',
-               'ip_wan':'128.104.222.148',
+               'ip_wan':'128.104.222.116',
                'pci':'06:00.1',
-               'key_filename':None,
+               'key_filename':'/users/rware/.ssh/rware_turnip.pem',
                'username':'rware'}
 
 HOST_AWS = {'ifname_remote': 'eth0',
@@ -112,15 +113,14 @@ def all_ccalgs_config(server, client, btlbw, rtt, end_time, exp_name_suffix=None
             config['experiments'][experiment_name] = experiment
     return config
 
-def _ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_name_suffix=None):
+def ccalg_predict_config_websites(btlbw, rtt, end_time, queue_size, exp_name_suffix=None):
     config = {}
-    if not client['ip_lan'].startswith('192.0.0'):
-        config['server_nat_ip'] = '128.2.208.128'
-    config['server'] = server
-    config['client'] = client
+    config['server'] = HOST_SERVER
+    config['client'] = HOST_CLIENT
     config['experiments'] = {}
 
-    ccalgs = ['bbr', 'cubic', 'reno']
+    #ccalgs = ['bbr', 'cubic', 'reno']
+    ccalgs = [ 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
     for ccalg in ccalgs:
         if exp_name_suffix is None:
             experiment_name = '{}-{}bw-{}rtt-{}q'.format(
@@ -141,12 +141,12 @@ def _ccalg_predict_config(server, client, btlbw, rtt, end_time, queue_size, exp_
 
 def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes, exp_name_suffix=None):
     config = {}
-    config['server'] = HOST_POTATO
-    config['client'] = HOST_TARO
+    config['server'] = HOST_SERVER
+    config['client'] = HOST_CLIENT
     config['experiments'] = {}
 
-    #ccalgs = ['bbr', 'cubic', 'reno']
-    ccalgs = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+    ccalgs = ['bbr', 'cubic', 'reno']
+    #ccalgs = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
     for rtt in rtts:
         for queue_size in queue_sizes:
             for ccalg in ccalgs:
