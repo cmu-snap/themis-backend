@@ -21,9 +21,6 @@ import yaml
 import paramiko
 
 from logging.config import fileConfig
-log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
-fileConfig(log_file_path)
-logging.getLogger("paramiko").setLevel(logging.WARNING)  
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
@@ -753,6 +750,11 @@ def parse_args():
     return args
 
 if __name__ == '__main__':
-    fileConfig('logging_config.ini')
+    # configure logging
+    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
+    fileConfig(log_file_path)
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+    
+    # run cctestbed
     args = parse_args()
     main(args)

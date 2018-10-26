@@ -1,4 +1,4 @@
-import cctestbed.cctestbedv2 as cctestbed
+import cctestbedv2 as cctestbed
 import paramiko
 import pytest
 import subprocess

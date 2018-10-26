@@ -1,5 +1,5 @@
-import cctestbed.cctestbedv2 as mut
-from cctestbed.tests.conftest import is_remote_process_running, does_remote_file_exist, is_local_process_running, check_open_fileobjs
+import cctestbedv2 as mut
+from tests.conftest import is_remote_process_running, does_remote_file_exist, is_local_process_running, check_open_fileobjs
 import psutil
 import time
 import os
@@ -15,9 +15,6 @@ def test_connect_dpdk(experiment):
         experiment.server, experiment.client)
     assert(expected_server_pci == experiment.server.pci)
     assert(expected_client_pci == experiment.client.pci)
-
-def test_connect_dpdk_aws():
-    pass
 
 def test_start_bess(experiment):
     mut.start_bess(experiment)
@@ -133,7 +130,6 @@ def test_experiment_run(experiment):
     open_files, open_connections = check_open_fileobjs()
     assert(len(open_files) == 0)
     assert(len(open_connections) == 0)
-
     
 def test_experiment_compress_logs(experiment):
     with ExitStack() as stack:

@@ -1,5 +1,5 @@
-from cctestbed import command as mut
-from cctestbed.tests.conftest import is_remote_process_running
+import command as mut
+from tests.conftest import is_remote_process_running
 import paramiko
 import os
 import psutil

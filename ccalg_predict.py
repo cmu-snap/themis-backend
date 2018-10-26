@@ -2,8 +2,10 @@ import cctestbedv2 as cctestbed
 import cctestbed_generate_experiments as generate_experiments
 from contextlib import ExitStack, contextmanager
 from urllib.parse import urlsplit, urlunsplit
+from config import *
 
 import logging
+from logging.config import fileConfig
 import time
 import pandas as pd
 import glob
@@ -11,6 +13,7 @@ import traceback
 import os
 import yaml
 import datetime
+import argparse
 
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
@@ -34,70 +37,7 @@ def ran_experiment_today(experiment_name):
         logging.warning(
             'Skipping completed experiment (today): {}'.format(experiment_name))
     return experiment_done
-
-def compute_rtt_from_tcpdump(tcpdump_filename):
-    logging.info('Computing RTT from tcpdump')
-    rtts = run_local_command('tshark -r "{}" '
-                             '-Tfields -e frame.time_relative '
-                             '-e tcp.analysis.ack_rtt'.format(tcpdump_filename))
-    for x,y in list(map(lambda x: x.split('\t'), rtts.split('\n'))):
-        if y != '':
-            rtt = float(y)
-            return rtt
-    
-
-def generate_test_data(experiment_name, experiment=None):
-
-    if experiment is None:
-        completed_experiments = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
-        if len(completed_experiments) > 1:
-            logging.warning('Found more than 1 experiment with this name. Using first one')
-        """"
-        with cctestbed.untarfile_extract(
-        if is_completed_experiment(experiment.name):
-        tar_filename = experiment.tar_filename
-        tcpdump_filename = os.path.basename(experiment.logs['server_tcpdump_log'])
-        with cctestbed.untarfile_extract(tar_filename, tcpdump_filename, delete_file=True) as f:
-            if experiment.rtt_measured is None:
-                rtt = compute_rtt_from_tcpdump(experiment.logs['server_tcpdump_logs'])
-            else:
-                rtt = None
-            data_bit_rate = run_local_command(
-                'capinfos -i {}'.format(experiments.logs['server_tcpdump_logs']))
-            data_bit_rate, data_bit_rate_unit = data_bit_rate.split('\n')[1].split(':')[-1].strip().split()
-        exp_info = {}
-        exp_info['rtt_measured'] = experiment.rtt_measured
-        exp_info['website'] = experiment.name.split('-')[-1]
-        exp_info['bit_rate'] = int(data_bit_rate)
-        exp_info['bit_rate_unit'] = data_bit_rate_unit
-        exp_info['queue_size'] = experiment.queue_size
-        exp_info['btlbw'] = experiment.btlbw
-        exp_info['rtt_tcpdump'] = int(rtt * 1000) if rtt is not None else None
-        exp_info['name'] = experiment.name
-        # append to url experiment data
-        with open('/mnt/url_experiments.out', 'a') as f:
-        f.write(json.dumps(exp_info))
-        """
-      
-def _url_classify2(flow_analyzer, btlbw, queue_size, rtt):
-    distances = {'name':flow_analyzer.experiment_name}
-    taro_exps = load_experiments(['*-{}bw-{}rtt-{}q-taro*'.format(btlbw, rtt, queue_size)], load_queue=True)
-    assert(len(taro_exps) == 3)
-    testing_flows = {flow_analyzer.experiment_name : flow_analyzer}
-    # this time, use only 1 seconds of flow
-    X = flow_analyzer.features[:120]
-    for exp_name, taro_exp in taro_exps.items():
-        taro_flow_analyzer = FlowAnalyzer(taro_exp,
-                                          labelsfunc=get_labels_dtw,
-                                          featuresfunc=get_features_dtw,
-                                          deltasfunc=get_deltas_dtw,
-                                          resamplefunc=resample_dtw,
-                                          resample_interval=500)
-        # make sure the testing flows are shortened to match length of test flows
-        Y = taro_flow_analyzer.features[:len(flow_analyzer.features)]
-        distances[taro_flow_analyzer.flow.ccalg] = slowdtw(X, Y)
-        return distances
-
+          
 def get_nping_rtt(url_ip):
     cmd = "nping -v-1 -H -c 5 {} | grep -oP 'Avg rtt:\s+\K.*(?=ms)'".format(url_ip)
     rtt = cctestbed.run_local_command(cmd, shell=True)
@@ -107,7 +47,6 @@ def run_rtt_monitor(url_ip):
     cmd = "nping --delay 5s {} > {}  &".format(url_ip, '')
     rtt = cctestbed.run_local_command(cmd, shell=True)
     return rtt
-
 
 def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
@@ -126,29 +65,15 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
         return -1
-    
-    client = cctestbed.Host(**{'ifname_remote': 'enp6s0f1',
-                 'ifname_local': 'enp6s0f0',
-                 'ip_lan': '192.0.0.4',
-                 'ip_wan': url_ip, #'ip_wan': '128.2.208.128',
-                 'pci': '06:00.0',
-                 'key_filename': '/users/rware/.ssh/rware_turnip.pem', 
-                 'username': 'rware'})
 
-    server = cctestbed.Host(**{'ifname_remote': 'enp6s0f1',
-                   'ifname_local': 'enp6s0f1',
-                   'ip_lan': '192.0.0.2',
-                   'ip_wan': '128.104.222.116',
-                   'pci': '06:00.1',
-                   'key_filename': '/users/rware/.ssh/rware_turnip.pem',
-                   'username': 'rware'})
+    client = HOST_CLIENT_TEMPLATE
+    client['ip_wan'] = url_ip
+    client = cctestbed.Host(**client)
+    server = HOST_SERVER
     
-    server_nat_ip = '128.104.222.182' # taro
+    server_nat_ip = HOST_CLIENT.ip_wan #'128.104.222.182'  taro
     server_port = 5201
     client_port = 5555
-
-    #print('Connecting dpdk')
-    #cctestbed.connect_dpdk(server, client)
 
     flow = {'ccalg': 'reno',
             'end_time': 60,
@@ -167,7 +92,6 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                      server_nat_ip=server_nat_ip)
     
     logging.info('Running experiment: {}'.format(exp.name))
-    #exp._run_dig()
 
     # make sure tcpdump cleaned up
     logging.info('Making sure tcpdump is cleaned up')
@@ -296,13 +220,7 @@ def update_url_with_ip(url, url_ip):
     url_parts[1] = url_ip
     return urlunsplit(url_parts)
 
-def get_taro_experiments():
-    QUEUE_SIZE_TABLE = {
-        35: {5:16, 10:32, 15:64},
-        85: {5:64, 10:128, 15:128},
-        130: {5:64, 10:128, 15:256},
-        275: {5:128, 10:256, 15:512}}
-    
+def get_taro_experiments():    
     experiments = {}
     for rtt in [35, 85, 130, 275]:
         for btlbw in [5, 10, 15]:
@@ -344,59 +262,68 @@ def run_taro_experiments():
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
 
-def main():
-    # get urls
-    # url_filename = 'ccalg-predict-findfilesresults.txt'
-    url_filename = 'ccalg-predict-urls-cleaned-20180920.csv'
-    #'cdn_urls.txt' #'urls_all_results.txt'
-    df = pd.read_csv(url_filename).set_index('website')
-    #, header=None, names=['website', 'url', 'file_size']).set_index('website')
-    urls = df.to_dict(orient='index')
-    # only do apple
-    #s = {'redcross.org':urls['redcross.org']}
+def main(websites, force=False):
+    #url_filename = 'ccalg-predict-urls-cleaned-20180920.csv'
+    #df = pd.read_csv(url_filename).set_index('website')
+    #urls = df.to_dict(orient='index')
     completed_experiment_procs = []
-    #skip_websites = ['mlit.go.jp', 'arxiv.org'] # can't get arix.gov to work
-    skip_websites = []
-    logging.info('Found {} websites'.format(len(urls)))
-    print('Found {} websites'.format(len(urls)))
+    logging.info('Found {} websites'.format(len(websites)))
+    print('Found {} websites'.format(len(websites)))
     num_completed_websites = 0
-    for website in urls.keys():
-        if website not in skip_websites:
-            file_size = urls[website]['filesize']
-            url = urls[website]['url']
-            try:
-                # before this was 1,5,10,15 but too much
-                # gonna just do 5 & 10
-                num_completed_experiments = 1
-                for rtt in [35, 85, 130, 275]:
-                    for btlbw in [5, 10, 15]:
-                        queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
-                        print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(num_completed_experiments,website,btlbw,queue_size,rtt))
-                        num_completed_experiments += 1
-
-                        proc = run_experiment(website, url, btlbw, queue_size, rtt, force=False)
-                        # spaghetti code to skip websites that don't work for given rtt
-                        if proc == -1:
+    #for website in urls.keys():
+    for website, url in websites:
+        try:
+            num_completed_experiments = 1
+            for rtt in [35, 85, 130, 275]:
+                for btlbw in [5, 10, 15]:
+                    queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
+                    print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
+                        num_completed_experiments,website,btlbw,queue_size,rtt))
+                    num_completed_experiments += 1
+                    proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
+                    # spaghetti code to skip websites that don't work for given rtt
+                    if proc == -1:
+                        if btlbw == 5:
+                            print('Skipping 2 experiments with RTT too small')
+                            num_completed_experiments += 2
+                        elif btlbw == 10:
+                            print('Skipping 1 experiment with RTT too small')
                             num_completed_experiments += 1
-                            break
-                        elif proc is not None:
-                            completed_experiment_procs.append(proc)
-            except Exception as e:
-                logging.error('Error running experiment for website: {}'.format(website))
-                logging.error(e)
-                logging.error(traceback.print_exc())
-                print('Error running experiment for website: {}'.format(website))
-                print(e)
-                print(traceback.print_exc())
+                        break
+                    elif proc is not None:
+                        completed_experiment_procs.append(proc)
+        except Exception as e:
+            logging.error('Error running experiment for website: {}'.format(website))
+            logging.error(e)
+            logging.error(traceback.print_exc())
+            print('Error running experiment for website: {}'.format(website))
+            print(e)
+            print(traceback.print_exc())
+
         num_completed_websites += 1
-        print('Completed experiments for {}/{} websites'.format(num_completed_websites, len(urls)))
+        print('Completed experiments for {}/{} websites'.format(num_completed_websites, len(websites)))
     
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
-
+    
+            
+def parse_args():
+    """Parse commandline arguments"""
+    parser = argparse.ArgumentParser(description='Run ccctestbed experiment to classify which congestion control algorithm a website is using')
+    parser.add_argument('--website', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
+                        help='Url of file to download from website. File should be sufficently big to enable classification.')
+    parser.add_argument('--force', '-f', action='store_true', help='Force experiments that were already run to run again')
+    args = parser.parse_args()
+    return args
+            
 if __name__ == '__main__':
-    main()
-    #run_taro_experiments()
+    # configure logging
+    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
+    fileConfig(log_file_path)
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+
+    args = parse_args()
+    main(args.websites, force=args.force)
