@@ -1,4 +1,4 @@
-import connect_bess as mut
+import config as mut
 import subprocess
 import shlex
 import pytest
@@ -16,3 +16,10 @@ def test_get_key_filename(host):
     key_filename = mut.get_key_filename(host)
     expected_key_path = '/users/{}/.ssh/'.format(os.environ.get('USER'))
     assert(key_filename.startswith(expected_key_path))
+
+@pytest.mark.parametrize("host", ['cctestbed-server','cctestbed-client'])
+def test_get_user(host):
+    user = mut.get_key_filename(host)
+    expected_user = os.environ.get('USER')
+    assert(user == expected_user)
+    
