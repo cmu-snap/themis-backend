@@ -30,8 +30,8 @@ build_bess() {
 
 # connect bess to physical NIC ports
 connect_bess() {
-    enable_hugepages()
-    python3.6 /opt/cctestbed/connect_bess.py
+    enable_hugepages
+    cd /opt/cctestbed && python3.6 connect_bess.py
 }
 
 $1
