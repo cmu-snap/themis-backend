@@ -31,22 +31,6 @@ HOST_CLIENT_TEMPLATE = {'ifname_remote': 'enp6s0f1',
                       'key_filename':get_host_key_filename('cctestbed-client'),
                       'username':get_host_username('cctestbed-client')}
 
-HOST_CLIENT = Host(**{'ifname_remote': 'enp6s0f1',
-                      'ifname_local': 'enp6s0f0',
-                      'ip_lan':'192.0.0.4',
-                      'ip_wan':get_host_ip_wan('cctestbed-client'),
-                      'pci':'06:00.0',
-                      'key_filename':get_host_key_filename('cctestbed-client'),
-                      'username':get_host_username('cctestbed-client')})
-
-# only for sure things here are the ip addrs
-
-HOST_SERVER = Host(**{'ifname_remote':'enp6s0f0', # might have to compute this!
-               'ifname_local':'enp6s0f1',
-               'ip_lan':'192.0.0.2',
-               'ip_wan':get_host_ip_wan('cctestbed-server'),
-               'pci':'06:00.1', 
-               'key_filename':get_host_key_filename('cctestbed-server'),
-               'username':get_host_username('cctestbed-server')})
-
-
+HOST_SERVER, HOST_CLIENT = get_host_info()
+HOST_CLIENT_TEMPLATE = HOST_SERVER._as_dict()
+HOST_CLIENT_TEMPLATE['ip_wan'] = None
