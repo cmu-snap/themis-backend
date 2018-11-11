@@ -262,36 +262,35 @@ def run_taro_experiments():
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
 
-def main(websites, force=False):
-    #url_filename = 'ccalg-predict-urls-cleaned-20180920.csv'
-    #df = pd.read_csv(url_filename).set_index('website')
-    #urls = df.to_dict(orient='index')
+def main(websites, ntwrk_conditions=None, force=False):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
     num_completed_websites = 0
-    #for website in urls.keys():
+    if ntwrk_conditions is None:
+        ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
+                            (10,35), (10,85), (10,130), (10,275),
+                            (15,35), (15,85), (15,130), (15,275)]
+        
     for website, url in websites:
         try:
             num_completed_experiments = 1
-            for rtt in [35, 85, 130, 275]:
-                for btlbw in [5, 10, 15]:
-                    queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
-                    print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
-                        num_completed_experiments,website,btlbw,queue_size,rtt))
+            too_small_rtts = []
+            for btlbw, rtt in ntwrk_conditions:
+                queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
+                print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
+                    num_completed_experiments,website,btlbw,queue_size,rtt))
+                num_completed_experiments += 1
+                if rtt in too_small_rtts:
+                    print('Skipping experiment RTT too small')
                     num_completed_experiments += 1
-                    proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
-                    # spaghetti code to skip websites that don't work for given rtt
-                    if proc == -1:
-                        if btlbw == 5:
-                            print('Skipping 2 experiments with RTT too small')
-                            num_completed_experiments += 2
-                        elif btlbw == 10:
-                            print('Skipping 1 experiment with RTT too small')
-                            num_completed_experiments += 1
-                        break
-                    elif proc is not None:
-                        completed_experiment_procs.append(proc)
+                    break
+                proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
+                # spaghetti code to skip websites that don't work for given rtt
+                if proc == -1:
+                    too_small_rtts.append(rtt)
+                elif proc is not None:
+                    completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
@@ -312,10 +311,16 @@ def main(websites, force=False):
             
 def parse_args():
     """Parse commandline arguments"""
-    parser = argparse.ArgumentParser(description='Run ccctestbed experiment to classify which congestion control algorithm a website is using')
-    parser.add_argument('--website', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
-                        help='Url of file to download from website. File should be sufficently big to enable classification.')
-    parser.add_argument('--force', '-f', action='store_true', help='Force experiments that were already run to run again')
+    parser = argparse.ArgumentParser(
+        description='Run ccctestbed experiment to classify which congestion control algorithm a website is using')
+    parser.add_argument(
+        '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
+        help='Url of file to download from website. File should be sufficently big to enable classification.')
+    parser.add_argument(
+        '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
+        help='Network conditions for download from website.')
+    parser.add_argument('--force', '-f', action='store_true',
+                        help='Force experiments that were already run to run again')
     args = parser.parse_args()
     return args
             
@@ -324,6 +329,5 @@ if __name__ == '__main__':
     log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
     fileConfig(log_file_path)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
-
     args = parse_args()
-    main(args.websites, force=args.force)
+    main(args.websites, ntwrk_conditions=args.ntwrk_conditions, force=args.force)

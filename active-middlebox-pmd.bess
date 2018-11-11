@@ -1,8 +1,6 @@
 import json
 import os
 
-# TODO: replace environment variables with json file; pass only experiment name
-
 # get variables i need from experiment json file
 exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
 with open(exp_description) as f:
