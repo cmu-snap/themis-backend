@@ -141,7 +141,21 @@ def connect_bess(host_server, host_client):
 def export_environs(host_server, host_client):
     with open('/opt/cctestbed/host_info.pkl', 'wb') as f:  
         pickle.dump([host_server, host_client], f)
-            
+
+def load_all_ccalgs():
+    cmd = "ssh cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-server sudo rmmod tcp_probe'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = "ssh cctestbed-client 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-client sudo rmmod tcp_probe'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    
 def main():
     host_server, host_client = get_host_info()
     turn_off_tso(host_server, host_client)
@@ -153,5 +167,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
     

@@ -2,6 +2,7 @@ import argparse
 import yaml
 import sys
 from itertools import product
+from config import HOST_SERVER, HOST_CLIENT, HOST_AWS_TEMPLATE
 
 HOST_TARO = {'ifname_remote': 'ens13',
              'ifname_local': 'ens3f0',
@@ -18,23 +19,6 @@ HOST_POTATO = {'ifname_remote': 'ens13',
                'pci': '8b:00.0',
                'key_filename': '/home/ranysha/.ssh/id_rsa',
                'username': 'ranysha'}
-
-
-HOST_CLIENT = {'ifname_remote': 'enp6s0f1',
-               'ifname_local': 'enp6s0f0',
-               'ip_lan':'192.0.0.4',
-               'ip_wan':'128.104.222.182',
-               'pci':'06:00.0',
-               'key_filename':'/users/rware/.ssh/rware_turnip.pem',
-               'username':'rware'}
-
-HOST_SERVER = {'ifname_remote':'enp6s0f1',
-               'ifname_local':'enp6s0f1',
-               'ip_lan':'192.0.0.2',
-               'ip_wan':'128.104.222.116',
-               'pci':'06:00.1',
-               'key_filename':'/users/rware/.ssh/rware_turnip.pem',
-               'username':'rware'}
 
 HOST_AWS = {'ifname_remote': 'eth0',
             'ifname_local': 'ens3f0',
@@ -67,14 +51,6 @@ HOST_AWS_PAULO = {'ifname_remote': 'eth0',
                   'pci': '05:00.0',
                   'key_filename': '/home/ranysha/.ssh/rware-paulo.pem',
                   'username':'ubuntu'}
-
-HOST_AWS_TEMPLATE = {'ifname_remote': 'eth0',
-                     'ifname_local': 'ens3f0',
-                     'ip_lan': None,
-                     'ip_wan': None,
-                     'pci': '05:00.0',
-                     'key_filename': None,
-                     'username':'ubuntu'}
 
 hosts = {'potato': HOST_POTATO,
          'taro': HOST_TARO,
