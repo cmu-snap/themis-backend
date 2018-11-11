@@ -2,6 +2,8 @@ import subprocess
 import os
 import xml.etree.ElementTree as ET
 import re
+import pwd
+import pickle
 
 from cctestbedv2 import Host, get_interface_pci, connect_dpdk
 
@@ -134,17 +136,20 @@ def connect_bess(host_server, host_client):
     cmd = '/opt/bess/build.py'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-
     connect_dpdk(host_server, host_client)
-    
+
+def export_environs(host_server, host_client):
+    with open('/opt/cctestbed/host_info.pkl', 'wb') as f:  
+        pickle.dump([host_server, host_client], f)
+            
 def main():
     host_server, host_client = get_host_info()
     turn_off_tso(host_server, host_client)
     add_route(host_server, host_client)
     add_arp_rule(host_server, host_client)
     setup_nat()
+    export_environs(host_server, host_client)
     connect_bess(host_server, host_client)
-    
 
 if __name__ == '__main__':
     main()
