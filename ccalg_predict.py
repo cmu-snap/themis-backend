@@ -158,7 +158,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                 raise RuntimeError('Error running flow.')
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename)
 
 
 #TODO
@@ -301,7 +301,8 @@ def main(websites, ntwrk_conditions=None, force=False):
                 if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
                     continue
-                proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
+                (proc, tar_filename) = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
+                print('Experiment tar_filename={}'.format(tar_filename))
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
                     too_small_rtt = max(too_small_rtt, rtt)
