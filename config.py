@@ -12,11 +12,3 @@ HOST_AWS_TEMPLATE['ip_lan'] = None
 HOST_AWS_TEMPLATE['ip_wan'] = None
 HOST_AWS_TEMPLATE['key_filename'] = None
 HOST_AWS_TEMPLATE['username'] = 'ubuntu'
-
-HOST_AWS_TEMPLATE = {'ifname_remote': 'eth0',
-                     'ifname_local': 'ens3f0',
-                     'ip_lan': None,
-                     'ip_wan': None,
-                     'pci': '05:00.0',
-                     'key_filename': None,
-                     'username':'ubuntu'}

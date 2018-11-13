@@ -26,6 +26,7 @@ from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
 
+CCALGS = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -323,7 +324,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     client['ip_lan'] = instance.private_ip_address
     client['key_filename'] = get_key_pair_path(ec2)
     
-    server_nat_ip = generate_experiments.HOST_CLIENT.ip_lan
+    server_nat_ip = generate_experiments.HOST_CLIENT.ip_wan
 
     client = cctestbed.Host(**client)
     
@@ -347,8 +348,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
                                queue_size=queue_size,
                                flows=flows, server=server, client=client,
                                config_filename='experiments-all-ccalgs-aws.yaml',
-                               server_nat_ip=server_nat_ip,
-                               loss_rate=loss_rate)
+                               server_nat_ip=server_nat_ip)
     
     try:
         # make sure old stuff closed
@@ -359,7 +359,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
             stack.enter_context(ccalg_predict.add_dnat_rule(exp, exp.client.ip_wan))
             # add route to URL
             stack.enter_context(ccalg_predict.add_route(exp, exp.client.ip_wan,
-                                                        gateway_ip=exp.client.ip_lan))
+                                gateway_ip=generate_experiments.HOST_CLIENT.ip_lan))
             exp._run_tcpdump('server', stack)
             exp._run_tcpdump('client', stack)
             exp._run_tcpprobe(stack)
@@ -487,13 +487,23 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
         # need to install kernel modules every time
         install_kernel_modules(ec2_region, instance, ec2_username='ubuntu')
         try:
+            completed_experiment_procs = []
             num_completed_exps = 0
+            too_small_rtt = 0
             for btlbw, rtt, queue_size in ntwrk_conditions:
-                for ccalg in ['reno','cubic','bbr']:
-                    num_completed_exps += 1 
-                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * 3, region, ccalg, btlbw, rtt, queue_size))
-                    run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
-                                       queue_size, region, loss_rate=0, force=force)
+                for ccalg in CCALGS:
+                    num_completed_exps += 1
+                    if rtt <= too_small_rtt:
+                        print('Skipping experiment RTT too small')
+                        num_completed_exps += (len(CCALGS) - 1)
+                        break
+                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * len(CCALGS), region, ccalg, btlbw, rtt, queue_size))
+                    proc = run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
+                                              queue_size, region, force=force)
+                    if proc == -1:
+                        too_small_rtt = max(too_small_rtt, rtt)
+                    elif proc is None:
+                        completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for instance: {}-{}'.format(region, ccalg))
             logging.error(e)
@@ -502,6 +512,12 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
             print(e)
             print(traceback.print_exc())
         finally:
+            for proc in completed_experiment_procs:
+                logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
+                proc.wait()
+                if proc.returncode != 0:
+                    logging.warning('Error running cmd PID={}'.format(proc.pid))
+
             logging.info('Stopping instance')
             instance.stop()
             wait_time = 0

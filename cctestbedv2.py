@@ -1,5 +1,3 @@
-#! /usr/binenv python3
-
 from command import RemoteCommand, run_local_command, get_ssh_client, exec_command
 
 from collections import namedtuple, OrderedDict
@@ -21,10 +19,14 @@ import yaml
 import paramiko
 
 from logging.config import fileConfig
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
+fileConfig(log_file_path)
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
                            'server_port', 'client_port', 'client_log', 'server_log'])
+
+
 
 # changes for aws experiments
 
@@ -96,9 +98,10 @@ class Experiment:
         # will store measured rtt
         self.rtt_measured = None
  
-    def cleanup_last_experiment(self):
+    def cleanup_last_experiment(self, cleanup_tail=True):
         logging.info('Cleaning up last experiment just in case...')
-        #run_local_command('pkill tail')
+        if cleanup_tail:
+            run_local_command('pkill tail')
         cleanup_cmds = [('sudo pkill -9 tcpdump', ('server', 'client')),
                         ('sudo pkill -9 cat', ('client')),
                         ('sudo pkill iperf', ('server','client')),
@@ -120,7 +123,7 @@ class Experiment:
         with open(self.logs['description_log'], 'w') as f:
             json.dump(self.__dict__, f)
                     
-    def run(self):
+    def run(self, bess_config_name='acitve-middlebox-pmd'):
         try:
             # make sure old stuff closed
             self.cleanup_last_experiment()
@@ -131,7 +134,7 @@ class Experiment:
                 self._run_tcpdump('server', stack)
                 self._run_tcpdump('client', stack)
                 self._run_tcpprobe(stack)
-                self._run_all_flows(stack)
+                self._run_all_flows(stack, bess_config_name=bess_config_name)
             # compress all log files
             proc = self._compress_logs()
             logging.info('Finished experiment: {}'.format(self.name))
@@ -341,9 +344,8 @@ class Experiment:
             run_local_command('kill {}'.format(pid))
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
-
     @contextmanager
-    def _run_rtt_monitor(self):
+    def _run_rtt_monitor(self, program='nping'):
         ping_source_ip = self.server.ip_wan
         #self.server.ifname_remote #self.server.ip_lan
         ping_dest_ip = self.client.ip_wan
@@ -353,34 +355,32 @@ class Experiment:
         # want out of band ping so try using basic ping
         #start_ping_cmd = 'ping -i 5 -I {} {}'.format(ping_source_ip,
         #                                          ping_dest_ip)
-        cmd = ('nping --count 0 --delay 1s {} > {} &').format(
-            ping_dest_ip,
-            self.logs['ping_log'])
+        if program == 'nping':
+            cmd = ('nping --count 0 --delay 1s {} > {} &').format(
+                ping_dest_ip,
+                self.logs['ping_log'])
+        elif program == 'ping':
+            cmd = 'ping -i 1 {} > {} &'.format(ping_dest_ip,
+                                               self.logs['ping_log'])
+        
         logging.info('Running cmd: {}'.format(cmd))
         pid = None
         try:
             os.system(cmd)
-            pid = run_local_command('pgrep -f "nping --count 0 --delay 1s"')
-            assert(pid)
-            pid = int(pid)
-            logging.info('PID={}'.format(pid))
-            yield pid
+            if program == 'nping':
+                pid = run_local_command('pgrep -f "nping --count 0 --delay 1s"')
+            elif program == 'ping':
+                pid = run_local_command('pgrep -f "ping -i 1"')
+                assert(pid)
+                pid = int(pid)
+                logging.info('PID={}'.format(pid))
+                yield pid
         finally:
             logging.info('Cleaning up cmd: {}'.format(cmd))
             run_local_command('kill {}'.format(pid))
-
-        """
-        start_ping = RemoteCommand(start_ping_cmd,
-                                   self.server.ip_wan,
-                                   stdout = self.logs['ping_log'],
-                                   stderr = self.logs['ping_log'],
-                                   logs=[self.logs['ping_log']],
-                                   username=self.server.username,
-                                   key_filename=self.server.key_filename)
-        """
-            
+                        
     @contextmanager
-    def _run_bess(self, ping_source='client', skip_ping=False):
+    def _run_bess(self, ping_source='client', skip_ping=False, bess_config_name='active-middlebox-pmd'):
         self.write_description_log()
         stderr = None
         try:
@@ -396,7 +396,7 @@ class Experiment:
                 ping_ssh_username = self.client.username
                 ping_ssh_key_filename = self.client.key_filename
             elif ping_source == 'server':
-                ping_source_ip = self.server.ifname_remote #self.server.ip_lan
+                ping_source_ip = self.server.ip_lan #self.server.ifname_remote
                 ping_dest_ip = self.client.ip_wan
                 ping_ssh_ip = self.server.ip_wan
                 ping_ssh_username = self.server.username
@@ -447,14 +447,14 @@ class Experiment:
         # need to update description log with avg rtt
         self.write_description_log() 
                 
-    def _run_all_flows(self, stack):
+    def _run_all_flows(self, stack, bess_config_name='active-middlebox-pmd'):
         # get wait times for each flow
         if len(self.flows) > 1:
             wait_times = self.get_wait_times()
         else:
             wait_times = [0]
         # run bess and monitor
-        stack.enter_context(self._run_bess())
+        stack.enter_context(self._run_bess(bess_config_name=bess_config_name))
         # give bess some time to start
         time.sleep(3)
         self._show_bess_pipeline()
@@ -600,15 +600,15 @@ def load_experiments(config, config_filename,
         exp.write_description_log()
     return experiments
 
-def start_bess(experiment):
+def start_bess(experiment, bess_config_name='active-middlebox-pmd'):
     cmd = '/opt/bess/bessctl/bessctl daemon start'
     try:
         run_local_command(cmd)
     except Exception as e:
         pass
-    cmd = ("/opt/bess/bessctl/bessctl run active-middlebox-pmd "
+    cmd = ("/opt/bess/bessctl/bessctl run {} "
            "\"CCTESTBED_EXPERIMENT_DESCRIPTION='{}'\"").format(
-               experiment.logs['description_log'])
+               bess_config_name, experiment.logs['description_log'])
     run_local_command(cmd)
 
 def stop_bess():
@@ -750,11 +750,6 @@ def parse_args():
     return args
 
 if __name__ == '__main__':
-    # configure logging
-    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
-    fileConfig(log_file_path)
-    logging.getLogger("paramiko").setLevel(logging.WARNING)
-    
-    # run cctestbed
+    fileConfig('logging_config.ini')
     args = parse_args()
     main(args)
