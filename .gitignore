@@ -150,3 +150,5 @@ flycheck_*.el
 
 # ignore host pkl file created when you run setup_cloudlab.py
 host_info.pkl
+# ignore config files
+*.yaml

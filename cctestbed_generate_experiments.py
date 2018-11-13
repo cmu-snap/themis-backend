@@ -115,14 +115,15 @@ def ccalg_predict_config_websites(btlbw, rtt, end_time, queue_size, exp_name_suf
     return config
 
 
-def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes, exp_name_suffix=None):
+def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
+                         exp_name_suffix=None, ccalgs=None):
     config = {}
-    config['server'] = HOST_SERVER
-    config['client'] = HOST_CLIENT
+    config['server'] = HOST_SERVER._asdict()
+    config['client'] = HOST_CLIENT._asdict()
     config['experiments'] = {}
 
-    ccalgs = ['bbr', 'cubic', 'reno']
-    #ccalgs = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+    if ccalgs is None:
+        ccalgs = ['bbr', 'cubic', 'reno']
     for rtt in rtts:
         for queue_size in queue_sizes:
             for ccalg in ccalgs:
