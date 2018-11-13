@@ -619,7 +619,7 @@ def _main(git_secret, force_create_instance=False, regions=None, networks=None, 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run controlled iperf3 experiment')
-    parser.add_argument('--regions','-r', required=True, nargs='+',
+    parser.add_argument('--regions','-r', required=False, nargs='+', default=None,
                         help='AWS regions to perform experiment. Default is all 15 AWS regions')
     parser.add_argument('--network', '-n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'),
                         dest='networks', type=int,
