@@ -26,7 +26,8 @@ from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
 
-CCALGS = ['cubic', 'reno', 'bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+# CCALGS = ['cubic','reno','bbr']
+CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -316,7 +317,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     if instance_rtt >= rtt:
         logging.warning('Skipping experiment with instance RTT {} >= {}'.format(
             instance_rtt, rtt))
-        return 
+        return -1
 
     server = generate_experiments.HOST_SERVER
     client = generate_experiments.HOST_AWS_TEMPLATE
@@ -434,9 +435,9 @@ def run_local_exps():
 
 def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = [] #['us-east-1']
+    skip_regions = ['ap-south-1'] #['us-east-1']
     if regions is None:
-        regions=['us-east-1'] # get_all_regions()
+        regions=get_all_regions()
     #else:
     #    regions = ['us-east-1'] #get_all_regions()
     
@@ -511,6 +512,7 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
             print('Error running experiment for instance: {}-{}'.format(region, ccalg))
             print(e)
             print(traceback.print_exc())
+            raise e
         finally:
             for proc in completed_experiment_procs:
                 logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
@@ -551,8 +553,6 @@ if __name__ == '__main__':
     git_secret = getpass.getpass('Github secret: ')
     run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
 
-
-    #__get_taro_experiments
     
 
     
