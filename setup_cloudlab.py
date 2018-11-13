@@ -155,7 +155,19 @@ def load_all_ccalgs():
     cmd = 'ssh cctestbed-client sudo rmmod tcp_probe'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-
+    cmd = "ssh cctestbed-server 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-server sudo sysctl -p'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = "ssh cctestbed-client 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-client sudo sysctl -p'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    
 def increase_win_sizes():
     cmds = [
     'echo net.core.wmem_max = 16777216 | sudo tee -a /etc/sysctl.conf',
@@ -184,7 +196,8 @@ def main():
     connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
-    main()
+    #main()
+    pass
 
 
     
