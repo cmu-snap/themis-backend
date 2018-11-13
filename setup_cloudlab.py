@@ -179,6 +179,7 @@ def main():
     add_route(host_server, host_client)
     add_arp_rule(host_server, host_client)
     setup_nat()
+    load_all_ccalgs()
     export_environs(host_server, host_client)
     connect_bess(host_server, host_client)
 
