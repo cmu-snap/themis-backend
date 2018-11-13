@@ -261,6 +261,8 @@ def install_kernel_modules(ec2, instance, ec2_username='ubuntu'):
         'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
         'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done',
         'sudo rmmod tcp_probe',
+        'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf',
+        'sudo sysctl -p',
         'sudo ethtool -K eth0 tx off sg off tso off'
     ]
     for cmd in cmds:
