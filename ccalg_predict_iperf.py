@@ -390,7 +390,7 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments(networks=None):    
+def get_taro_experiments(networks=None, force=True):    
     if networks is None:
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
@@ -418,12 +418,12 @@ def get_taro_experiments(networks=None):
             with open(config_filename, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             experiments.update(cctestbed.load_experiments(config,
-                                                          config_filename, force=True))
+                                                          config_filename, force=force))
     return experiments
 
     
-def run_local_exps(networks):
-    experiments = get_taro_experiments(networks)
+def run_local_exps(networks, force):
+    experiments = get_taro_experiments(networks, force)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
@@ -510,7 +510,7 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
                                               queue_size, region, force=force)
                     if proc == -1:
                         too_small_rtt = max(too_small_rtt, rtt)
-                    elif proc is None:
+                    elif proc is not None:
                         completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for instance: {}-{}'.format(region, ccalg))
@@ -558,7 +558,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     if 'local' in args.regions:
-        run_local_exps(args.networks)
+        run_local_exps(args.networks, args.force)
     else:
         git_secret = getpass.getpass('Github secret: ')
         run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
