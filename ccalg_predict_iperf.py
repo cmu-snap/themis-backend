@@ -388,19 +388,25 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments():    
-    for rtt in [35, 85, 130, 275]: 
-        for btlbw in [5, 10, 15]:
-            loss_rates = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
-            queue_size = QUEUE_SIZE_TABLE[rtt][btlbw] 
+def get_taro_experiments(networks=None):    
+    if networks is None:
+        ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                            (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                            (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+
+    else:
+        ntwrk_conditions = networks
+
+    experiments = {}
+    for btlbw, rtt, queue_size in ntwrk_conditions:
             rtts = [rtt]
             config = generate_experiments.ccalg_predict_config(
                 btlbw=btlbw,
                 rtts=rtts,
                 end_time=60,
-                exp_name_suffix='taro',
+                exp_name_suffix='local',
                 queue_sizes=[queue_size],
-                loss_rates=loss_rates)
+                ccalgs=CCALGS)
             config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-{}q-{}.yaml'.format(
                 btlbw,
                 rtt,
@@ -414,19 +420,18 @@ def get_taro_experiments():
     return experiments
 
     
-def run_local_exps():
-    experiments = get_taro_experiments()
+def run_local_exps(networks):
+    experiments = get_taro_experiments(networks)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
     current_experiment = 1
-    for repeat in range(0,10):
-        for experiment in experiments.values():
-            print('Running experiment {}/{}, repetition #{}'.format(
-                current_experiment, num_experiments, repeat))
-            proc = experiment.run(compress_logs_url=True)
-            completed_experiment_procs.append(proc)
-            current_experiment += 1
+    for experiment in experiments.values():
+        print('Running experiment {}/{} -> {}'.format(
+            current_experiment, num_experiments, experiment.name))
+        proc = experiment.run(compress_logs_url=True)
+        completed_experiment_procs.append(proc)
+        current_experiment += 1
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
@@ -550,8 +555,11 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-    git_secret = getpass.getpass('Github secret: ')
-    run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
+    if 'local' in args.regions:
+        run_local_exps(args.networks)
+    else:
+        git_secret = getpass.getpass('Github secret: ')
+        run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
 
     
 
