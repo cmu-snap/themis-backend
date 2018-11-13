@@ -163,7 +163,7 @@ def increase_win_sizes():
     'echo net.core.wmem_default = 16777216 | sudo tee -a /etc/sysctl.conf', 
     'echo net.core.rmem_default = 16777216 | sudo tee -a /etc/sysctl.conf',
     'echo net.ipv4.tcp_wmem = 10240 16777216 16777216 | sudo tee -a /etc/sysctl.conf',
-    'net.ipv4.tcp_rmem = 10240 16777216 16777216 | sudo tee -a /etc/sysctl.conf',
+    'echo net.ipv4.tcp_rmem = 10240 16777216 16777216 | sudo tee -a /etc/sysctl.conf',
     'sudo sysctl -p'
     ]
     for cmd in cmds:
