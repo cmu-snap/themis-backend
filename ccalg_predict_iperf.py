@@ -25,6 +25,7 @@ import argparse
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 # CCALGS = ['cubic','reno','bbr']
 CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
@@ -261,7 +262,7 @@ def install_kernel_modules(ec2, instance, ec2_username='ubuntu'):
         'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
         'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done',
         'sudo rmmod tcp_probe',
-        'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf',
+        "echo 'net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah' | sudo tee -a /etc/sysctl.conf",
         'sudo sysctl -p',
         'sudo ethtool -K eth0 tx off sg off tso off'
     ]
@@ -422,13 +423,12 @@ def run_local_exps():
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
     current_experiment = 1
-    for repeat in range(0,10):
-        for experiment in experiments.values():
-            print('Running experiment {}/{}, repetition #{}'.format(
-                current_experiment, num_experiments, repeat))
-            proc = experiment.run(compress_logs_url=True)
-            completed_experiment_procs.append(proc)
-            current_experiment += 1
+    for experiment in experiments.values():
+        print('Running experiment {}/{}, repetition #{}'.format(
+            current_experiment, num_experiments, repeat))
+        proc = experiment.run(compress_logs_url=True)
+        completed_experiment_procs.append(proc)
+        current_experiment += 1
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
@@ -437,7 +437,7 @@ def run_local_exps():
 
 def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1'] #['us-east-1']
+    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1'] #['us-east-1']
     if regions is None:
         regions=get_all_regions()
     #else:
@@ -505,7 +505,7 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
                                               queue_size, region, force=force)
                     if proc == -1:
                         too_small_rtt = max(too_small_rtt, rtt)
-                    elif proc is None:
+                    elif proc is not None:
                         completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for instance: {}-{}'.format(region, ccalg))
