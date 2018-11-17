@@ -123,7 +123,7 @@ class Experiment:
         with open(self.logs['description_log'], 'w') as f:
             json.dump(self.__dict__, f)
                     
-    def run(self, bess_config_name='acitve-middlebox-pmd'):
+    def run(self, bess_config_name='active-middlebox-pmd', compress_logs_url=False):
         try:
             # make sure old stuff closed
             self.cleanup_last_experiment()
@@ -136,7 +136,10 @@ class Experiment:
                 self._run_tcpprobe(stack)
                 self._run_all_flows(stack, bess_config_name=bess_config_name)
             # compress all log files
-            proc = self._compress_logs()
+            if compress_logs_url:
+                proc = self._compress_logs_url()
+            else:
+                proc = self._compress_logs()
             logging.info('Finished experiment: {}'.format(self.name))
             return proc 
         except Exception as e:
@@ -548,11 +551,7 @@ def load_experiments(config, config_filename,
     experiments = OrderedDict()
     
     def is_completed_experiment(experiment_name, force):
-        num_completed = run_local_command('grep -c {} completed_exps_taro.out'.format(
-            experiment_name))
-        #glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
-        # len num completed > -
-        experiment_done = (int(num_completed) > 0) or (len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0)
+        experiment_done = (len(glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))) > 0)
         if experiment_done:
             if force:
                 logging.warning(
