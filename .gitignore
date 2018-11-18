@@ -147,3 +147,20 @@ flycheck_*.el
 
 # directory configuration
 .dir-locals.el
+
+
+# ignore host pkl file created when you run setup_cloudlab.py
+host_info.pkl
+# ignore config files
+*.yaml
+
+# ignore kernel module files
+*.ko.cmd
+*.o.cmd
+*.ko
+*.mod.c
+*.mod.o
+*.o
+.tmp_versions/
+Module.symvers
+modules.order

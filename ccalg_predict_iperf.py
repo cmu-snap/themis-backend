@@ -25,7 +25,10 @@ import argparse
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 
+# CCALGS = ['cubic','reno','bbr']
+CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -71,7 +74,7 @@ def get_key_pair_path(ec2):
     if key_pair_name is None:
         return None
     else:
-        key_pair_path = '/home/ranysha/.ssh/{}.pem'.format(key_pair_name)
+        key_pair_path = '{}/.ssh/{}.pem'.format(os.environ['HOME'], key_pair_name)
         assert(os.path.isfile(key_pair_path))
         return key_pair_path
 
@@ -90,7 +93,7 @@ def get_key_name(ec2):
 def create_key_pair(ec2, region_name):
     response = ec2.create_key_pair(KeyName='rware-{}'.format(region_name))
     key_pair_name = response['KeyName']
-    key_pair_path = '/home/ranysha/.ssh/{}.pem'.format(key_pair_name)
+    key_pair_path = '{}/.ssh/{}.pem'.format(os.environ['HOME'], key_pair_name)
     with open(key_pair_path, 'w') as f:
         f.write(response['KeyMaterial'])
     os.chmod(key_pair_path, stat.S_IRUSR | stat.S_IWUSR)
@@ -254,38 +257,18 @@ def setup_ec2(ec2, instance, git_secret, ec2_username='ubuntu'):
         logging.info(stdout)    
 
 def install_kernel_modules(ec2, instance, ec2_username='ubuntu'):
+
     cmds = [
         'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
-        'sudo modprobe tcp_bbr',
+        'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done',
+        'sudo rmmod tcp_probe',
+        "echo 'net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah' | sudo tee -a /etc/sysctl.conf",
+        'sudo sysctl -p',
         'sudo ethtool -K eth0 tx off sg off tso off'
     ]
     for cmd in cmds:
         exit_status, stdout = run_ec2_command(ec2, instance, cmd, ec2_username)
         logging.info(stdout)    
-
-        
-@contextmanager
-def add_nat_rule(instance, nat_ip='128.2.208.128', nat_username='ranysha',
-                 nat_key_filename='/home/ranysha/.ssh/id_rsa'):
-    """Will delete NAT rule when you exit context"""
-    try:
-        yield _add_nat_rule(instance, nat_ip, nat_username, nat_key_filename)
-    finally:
-        with command.get_ssh_client(ip_addr=nat_ip, username=nat_username,
-                                    key_filename=nat_key_filename) as ssh_client:
-            cmd = 'sudo iptables -t nat --delete PREROUTING 4'
-            _, stdout, stderr = command.exec_command(ssh_client, nat_ip, cmd)
-
-def _add_nat_rule(instance, nat_ip='128.2.208.128', nat_username='ranysha',
-                 nat_key_filename='/home/ranysha/.ssh/id_rsa'):
-    with command.get_ssh_client(ip_addr=nat_ip, username=nat_username,
-                                key_filename=nat_key_filename) as ssh_client:
-        cmd = ('sudo iptables -t nat -A PREROUTING -i enp11s0f0 '
-               '--source {} -j DNAT --to-destination 192.0.0.4').format(
-                   instance.public_ip_address)
-        _, stdout, stderr = command.exec_command(ssh_client, nat_ip, cmd)
-        exit_status =  stdout.channel.recv_exit_status()
-        return exit_status, stdout.read()
 
 def get_ec2_experiments(instance, ec2, region):
     server = generate_experiments.HOST_POTATO
@@ -311,25 +294,6 @@ def get_ec2_experiments(instance, ec2, region):
                                              config_filename, force=True)
     return experiments
 
-def _run_ec2_experiments(experiments, instance):
-    completed_experiment_procs = []
-    logging.info('Going to run {} experiments.'.format(len(experiments)))
-    with add_nat_rule(instance):
-        for experiment in experiments.values():
-            while True:
-                try:
-                    proc = experiment.run()
-                    break
-                except paramiko.ssh_exception.NoValidConnectionsError as e:
-                    logging.warning('Could not connect to instance. Waiting 30s and retrying.')
-                    time.sleep(30)
-            completed_experiment_procs.append(proc)
-
-    for proc in completed_experiment_procs:
-        logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
-        proc.wait()
-        if proc.returncode != 0:
-            logging.warning('Error running cmd PID={}'.format(proc.pid))
 
 # for aws experiments use icmp ping
 def get_ping_rtt(instance_ip):
@@ -340,11 +304,10 @@ def get_ping_rtt(instance_ip):
     return rtt
 
             
-def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt, queue_size, region, loss_rate=None, force=False):
-    if loss_rate is not None:
-        experiment_name = '{}-{}bw-{}rtt-{}q-{}loss-{}'.format(ccalg, btlbw, rtt, queue_size, loss_rate, region)
-    else:
-        experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(ccalg, btlbw, rtt, queue_size, region)
+def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
+                       queue_size, region, force=False):
+    experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
+        ccalg, btlbw, rtt, queue_size, region)
     if not force and ccalg_predict.is_completed_experiment(experiment_name):
         return
     else:
@@ -357,7 +320,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt, queue_size, region, los
     if instance_rtt >= rtt:
         logging.warning('Skipping experiment with instance RTT {} >= {}'.format(
             instance_rtt, rtt))
-        return 
+        return -1
 
     server = generate_experiments.HOST_SERVER
     client = generate_experiments.HOST_AWS_TEMPLATE
@@ -365,10 +328,9 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt, queue_size, region, los
     client['ip_lan'] = instance.private_ip_address
     client['key_filename'] = get_key_pair_path(ec2)
     
-    server_nat_ip = generate_experiments.HOST_CLIENT.ip_lan
+    server_nat_ip = generate_experiments.HOST_CLIENT.ip_wan
 
     client = cctestbed.Host(**client)
-    server = cctestbed.Host(**server)
     
     server_port = 5201
     client_port = 5555
@@ -390,8 +352,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt, queue_size, region, los
                                queue_size=queue_size,
                                flows=flows, server=server, client=client,
                                config_filename='experiments-all-ccalgs-aws.yaml',
-                               server_nat_ip=server_nat_ip,
-                               loss_rate=loss_rate)
+                               server_nat_ip=server_nat_ip)
     
     try:
         # make sure old stuff closed
@@ -402,7 +363,7 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt, queue_size, region, los
             stack.enter_context(ccalg_predict.add_dnat_rule(exp, exp.client.ip_wan))
             # add route to URL
             stack.enter_context(ccalg_predict.add_route(exp, exp.client.ip_wan,
-                                                        gateway_ip=exp.client.ip_lan))
+                                gateway_ip=generate_experiments.HOST_CLIENT.ip_lan))
             exp._run_tcpdump('server', stack)
             exp._run_tcpdump('client', stack)
             exp._run_tcpprobe(stack)
@@ -430,60 +391,25 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments():    
+def get_taro_experiments(networks=None, force=True):    
+    if networks is None:
+        ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                            (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                            (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+
+    else:
+        ntwrk_conditions = networks
+
     experiments = {}
-    # url_exp = pd.read_csv('url-exp-metadata-cdns.csv')
-    #'url-exp-metadata-all.csv')
-    #for queue_size in [64, 128, 256]:
-    """
-    ntwrk_conditions = {17: {10: 16},
-      21: {10: 32},
-      26: {10: 32},
-      31: {10: 32},
-      32: {10: 32},
-      38: {10: 32},
-      42: {10: 64},
-      43: {10: 64},
-      52: {10: 64},
-      61: {10: 64},
-      63: {10: 64},
-      65: {10: 64},
-      68: {10: 64},
-      70: {10: 64},
-      76: {10: 64},
-      93: {10: 128},
-      97: {10: 128},
-      106: {10: 128},
-      117: {10: 128},
-      127: {10: 128},
-      137: {10: 128},
-      143: {10: 128},
-      148: {10: 128},
-      162: {10: 256},
-      170: {10: 256},
-      195: {10: 256},
-      206: {10: 256},
-      227: {10: 256},
-      247: {10: 256},
-      260: {10: 256},
-      302: {10: 256},
-      343: {10: 512},
-      412: {10: 512},
-      481: {10: 512},
-      550: {10: 512}}
-    """
-    for rtt in [35, 85, 130, 275]: 
-        for btlbw in [5, 10, 15]:
-            loss_rates = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
-            queue_size = QUEUE_SIZE_TABLE[rtt][btlbw] 
+    for btlbw, rtt, queue_size in ntwrk_conditions:
             rtts = [rtt]
             config = generate_experiments.ccalg_predict_config(
                 btlbw=btlbw,
                 rtts=rtts,
                 end_time=60,
-                exp_name_suffix='taro',
+                exp_name_suffix='local',
                 queue_sizes=[queue_size],
-                loss_rates=loss_rates)
+                ccalgs=CCALGS)
             config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-{}q-{}.yaml'.format(
                 btlbw,
                 rtt,
@@ -493,46 +419,31 @@ def get_taro_experiments():
             with open(config_filename, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             experiments.update(cctestbed.load_experiments(config,
-                                                          config_filename, force=True))
+                                                          config_filename, force=force))
     return experiments
 
-def _get_taro_experiments(tarfile_localpath):
-    rtts = {}
-    experiment_name = os.path.basename(tarfile_localpath[:-len('.tar.gz')])
-    experiment_description_filename = '{}.json'.format(experiment_name)
-    with untarfile(tarfile_localpath, experiment_description_filename, untar_dir='/tmp') as f:
-        experiment_description = json.load(f)
-    experiment = Experiment(tarfile_localpath=tarfile_localpath,
-                            **experiment_description)
-    rtts['name'] = experiment_name #experiment.name
-    # will just chop decimal off since the base rtt is < 1ms so should
-    # get really close to estimated rtt -- floor decimal
-    rtts['rtt'] = int(experiment.rtt_measured)
-    return rtts
-
-def main():
-    experiments = get_taro_experiments()
+    
+def run_local_exps(networks, force):
+    experiments = get_taro_experiments(networks, force)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
     current_experiment = 1
-    for repeat in range(0,10):
-        for experiment in experiments.values():
-            print('Running experiment {}/{}, repetition #{}'.format(
-                current_experiment, num_experiments, repeat))
-            proc = experiment.run(compress_logs_url=True)
-            completed_experiment_procs.append(proc)
-            current_experiment += 1
+    for experiment in experiments.values():
+        print('Running experiment {}/{} -> {}'.format(
+            current_experiment, num_experiments, experiment.name))
+        proc = experiment.run(compress_logs_url=True)
+        completed_experiment_procs.append(proc)
+        current_experiment += 1
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
-    
 
-def _main(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
+def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = [] #['us-east-1']
+    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1'] #['us-east-1']
     if regions is None:
         regions=get_all_regions()
     #else:
@@ -585,13 +496,23 @@ def _main(git_secret, force_create_instance=False, regions=None, networks=None, 
         # need to install kernel modules every time
         install_kernel_modules(ec2_region, instance, ec2_username='ubuntu')
         try:
+            completed_experiment_procs = []
             num_completed_exps = 0
+            too_small_rtt = 0
             for btlbw, rtt, queue_size in ntwrk_conditions:
-                for ccalg in ['reno','cubic','bbr']:
-                    num_completed_exps += 1 
-                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * 3, region, ccalg, btlbw, rtt, queue_size))
-                    run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
-                                       queue_size, region, loss_rate=0, force=force)
+                for ccalg in CCALGS:
+                    num_completed_exps += 1
+                    if rtt <= too_small_rtt:
+                        print('Skipping experiment RTT too small')
+                        num_completed_exps += (len(CCALGS) - 1)
+                        break
+                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * len(CCALGS), region, ccalg, btlbw, rtt, queue_size))
+                    proc = run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
+                                              queue_size, region, force=force)
+                    if proc == -1:
+                        too_small_rtt = max(too_small_rtt, rtt)
+                    elif proc is not None:
+                        completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for instance: {}-{}'.format(region, ccalg))
             logging.error(e)
@@ -599,7 +520,14 @@ def _main(git_secret, force_create_instance=False, regions=None, networks=None, 
             print('Error running experiment for instance: {}-{}'.format(region, ccalg))
             print(e)
             print(traceback.print_exc())
+            raise e
         finally:
+            for proc in completed_experiment_procs:
+                logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
+                proc.wait()
+                if proc.returncode != 0:
+                    logging.warning('Error running cmd PID={}'.format(proc.pid))
+
             logging.info('Stopping instance')
             instance.stop()
             wait_time = 0
@@ -621,7 +549,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Run controlled iperf3 experiment')
     parser.add_argument('--regions','-r', required=False, nargs='+', default=None,
                         help='AWS regions to perform experiment. Default is all 15 AWS regions')
-    parser.add_argument('--network', '-n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'),
+    parser.add_argument('--network', '-n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'), default=None,
                         dest='networks', type=int,
                         help='Network conditions to use for experiments')
     parser.add_argument('--force','-f', action='store_true', help='Force experiments tthat were already run to run again')
@@ -629,12 +557,13 @@ def parse_args():
     return args
 
 if __name__ == '__main__':
-    #args = parse_args()
-    #git_secret = getpass.getpass('Github secret: ')
-    #_main(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
-    main()
+    args = parse_args()
+    if 'local' in args.regions:
+        run_local_exps(args.networks, args.force)
+    else:
+        git_secret = getpass.getpass('Github secret: ')
+        run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
 
-    #__get_taro_experiments
     
 
     

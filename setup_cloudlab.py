@@ -141,17 +141,62 @@ def connect_bess(host_server, host_client):
 def export_environs(host_server, host_client):
     with open('/opt/cctestbed/host_info.pkl', 'wb') as f:  
         pickle.dump([host_server, host_client], f)
-            
+
+def load_all_ccalgs():
+    cmd = "ssh cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-server sudo rmmod tcp_probe'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = "ssh cctestbed-client 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-client sudo rmmod tcp_probe'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = "ssh cctestbed-server 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-server sudo sysctl -p'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = "ssh cctestbed-client 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh cctestbed-client sudo sysctl -p'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    
+def increase_win_sizes():
+    cmds = [
+    'echo net.core.wmem_max = 16777216 | sudo tee -a /etc/sysctl.conf',
+    'echo net.core.rmem_max = 16777216 | sudo tee -a /etc/sysctl.conf',
+    'echo net.core.wmem_default = 16777216 | sudo tee -a /etc/sysctl.conf', 
+    'echo net.core.rmem_default = 16777216 | sudo tee -a /etc/sysctl.conf',
+    'echo net.ipv4.tcp_wmem = 10240 16777216 16777216 | sudo tee -a /etc/sysctl.conf',
+    'echo net.ipv4.tcp_rmem = 10240 16777216 16777216 | sudo tee -a /etc/sysctl.conf',
+    'sudo sysctl -p'
+    ]
+    for cmd in cmds:
+        proc = subprocess.run('ssh cctestbed-server {}'.format(cmd), shell=True)
+        assert(proc.returncode == 0)
+        proc = subprocess.run('ssh cctestbed-client {}'.format(cmd), shell=True)
+        assert(proc.returncode == 0)
+    
 def main():
     host_server, host_client = get_host_info()
+    increase_win_sizes()
     turn_off_tso(host_server, host_client)
     add_route(host_server, host_client)
     add_arp_rule(host_server, host_client)
     setup_nat()
+    load_all_ccalgs()
     export_environs(host_server, host_client)
     connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
     main()
+
 
     

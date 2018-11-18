@@ -154,7 +154,6 @@ def add_dnat_rule(exp, url_ip):
     with cctestbed.get_ssh_client(exp.server_nat_ip,
                                   exp.server.username,
                                   exp.server.key_filename) as ssh_client:
-        # TODO: remove hard coding of the ip addr here
         dnat_rule_cmd = 'sudo iptables -t nat -A PREROUTING -i enp1s0f0 --source {} -j DNAT --to-destination {}'.format(url_ip, exp.server.ip_lan)
         cctestbed.exec_command(ssh_client, exp.server_nat_ip, dnat_rule_cmd)
     try:
@@ -169,11 +168,13 @@ def add_dnat_rule(exp, url_ip):
             cctestbed.exec_command(ssh_client, exp.server.ip_wan, dnat_delete_cmd) 
 
 @contextmanager
-def add_route(exp, url_ip):
+def add_route(exp, url_ip, gateway_ip=None):
     with cctestbed.get_ssh_client(exp.server.ip_wan,
                                   exp.server.username,
                                   key_filename=exp.server.key_filename) as ssh_client:
-        add_route_cmd = 'sudo route add {} gw {}'.format(url_ip, exp.client.ip_lan)
+        if gateway_ip is None:
+            gateway_ip = exp.client.ip_lan
+        add_route_cmd = 'sudo route add {} gw {}'.format(url_ip, gateway_ip)
         cctestbed.exec_command(ssh_client, exp.server.ip_wan, add_route_cmd)
     try:
         yield
