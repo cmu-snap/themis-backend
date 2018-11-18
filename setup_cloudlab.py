@@ -96,10 +96,12 @@ def turn_off_tso(host_server, host_client):
 def add_route(host_server, host_client):
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server sudo ip route add 192.0.0.0/24 dev {}".format(host_server.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
+    if proc.returncode != 0:
+        print('WARNING: Assuming route already exists')
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client sudo ip route add 192.0.0.0/24 dev {}".format(host_client.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
+    if proc.returncode != 0:
+        print('WARNING: Assuming route already exists')
 
 def add_arp_rule(host_server, host_client):
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server ifconfig | grep -B1 'inet addr:{}'".format(host_server.ip_lan)
