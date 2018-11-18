@@ -142,29 +142,48 @@ def export_environs(host_server, host_client):
     with open('/opt/cctestbed/host_info.pkl', 'wb') as f:  
         pickle.dump([host_server, host_client], f)
 
+def add_disk_space():
+    cmd = ('sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt '
+           '&& sudo mkdir /mnt/tmp '
+           '&& sudo chmod 1777 /mnt/tmp '
+           '&& sudo cp /tmp/* /mnt/tmp '
+           '&& rm -r /tmp '
+           '&& sudo ln -s /mnt/tmp /tmp ')
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = ('sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt '
+           '&& sudo mkdir /mnt/tmp '
+           '&& sudo chmod 1777 /mnt/tmp '
+           '&& sudo cp /tmp/* /mnt/tmp '
+           '&& rm -r /tmp '
+           '&& sudo ln -s /mnt/tmp /tmp ')
+    proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(
+        cmd), shell=True)
+    assert(proc.returncode == 0)
+        
 def load_all_ccalgs():
-    cmd = "ssh cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh cctestbed-server sudo rmmod tcp_probe'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-server sudo rmmod tcp_probe'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = "ssh cctestbed-client 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh cctestbed-client sudo rmmod tcp_probe'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client sudo rmmod tcp_probe'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = "ssh cctestbed-server 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh cctestbed-server sudo sysctl -p'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-server sudo sysctl -p'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = "ssh cctestbed-client 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client 'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf'"
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh cctestbed-client sudo sysctl -p'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client sudo sysctl -p'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
     
@@ -179,9 +198,9 @@ def increase_win_sizes():
     'sudo sysctl -p'
     ]
     for cmd in cmds:
-        proc = subprocess.run('ssh cctestbed-server {}'.format(cmd), shell=True)
+        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
         assert(proc.returncode == 0)
-        proc = subprocess.run('ssh cctestbed-client {}'.format(cmd), shell=True)
+        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(cmd), shell=True)
         assert(proc.returncode == 0)
     
 def main():
@@ -193,6 +212,7 @@ def main():
     setup_nat()
     load_all_ccalgs()
     export_environs(host_server, host_client)
+    add_disk_space()
     connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
