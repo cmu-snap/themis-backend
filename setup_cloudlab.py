@@ -59,10 +59,10 @@ def get_host_info():
 
     create_ssh_config(host_server['ip_wan'], host_client['ip_wan'])
     server_ifname_remote = subprocess.run(
-        "ssh cctestbed-server ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(host_server['ip_lan']),
+        "ssh -o StrictHostKeyChecking=no cctestbed-server ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(host_server['ip_lan']),
         shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
     client_ifname_remote = subprocess.run(
-        "ssh cctestbed-client ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(host_client['ip_lan']),
+        "ssh -o StrictHostKeyChecking=no cctestbed-client ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(host_client['ip_lan']),
         shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
     host_server['ifname_remote'] = server_ifname_remote
     host_client['ifname_remote'] = client_ifname_remote
@@ -86,40 +86,40 @@ def create_ssh_config(server_ip_wan, client_ip_wan):
         f.write(ssh_config)
 
 def turn_off_tso(host_server, host_client):
-    cmd = "ssh cctestbed-server sudo ethtool -K {} tx off sg off tso off".format(host_server.ifname_remote)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server sudo ethtool -K {} tx off sg off tso off".format(host_server.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = "ssh cctestbed-client sudo ethtool -K {} tx off sg off tso off".format(host_client.ifname_remote)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client sudo ethtool -K {} tx off sg off tso off".format(host_client.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
 def add_route(host_server, host_client):
-    cmd = "ssh cctestbed-server sudo ip route add 192.0.0.0/24 dev {}".format(host_server.ifname_remote)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server sudo ip route add 192.0.0.0/24 dev {}".format(host_server.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = "ssh cctestbed-client sudo ip route add 192.0.0.0/24 dev {}".format(host_client.ifname_remote)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client sudo ip route add 192.0.0.0/24 dev {}".format(host_client.ifname_remote)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
 def add_arp_rule(host_server, host_client):
-    cmd = "ssh cctestbed-server ifconfig | grep -B1 'inet addr:{}'".format(host_server.ip_lan)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server ifconfig | grep -B1 'inet addr:{}'".format(host_server.ip_lan)
     stdout = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
     server_hwaddr = re.match('.*HWaddr (.*)\n', stdout).groups()[0].strip()
 
-    cmd = "ssh cctestbed-client ifconfig | grep -B1 'inet addr:{}'".format(host_client.ip_lan)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client ifconfig | grep -B1 'inet addr:{}'".format(host_client.ip_lan)
     stdout = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
     client_hwaddr = re.match('.*HWaddr (.*)\n', stdout).groups()[0].strip()
 
-    cmd = "ssh cctestbed-server sudo arp -s {} {}".format(host_client.ip_lan, client_hwaddr)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server sudo arp -s {} {}".format(host_client.ip_lan, client_hwaddr)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
-    cmd = "ssh cctestbed-client sudo arp -s {} {}".format(host_server.ip_lan, server_hwaddr)
+    cmd = "ssh -o StrictHostKeyChecking=no cctestbed-client sudo arp -s {} {}".format(host_server.ip_lan, server_hwaddr)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
 def setup_nat():
-    cmd = 'ssh cctestbed-client /bin/bash /opt/cctestbed/setup-nat.sh'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client /bin/bash /opt/cctestbed/setup-nat.sh'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
