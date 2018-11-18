@@ -152,7 +152,8 @@ def add_disk_space():
            '&& sudo  rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp ')
     proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
+    if proc.returncode != 0:
+        print('WARNING: Assuming disk space already added')
     cmd = ('sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt '
            '&& sudo mkdir /mnt/tmp '
            '&& sudo chmod 1777 /mnt/tmp '
@@ -161,7 +162,8 @@ def add_disk_space():
            '&& sudo ln -s /mnt/tmp /tmp ')
     proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(
         cmd), shell=True)
-    assert(proc.returncode == 0)
+    if proc.returncode != 0:
+        print('WARNING: Assuming disk space already added')
         
 def load_all_ccalgs():
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
