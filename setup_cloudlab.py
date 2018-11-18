@@ -149,7 +149,7 @@ def add_disk_space():
            '&& sudo mkdir /mnt/tmp '
            '&& sudo chmod 1777 /mnt/tmp '
            '&& sudo cp /tmp/* /mnt/tmp '
-           '&& rm -r /tmp '
+           '&& sudo  rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp ')
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
@@ -157,7 +157,7 @@ def add_disk_space():
            '&& sudo mkdir /mnt/tmp '
            '&& sudo chmod 1777 /mnt/tmp '
            '&& sudo cp /tmp/* /mnt/tmp '
-           '&& rm -r /tmp '
+           '&& sudo rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp ')
     proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(
         cmd), shell=True)
