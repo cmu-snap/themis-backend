@@ -160,7 +160,7 @@ def add_disk_space():
            '&& sudo cp /tmp/* /mnt/tmp '
            '&& sudo rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp ')
-    proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(
+    proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(
         cmd), shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
