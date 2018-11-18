@@ -15,6 +15,25 @@ import matplotlib.gridspec as gridspec
 from sklearn.metrics import adjusted_rand_score
 from sklearn.metrics import accuracy_score
 
+from fastdtw import fastdtw
+from fastdtw import dtw as dtw_slow
+from scipy.spatial.distance import euclidean
+
+from scipy.signal import argrelextrema
+import multiprocessing as mp
+
+import matplotlib.style as style
+plt.rcParams.update(plt.rcParamsDefault)
+style.use(['seaborn-colorblind', 'seaborn-paper', 'seaborn-white'])
+plt.rc('font', size=12)
+plt.rc('axes', titlesize=12, titleweight='bold', labelsize=12)
+plt.rc('xtick', labelsize=12)
+plt.rc('ytick', labelsize=12)
+plt.rc('legend', fontsize=12)
+plt.rc('figure', titlesize=12)
+plt.rc('lines', linewidth=3)
+plt.rc('axes.spines', right=False, top=False)
+
 #CATEGORIES = ['backoff', 'flatline', 'linear', 'superlinear']
 BACKOFF = 'backoff'
 FLATLINE = 'flatline'
@@ -86,18 +105,8 @@ def get_deltas_ewma(flows_resampled):
     return deltas
 """
 
-def get_deltas_ewma(flows_resampled):
-    # not implementened
-    return flows_resampled
-
-def histogram_intersection(h1, h2, bins=None):
-    #bins = np.diff(bins)
-    sm = 0
-    assert(len(h1) == len(h2))
-    for i in range(len(h1)):
-        #sm += min(bins[i]*h1[i], bins[i]*h2[i])
-        sm += min(h1[i], h2[i])
-    return 1-sm
+def get_deltas_diff(flows_resampled):
+    return flows_resampled.resampled - flows_resampled.resampled.shift()
 
 def resample(queue_occupancy, resample_interval):
     resampled =  queue_occupancy.resample('{}ms'.format(resample_interval),
@@ -118,11 +127,73 @@ def resample_ewma(queue_occupancy, resample_interval, alpha=ALPHA):
     resampled.index = (resampled.index - resampled.index[0]).total_seconds()
     return resampled
 
-def get_labels_histograms(deltas):
+
+def get_deltas_ewma(flows_resampled):
+    # not implementened
+    return flows_resampled
+
+def resample_dtw(queue_occupancy, resample_interval, alpha=ALPHA):
+    #return queue_occupancy.reset_index()[queue_occupancy.name] / queue_occupancy.queue_size
+    resampled = (queue_occupancy
+                    .sort_index()
+                    .ewm(alpha=alpha, adjust=False)
+                    .mean())
+    resampled = resampled.resample('{}ms'.format(resample_interval)).last().ffill()
+    resampled.index = (resampled.index - resampled.index[0]).total_seconds()
+    #resampled = resampled.ffill()[:65]
+    resampled = resampled.ffill()
+    return resampled.reset_index()[queue_occupancy.name] #/ queue_occupancy.queue_size
+
+def resample_dtw_znorm(queue_occupancy, resample_interval, alpha=ALPHA):
+    #return queue_occupancy.reset_index()[queue_occupancy.name] / queue_occupancy.queue_size
+    resampled = (queue_occupancy
+                    .sort_index()
+                    .ewm(alpha=alpha, adjust=False)
+                    .mean())
+    resampled = resampled.resample('{}ms'.format(resample_interval)).last().ffill()
+    resampled.index = (resampled.index - resampled.index[0]).total_seconds()
+    resampled = resampled.ffill()[:65]
+    resampled = (resampled - resampled.mean()) / resampled.std()
+    return resampled.reset_index()[queue_occupancy.name] #/ queue_occupancy.queue_size
+
+# shorten
+def resample_dtw_shorten(queue_occupancy, resample_interval, alpha=ALPHA):
+    resampled = (queue_occupancy
+                    .sort_index()
+                    .ewm(alpha=alpha, adjust=False)
+                    .mean())
+    resampled = resampled.resample('{}ms'.format(resample_interval)).last().ffill()
+    resampled.index = (resampled.index - resampled.index[0]).total_seconds()
+    resampled = resampled.ffill()[:30]
+    return resampled.reset_index()[queue_occupancy.name]
+
+
+def get_deltas_dtw(flows_resampled):
+    return flows_resampled
+
+def get_labels_dtw(deltas):
     return deltas
 
-def get_features_histograms(labels):
+def get_features_dtw(labels):
+    return labels.round(6)
+
+def get_features_dtw_shorten(labels, num_extrema = 3):
+    extrema = argrelextrema(labels.values, np.greater, order=1)[0]
+    # if we can get first 2 extrema then do that
+    # otherwise just get the whole time series
+    if len(extrema) > num_extrema:
+        shorten_index = extrema[num_extrema - 1]+1
+        if len(labels) > shorten_index:
+            return labels.round(6)[:shorten_index]
+    return labels.round(6)
+
+def get_labels_histograms(deltas,
+                          bins=[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 50]):
+    labels = pd.cut(deltas, bins=bins, include_lowest=True)
     return labels
+
+def get_features_histograms(labels):
+    return labels.value_counts().sort_index()
 
 def get_features(labels):
     flow_features = labels.value_counts()
@@ -132,7 +203,7 @@ def get_features(labels):
     #self._features = (flow_features / self.labels.size).sort_index()
     return flow_features.sort_index()
 
-def load_flows(experiment_analyzers, queue_sizes, experiment_name_format,
+def load_flows(experiment_analyzers, queue_sizes, experiment_name_format, flow_where_clause=None,
                 deltasfunc=get_deltas_ratio, labelsfunc=get_labels, resamplefunc=resample, featuresfunc=get_features, resample_interval=None):
     # have 64 queue
     #RESAMPLE_INTERVAL = 40
@@ -160,16 +231,20 @@ Lazily populate resample, deltas, and labels properties.
 """
 class FlowAnalyzer:
     def __init__(self, experiment_analyzer, flow_client_port=None, resample_interval=None,
-                labelsfunc=get_labels, deltasfunc=get_deltas_ratio, resamplefunc=resample, featuresfunc=get_features, flow_where_clause=None):
+                labelsfunc=get_labels_dtw, deltasfunc=get_deltas_dtw, resamplefunc=resample_dtw, featuresfunc=get_features_dtw, flow_where_clause=None):
         self.experiment_name = experiment_analyzer.experiment.name
+        self.queue_size = experiment_analyzer.experiment.queue_size
         all_flows = {flow.client_port:flow for flow in experiment_analyzer.experiment.flows}
-        if flow_client_port is None:
+        if flow_client_port is not None:
+            self.flow = all_flows[flow_client_port]
+            self.queue_occupancy = self.get_flow_queue_occupancy(experiment_analyzer, flow_where_clause, columns=True)  / self.queue_size
+        else:
+            self.flow = all_flows[5555]
+            self.queue_occupancy = self.get_flow_queue_occupancy(experiment_analyzer, flow_where_clause)  / self.queue_size
             flow_client_port = 5555
-        self.flow = all_flows[flow_client_port]
         if resample_interval is None:
             resample_interval = self.flow.rtt
         self.resample_interval = resample_interval
-        self.queue_occupancy = self.get_flow_queue_occupancy(experiment_analyzer, flow_where_clause)
         self.labelsfunc = labelsfunc
         self.deltasfunc = deltasfunc
         self.resamplefunc = resamplefunc
@@ -178,8 +253,9 @@ class FlowAnalyzer:
         self._deltas = None
         self._labels = None
         self._features = None
+        self._clusters = None
 
-    def get_flow_queue_occupancy(self, experiment_analyzer, flow_where_clause):
+    def get_flow_queue_occupancy(self, experiment_analyzer, flow_where_clause, columns=False):
         """Get queue occupancy for flow with matching port number."""
         # flow data will include queue data from enqueue and dequeue
         with experiment_analyzer.hdf_queue() as hdf_queue:
@@ -187,17 +263,24 @@ class FlowAnalyzer:
             #df_queue = hdf_queue.select('df_queue',
             #                        where='dropped=0 & src={}'.format(self.flow.client_port),
             #                        columns=[self.flow.client_port])
-            df_queue = hdf_queue.select('df_queue', where=flow_where_clause, columns=['size'])
+            if not columns:
+                df_queue = hdf_queue.select('df_queue', where=flow_where_clause, columns=['size'])
+                df_queue = df_queue['size']
+            else:
+                df_queue = hdf_queue.select('df_queue', where=flow_where_clause, columns=[self.flow.client_port])
+                df_queue = df_queue[self.flow.client_port]
+
         #df_queue = df_queue[self.flow.client_port]
         #df_queue = df_queue[df_queue[df_queue!=0].index[0]:df_queue[df_queue!=0].index[-1]]
-        df_queue = df_queue['size'] # make this is series instead of a dataframe
+        # df_queue = df_queue['size'] make this is series instead of a dataframe
         #df_queue = df_queue[df_queue[df_queue!=0].index[0]:df_queue[df_queue!=0].index[-1]]
         df_queue.name = self.flow.ccalg
         df_queue = df_queue.sort_index()
         # there could be duplicate rows if batch size is every greater than 1
         # want to keep last entry for any duplicated rows
         df_queue = df_queue[~df_queue.index.duplicated(keep='last')]
-
+        # added for dtw experiments
+        df_queue.queue_size = self.queue_size
         return df_queue
 
     @property
@@ -295,7 +378,7 @@ def plot_flow_features_histogram(labels, noaxis=False,
     return ax
 
 class CCAlgClassifier:
-    def __init__(self, training_flow_analyzers, testing_flow_analyzers=None, distance_metric=None):
+    def __init__(self, training_flow_analyzers, testing_flow_analyzers=None, distance_metric=None, normalize=True):
         self.training_flow_analyzers = training_flow_analyzers
         self._training_equals_test = False
         self.testing_flow_analyzers = testing_flow_analyzers
@@ -316,6 +399,8 @@ class CCAlgClassifier:
         self._cluster_accuracy = None
         self._avg_distances = None
         self._classifier_accuracy = None
+        self.normalize = normalize
+        self._clusters = None
 
     @property
     def true_labels(self):
@@ -341,8 +426,21 @@ class CCAlgClassifier:
             training_samples = {}
             for experiment_name, flow_analyzer in self.training_flow_analyzers.items():
                 # normalized counts
-                training_samples[experiment_name] = flow_analyzer.features / flow_analyzer.features.sum()
+                if self.normalize:
+                    training_samples[experiment_name] = flow_analyzer.features / flow_analyzer.features.sum()
+                else:
+                    training_samples[experiment_name] = flow_analyzer.features
             self._training_samples = pd.DataFrame.from_dict(training_samples, orient='index').sort_index()
+            # added for dynamic time warping
+            if self._distance_metric == dtw or self._distance_metric == slowdtw or self._distance_metric == euclidean:
+                self._training_samples = self._training_samples.fillna(0)
+                if self._training_samples.shape[1] < self.testing_samples.shape[1]:
+                    # get padding column names from testing samples
+                    padding_col_names = self.testing_samples.columns[self._training_samples.shape[1]:]
+                    padding = pd.DataFrame(np.zeros((self._training_samples.shape[0],
+                      padding_col_names.shape[0])), columns=padding_col_names,
+                      index = self._training_samples.index)
+                    self._training_samples = pd.concat([self._training_samples, padding], axis=1)
         return self._training_samples
 
     @property
@@ -351,8 +449,20 @@ class CCAlgClassifier:
             testing_samples = {}
             for experiment_name, flow_analyzer in self.testing_flow_analyzers.items():
                 # normalized counts
-                testing_samples[experiment_name] = flow_analyzer.features / flow_analyzer.features.sum()
+                if self.normalize:
+                    testing_samples[experiment_name] = flow_analyzer.features / flow_analyzer.features.sum()
+                else:
+                    testing_samples[experiment_name] = flow_analyzer.features
             self._testing_samples = pd.DataFrame.from_dict(testing_samples, orient='index').sort_index()
+            # added for dynamic time warping -- need to pad with zeros
+            if self._distance_metric == dtw or self._distance_metric == slowdtw or self._distance_metric == euclidean:
+                self._testing_samples = self._testing_samples.fillna(0)
+                if self._testing_samples.shape[1] < self.training_samples.shape[1]:
+                    padding_col_names = self.training_samples.columns[self._testing_samples.shape[1]:]
+                    padding = pd.DataFrame(np.zeros((self._testing_samples.shape[0],
+                      padding_col_names.shape[0])), columns=padding_col_names,
+                      index = self._testing_samples.index)
+                    self._testing_samples = pd.concat([self._testing_samples, padding], axis=1)
         return self._testing_samples
 
     @property
@@ -361,7 +471,7 @@ class CCAlgClassifier:
             if self._distance_metric is None:
                 self._classifier = neighbors.KNeighborsClassifier(n_neighbors=1)
             else:
-                self._classifier = neighbors.KNeighborsClassifier(n_neighbors=1,  metric=self._distance_metric)
+                self._classifier = neighbors.KNeighborsClassifier(n_neighbors=1,  metric=self._distance_metric, n_jobs=min(len(self.testing_samples), mp.cpu_count()))
             self._classifier.fit(self.training_samples.values, self.true_labels_training.values.flatten())
         return self._classifier
 
@@ -374,7 +484,7 @@ class CCAlgClassifier:
             else:
                 distances = pairwise_distances(X=self.training_samples.values,
                                                 Y=self.training_samples.values,
-                                                metric=histogram_intersection)
+                                                metric=self._distance_metric, n_jobs=min(len(self.training_samples_samples), mp.cpu_count()))
             self._distances = (pd
                                 .DataFrame(distances, columns=self.training_samples.index)
                                 .set_index(self.training_samples.index))
@@ -386,15 +496,18 @@ class CCAlgClassifier:
             model = AgglomerativeClustering(n_clusters=self.true_labels_training.nunique()[0],
                                                 affinity='precomputed',
                                                 linkage='average')
-            model = model.fit(self.distances)
+            #model = model.fit(self.distances)
+            clusters = model.fit_predict(self.distances)
             self._clustering = model
+            self._clusters = clusters
         return self._clustering
 
     @property
     def cluster_accuracy(self):
         if self._cluster_accuracy is None:
-            clusters = self.clustering.fit_predict(self.distances)
-            self._cluster_accuracy = adjusted_rand_score(self.true_labels_training.values.T[0], clusters)
+            if self._clusters == None:
+                self.clustering #.fit_predict(self.distances)
+            self._cluster_accuracy = adjusted_rand_score(self.true_labels_training.values.T[0], self._clusters)
         return self._cluster_accuracy
 
     @property
@@ -467,8 +580,9 @@ class CCAlgClassifier:
     @property
     def results(self):
         if self._results is None:
-            self._results = self.testing_samples.copy().sort_index()
-            self._results['true_label'] = self.true_labels.sort_index()
+            #self._results = self.testing_samples.copy().sort_index()
+            # self._results = pd.DataFrame([])
+            self._results = self.true_labels.sort_index()
             self._results['predicted_label'] = self.predicted_labels.sort_index()
             # TODO: use StratifiedKFold to do this computation when training equals test
             if not self._training_equals_test:
@@ -478,6 +592,53 @@ class CCAlgClassifier:
                 self._results['closest_neighbor'] = list(map(lambda x: self.training_samples.iloc[x].name, index_neighbor))
                 self._results['closest_distance'] = dist
         return self._results
+
+def histogram_intersection(h1, h2, bins=None):
+    #bins = np.diff(bins)
+    sm = 0
+    assert(len(h1) == len(h2))
+    for i in range(len(h1)):
+        #sm += min(bins[i]*h1[i], bins[i]*h2[i])
+        sm += min(h1[i], h2[i])
+    return 1-sm
+
+def dtw(x, y):
+    return fastdtw(x, y, dist=euclidean)[0]
+
+def slowdtw(x, y):
+    return dtw_slow(x, y, dist=euclidean)[0]
+
+def scale_zero_one(x):
+    return (x - x.min()) / (x.max() - x.min())
+
+def get_all_but(name, all_analyzers):
+    most_analyzers = {}
+    for key,value in all_analyzers.items():
+        if key != name:
+            for exp_name, flow_analyzer in value.items():
+                most_analyzers_key = '{}-{}'.format(key, exp_name)
+                most_analyzers[most_analyzers_key] = flow_analyzer
+    return most_analyzers
+
+def get_dtw_distances(dtw_path, timeseries_x, timeseries_y):
+    all_distances = []
+    for map_x, map_y in dtw_path:
+        all_distances.append(euclidean(timeseries_x.iloc[map_x],
+                                       timeseries_y.iloc[map_y]))
+    all_distances = pd.DataFrame(all_distances)
+    all_distances.name = 'distance'
+    return all_distances
+
+def plot_dtw_distances(dtw_path, timeseries_x, timeseries_y, plot_ax=None, **kwargs):
+    xy = pd.concat([timeseries_x, timeseries_y], axis=1)
+    if plot_ax is None:
+        ax = xy.plot(figsize=FIGSIZE, style='o-', legend=False, **kwargs)
+    else:
+        ax = xy.plot(figsize=FIGSIZE, style='o-', legend=False, ax=plot_ax, **kwargs)
+    for map_x, map_y in dtw_path:
+        ax.plot([timeseries_x.index[map_x], timeseries_y.index[map_y]],
+                [timeseries_x.iloc[map_x], timeseries_y.iloc[map_y]], linestyle='--', color=COLORS[1])
+    return ax
 
 def plot_classifier_results(classifier, queue_sizes, experiment_name_format):
     fig, axs = plt.subplots(3, len(queue_sizes))
@@ -510,15 +671,35 @@ def plot_analyzers_resampled(analyzers, queue_sizes, experiment_name_format):
         axs[0, jdx].set_title(ccalg, fontsize=22)
         for idx, queue_size in enumerate(queue_sizes):
             experiment_name = experiment_name_format.format(ccalg, queue_size)
-            # normalize queue occupancy so from 0 to 1 for uniform plotting
-            ax = analyzers[experiment_name].resampled.plot(figsize=(15,15), ylim=(-0.1*queue_size,queue_size*0.1+queue_size), ax=axs[idx, jdx])
+            # normalize queue occupancy so from 0 to 1 for uniform plottingß
+            #ax = znorm(analyzers[experiment_name].resampled).plot(figsize=(15,15), ylim=(-0.1*queue_size,queue_size*0.1+queue_size), ax=axs[idx, jdx])
+            ax = analyzers[experiment_name].resampled.plot(figsize=(15,15), ax=axs[idx, jdx]) # ylim=(-0.1, 1.1)
             ax.set_xlabel('')
             #ax.axes.get_xaxis().set_visible(False)
             #ax.axes.get_yaxis().set_visible(False)
             sample_index += 1
 
     for idx in range(len(queue_sizes)):
-           axs[idx,0].text(-25, queue_sizes[idx]*0.45, queue_sizes[idx], fontsize=22)
+        #axs[idx,0].text(-25, queue_sizes[idx]*0.45, queue_sizes[idx], fontsize=22)
+        axs[idx,0].text(-50, 0, queue_sizes[idx], fontsize=22)
+
+    fig.tight_layout()
+
+    return fig
+
+def plot_analyzers_features(analyzers, queue_sizes, experiment_name_format, **kwargs):
+    fig, axs = plt.subplots(len(queue_sizes), 3, figsize=(15,15))
+
+    sample_index = 0
+    for jdx, ccalg in enumerate(['reno','cubic','bbr']):
+        axs[0, jdx].set_title(ccalg, fontsize=FONTSIZE)
+        for idx, queue_size in enumerate(queue_sizes):
+            experiment_name = experiment_name_format.format(ccalg, queue_size)
+            ax = analyzers[experiment_name].features.plot(figsize=(15,15), ax=axs[idx, jdx], **kwargs)
+            ax.set_xlabel('')
+            if jdx == 0:
+                ax.set_ylabel(queue_sizes[idx], fontsize=FONTSIZE)
+            sample_index += 1
 
     fig.tight_layout()
 
@@ -538,7 +719,7 @@ def plot_dendrogram(model, **kwargs):
     # Plot the corresponding dendrogram
     return dendrogram(linkage_matrix, **kwargs)
 
-def plot_classifier_clusters(classifier):
+def plot_classifier_clusters(classifier, normalize=True):
     fig = plt.figure(figsize=(15,10))
     plot_num_rows = len(classifier.training_samples)
     grid = gridspec.GridSpec(plot_num_rows, 3, wspace=0.0, hspace=0.0, width_ratios=[0.25,2,2])
@@ -553,14 +734,40 @@ def plot_classifier_clusters(classifier):
         ax = plt.subplot(grid[ax_idx, 1])
         ax.axis('off')
         exp_name = classifier.training_samples.index[exp_name_idx]
+        """
+        if normalize:
+            (classifier.training_flow_analyzers[exp_name].resampled / queue_size).plot(ylim=(0,1), ax=ax)
+        else:
+            classifier.training_flow_analyzers[exp_name].resampled.plot(ylim=(0,1), ax=ax)
+        """
         queue_size = int(exp_name.split('-')[-1][:-1])
-        (classifier.training_flow_analyzers[exp_name].resampled / queue_size).plot(ylim=(0,1), ax=ax)
+        flow = classifier.training_flow_analyzers[exp_name].features #/ queue_size)
+        flow = (flow - flow.min()) / (flow.max() - flow.min())
+        flow.plot(ylim=(0,1), ax=ax)
         axes.append(ax)
         ax = plt.subplot(grid[ax_idx, 0])
         ax.axis('off')
         ax.text(0, 0.5, exp_name.split('-')[0], va='center', ha='left', fontsize=20)
     return fig
 
-def plot_analyzers_labels(analyzers, queue_sizes, experiment_name_format):
-    pass
+# TODO: new function for going from experiment analyzer to plot of experiment competing flows
+def plot_competing_flows(experiment_analyzer):
+    max_rtt = 0
+    flow_queue_occupancy = {}
+    for flow in experiment_analyzer.experiment.flows:
+        if flow.rtt_measured is not None and flow.rtt_measured > max_rtt:
+            max_rtt = flow.rtt_measured
+    for flow in experiment_analyzer.experiment.flows:
+        flow_analyzer = FlowAnalyzer(experiment_analyzer,
+                                    flow_client_port=flow.client_port,
+                                    flow_where_clause='src={}'.format(flow.client_port),
+                                    labelsfunc=get_labels_dtw,
+                                    featuresfunc=get_features_dtw,
+                                    deltasfunc=get_deltas_dtw,
+                                    resamplefunc=resample_dtw,
+                                    resample_interval=max_rtt)
+        pass
+
+    return df
+
 
