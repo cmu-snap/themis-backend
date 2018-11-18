@@ -196,8 +196,7 @@ def main():
     connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
-    #main()
-    pass
+    main()
 
 
     
