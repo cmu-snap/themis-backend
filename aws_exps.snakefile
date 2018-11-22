@@ -1,11 +1,15 @@
 
 # TODO: persist experiment data to redis
-# TODO: figure out how to only load local exps with the correct ccalgs & ntwrk conditions
+# TODO: figure out how to only load local exps with the correct ccalgs & ntwrk condition
+# TODO: how to get figures of local exps in the all part?
+
+# bic
 
 EXP_NAME_PATTERN='data-raw/{exp_name, bic-15bw-85rtt-128q-us-east-1-.*}.tar.gz'
 #EXP_NAME_PATTERN='data-raw/{exp_name,.*-us-east-1-.*}.tar.gz'
 AWS_EXP_NAMES, = glob_wildcards(EXP_NAME_PATTERN)
-CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp',
+          'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 # won't need all the wildcards so make an input function to tell us
 # which one we actually need given an exp_name
@@ -34,6 +38,11 @@ def get_local_exps_plots(wildcards):
     return expand('graphics/{exp_name}.png',
                   exp_name=experiments)
 
+def get_local_exps_bwdiff(wildcards):
+    experiments = get_local_exps(wildcards)
+    # key is the ccalg
+    return {exp_name.split('-')[0] :'data-processed/{exp_name}.bwdiff'.format(exp_name=exp_name) for exp_name in experiments}
+
 # decidde which subset of local experiments we actually need to compute dtw for this exp
 def get_dtws(wildcards):
     experiments = get_local_exps(wildcards)
@@ -51,26 +60,6 @@ rule all:
         # get_local_exps_plots,
         # all aws results ,
         all_results='data-processed/classify-aws-exps.csv'
-
-rule store_all_results:
-    input:
-        classify=expand('data-processed/{exp_name}.classify', exp_name=AWS_EXP_NAMES),
-        results=expand('data-processed/{exp_name}.metadata', exp_name=AWS_EXP_NAMES)
-    output:
-        all_results='data-processed/classify-aws-exps.csv'
-    run:
-        import pandas
-        import json
-
-        all_exp_results = []
-        for exp_results in input.all_results:
-            with open(exp_results) as f:
-                all_exp_results.append(json.load(f))
-        df_all_results = pd.DataFrame(all_exp_results).set_index('name')
-        df_all_results.to_csv(output.all_results)
-
-
-# todo: rule for making all local experiment plots
 
 rule load_raw_queue_data:
     input:
@@ -115,51 +104,54 @@ rule store_queue_hdf:
                 print("Value error converting {} to hex".format(x))
                 return 0
 
-        df = pd.read_csv(input.raw_queue_data, names = ['dequeued',
-                                           'time',
-                                           'src',
-                                           'seq',
-                                           'datalen',
-                                           'size',
-                                           'dropped',
-                                           'queued',
-                                           'batch'],
-                         converters = {'seq': tohex,
-                                       'src': tohex},
-                         dtype={'dequeued': bool,
-                                'time': np.uint64,
-                                'datalen': np.uint16,
-                                'size': np.uint32,
-                                'dropped':bool,
-                                'queued': np.uint16,
-                                'batch': np.uint16}, skip_blank_lines=True)
-        df['seq'] = df['seq'].astype( np.uint32)
-        df['src'] = df['src'].astype( np.uint16)
-        df['lineno'] = df.index + 1
-        df = df.set_index('time')
+        df = (pd
+        .read_csv(input.raw_queue_data,
+                  names = ['dequeued',
+                           'time',
+                           'src',
+                           'seq',
+                           'datalen',
+                           'size',
+                           'dropped',
+                           'queued',
+                           'batch'],
+                  converters = {'seq': tohex,
+                                'src': tohex},
+                  dtype={'dequeued': bool,
+                         'time': np.uint64,
+                         'datalen': np.uint16,
+                         'size': np.uint32,
+                         'dropped':bool,
+                         'queued': np.uint16,
+                         'batch': np.uint16}, skip_blank_lines=True)
+        .assign(seq=lambda df: df.astype(np.uint32))
+        .assign(src=lambda df: df.astype( np.uint16))
+        .assign(lineno=lambda df: df.index + 1)
+        .set_index('time'))
+        
         df_enq = (pd
-                  .get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src'])
-                  .astype(np.uint8))
+        .get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src'])
+        .astype(np.uint8))
         df_deq = (pd
-                  .get_dummies(df[df.dequeued==1]['src'])
-                  .replace(1,-1)
-                  .astype(np.int8))
+        .get_dummies(df[df.dequeued==1]['src'])
+        .replace(1,-1)
+        .astype(np.int8))
         df_flows = (df_enq
-                    .append(df_deq)
-                    .sort_index()
-                    .cumsum()
-                    .fillna(0)
-                    .astype(np.uint32))
+        .append(df_deq)
+        .sort_index()
+        .cumsum()
+        .fillna(0)
+        .astype(np.uint32))
         df = (df
-              .reset_index()
-              .join(df_flows.reset_index().drop('time', axis=1))
-              .sort_index()
-              .ffill())
-        df.time = pd.to_datetime(df.time,
-                                 infer_datetime_format=True,
-                                 unit='ns')
-        df = df.set_index('time')
-
+        .reset_index()
+        .join(df_flows.reset_index().drop('time', axis=1))
+        .sort_index()
+        .ffill()
+        .assign(time=lambda df: pd.to_datetime(df.time,
+                                               infer_datetime_format=True,
+                                               unit='ns'))
+        .set_index('time'))
+        
         with pd.HDFStore(output.hdf_queue, mode='w') as store:
             store.append('df_queue',
                          df,
@@ -225,8 +217,8 @@ rule plot_flow_features:
         plt.rc('axes.spines', right=False, top=False)
 
         with open(input.exp_description) as f:
-            resample_interval =  int(re.match('.*bw-(.*)rtt',
-                                    json.load(f)['name']).groups()[0])
+            resample_interval = int(re.match('.*bw-(.*)rtt',
+                                             json.load(f)['name']).groups()[0])
 
         df_features = pd.read_csv(input.features)
         df_features.index = df_features.index * resample_interval / 1000
@@ -284,7 +276,8 @@ rule get_metadata:
         exp_description='data-processed/{exp_name}.json',
         tcpdump='data-raw/server-tcpdump-{exp_name}.pcap',
         ping='data-raw/ping-{exp_name}.txt',
-        capinfos='data-raw/capinfos-{exp_name}.txt'
+        capinfos='data-raw/capinfos-{exp_name}.txt',
+        hdf_queue='data-processed/queue-{exp_name}.h5'
     output:
         metadata='data-processed/{exp_name}.metadata'
     run:
@@ -294,9 +287,14 @@ rule get_metadata:
         import subprocess
 
         def get_rtt_ping():
-            with open(input.ping_log) as f:
+            with open(input.ping) as f:
                 ping_data = f.read()
-                if ping_data.strip() != '':
+                if ping_data.strip() != '' and ping_data.startswith('PING'):
+                    ping_regex = re.compile('.*time=(.*)\s+ms')
+                    ping_events = [float(ping_regex.match(row).groups()[0]) for row in ping_data.split('\n') if ping_regex.match(row)]
+                    df_ping = pd.DataFrame(ping_events).squeeze()                    
+                    return {'rtt_mean': df_ping.mean(), 'rtt_std': df_ping.std()}
+                elif ping_data.strip() != '':
                     ping_regex = re.compile('(SENT|RECV) \((.*)s\)')
                     ping_events = [ping_regex.match(row).groups() for row in ping_data.split('\n') if ping_regex.match(row)]
                     df_ping = pd.DataFrame(ping_events)
@@ -325,45 +323,40 @@ rule get_metadata:
 
         def get_loss_rate_tcpdump():
             # get number packets dropped from queue
-            with pd.HDFStore(input.queue_store, mode='r') as hdf_queue:
+            with pd.HDFStore(input.hdf_queue, mode='r') as hdf_queue:
                 df_queue = hdf_queue.select('df_queue')
                 df_queue = df_queue[~df_queue.index.duplicated(keep='last')]
                 num_dropped_queue =  len(df_queue[df_queue['dropped']])
 
                 # get number of packets dropped total
-                tshark_cmd = ('tshark -r {} -Tfields '
-                              '-e tcp.analysis.retransmission '
-                              '-e tcp.analysis.out_of_order '
-                              '-e tcp.analysis.lost_segment'.format(input.tcpdump))
-                tshark_results = subprocess.run(tshark_cmd,
-                                                shell=True,
-                                                stdout=subprocess.PIPE).stdout.decode(
-                                                    'utf-8')
+                tshark_cmd = ('tshark -r {} -Tfields ' \
+                '-e tcp.analysis.retransmission ' \
+                '-e tcp.analysis.out_of_order ' \
+                '-e tcp.analysis.lost_segment'.format(input.tcpdump))
+                tshark_results = subprocess.run(tshark_cmd,shell=True,stdout=subprocess.PIPE).stdout.decode('utf-8')
 
                 # note: skip first packet which is always marked as a retransmission for some reason
                 try:
                     df_tcpdump = pd.DataFrame([row.split('\t') for row in tshark_results.strip().split('\n')][1:]).replace('',np.nan)
                     df_tcpdump.columns = ['retransmission','out_of_order','lost_segment']
-                    num_lost_tcpdump = (len(df_tcpdump[~df_tcpdump['out_of_order'].isnull()])
-                                        + len(df_tcpdump[~df_tcpdump['retransmission'].isnull()]))
+                    num_lost_tcpdump = (len(df_tcpdump[~df_tcpdump['out_of_order'].isnull()]) + len(df_tcpdump[~df_tcpdump['retransmission'].isnull()]))
                 except ValueError as e:
                     num_lost_tcpdump = 0
 
                 num_pkts_dequeued = len(df_queue[df_queue['dequeued']])
-                return {'pkts_dropped_queue': num_dropped_queue,
-                        'pkts_lost_tcpdump': num_lost_tcpdump,
-                        'pkts_dequeued':num_pkts_dequeued}
+
+                num_pkts_lost = max(0, num_lost_tcpdump-num_dropped_queue)
+                return {'pkts_dropped_queue':num_dropped_queue, 'pkts_lost_tcpdump':num_lost_tcpdump, 'pkts_dequeued':num_pkts_dequeued, 'num_pkts_lost':num_pkts_lost}
 
         metadata = {}
         with open(input.exp_description) as f:
             exp = json.load(f)
 
-            metadata['rtt'] = int(re.match('.*bw-(.*)rtt',
-                                           exp_description['name']).groups()[0])
+            metadata['rtt'] = int(re.match('.*bw-(.*)rtt', exp['name']).groups()[0])
             metadata['btlbw'] = int(exp['btlbw'])
-            meatdata['queue_size'] = int(exp['queue_size'])
+            metadata['queue_size'] = int(exp['queue_size'])
             metadata['rtt_measured'] = float(exp['rtt_measured'])
-            metadata['name'] = params.exp_name
+            metadata['exp_name'] = wildcards.exp_name
             metadata['delay_added'] = int(exp['flows'][0][3])
             metadata['rtt_initial'] = metadata['rtt_measured'] - metadata['delay_added']
 
@@ -372,69 +365,164 @@ rule get_metadata:
             metadata['bw_measured'] = get_bw_tcpdump()
             metadata.update(get_loss_rate_tcpdump())
             if metadata['bw_measured'] is not None:
-                metadata['observed_bw_diff'] = (round(metadata['bw_measured'])
-                                                / metadata['btlbw'])
+                metadata['observed_bw_diff'] = (round(metadata['bw_measured']) / metadata['btlbw'])
             else:
                 metadata['observed_bw_diff'] = None
             
-        with open({output.metadata}) as f:
+        with open(output.metadata, 'w') as f:
             json.dump(metadata, f)
 
 
 rule compute_dtw:
     input:
-        metadata='data-processed/{testing_exp_name}.metadata',
         testing_flow='data-processed/{testing_exp_name}.features',
         training_flow='data-processed/{training_exp_name}.features'
     output:
         dtw=temp('data-processed/{testing_exp_name}.{training_exp_name}.dtw')
+    run:
+        from fastdtw import dtw
+        import pandas as pd
 
+        testing_flow = pd.read_csv(input.testing_flow).squeeze()
+        training_flow = pd.read_csv(input.training_flow).squeeze()
+        Y = training_flow[:len(testing_flow)]
+        X = testing_flow[:len(Y)]
+        distance = dtw(X,Y)[0]
+        training_flow_ccalg = wildcards.training_exp_name.split('-')[0]
+        dtw_result = {training_flow_ccalg: distance}
         
-rule classify_flows:
+        with open(output.dtw, 'w') as f:
+            json.dump(dtw_result, f)
+
+# TODO: need metadata
+rule classify_flow:
     input:
-        metadata='data-processed/{exp_name}.features',
+        metadata='data-processed/{exp_name}.metadata',
         dtws=get_dtws
     output:
         classify='data-processed/{exp_name}.classify'
-
-    # add all distances to results, add smallest distance, check if invalid
-    
-
-"""    
-rule get_training_flows:
-    input:
-        testing_flow='data-processed/{exp_name, ^((?!(-local-)).)*$}.features',
-        metadata='data-processed/{exp_name, ^((?!(-local-)).)*$}.metadata'
-    output:
-        temp(training_flows='data-processed/{exp_name}.training')
     run:
+        import pandas as pd
+        import json
+        
+        distances = {}
+        num_ties = 0  # record if there any ties
+        for dtw in input.dtws:
+            with open(dtw) as f:
+                distances.update(json.load(f))
+
         with open(input.metadata) as f:
-            metadata = json.load(f)
-        training_flows = []
-        for ccalg in CCALGS:
-            # TODOL figure this out
-            
+            distances.update(json.load(f))
 
-rule classify_flow:
+        # TODO: FIX THIS ERROR; INDEXING NOT WORKING
+        print(pd.DataFrame([distances])[CCALGS])
+        classify_results = (pd.DataFrame([distances])
+        .assign(predicted_label=lambda df: df[CCALGS].idxmin(1))
+        .assign(closest_distance=lambda df: df[CCALGS].min(1))
+        .assign(num_distance_ties=lambda df: (df[CCALGS] == df.closest_distance).sum())
+        .to_dict('index'))
+
+        classify_results = classify_results[0]        
+        
+        with open(output.classify, 'w') as f:
+            json.dump(classify_results, f)
+
+rule get_expected_bw:
     input:
-        testing_flow='data-processed/{exp_name, ^((?!(-local-)).)*$}.features'
-        exp_description='data-processed/{exp_name}.json'
-        #training_flows=[
-        #    'data-processed/{training_exp_name}.features',
-        #    training_exp_name=LOCAL_EXP_NAMES)
-        training_flows='data-processed/{exp_name}.training'
-    params:
-        exp_name='{exp_name}'
+        exp_description='data-processed/{exp_name}.json',
+        capinfos='data-raw/capinfos-{exp_name}.txt',
+        tcpdump='data-raw/server-tcpdump-{exp_name}.pcap'
     output:
-        classify_results=temp('data-processed/{exp_name}.classify')
+        expected_bw_diff='data-processed/{exp_name}.bwdiff'
     run:
+        import json
+        import subprocess
+        
+        with open(input.exp_description) as f:
+            experiment = json.load(f)
 
-       X = pd.read_csv(input.testing_flow)
-"""
+        def get_bw_tcpdump():
+            with open(input.capinfos) as f:
+                capinfos_data = f.read()
+            if capinfos_data.strip() == '':
+                cmd = 'capinfos -iTm {}'.format(input.tcpdump)
+                capinfos_data = subprocess.run(cmd, shell=True,
+                                               stdout=subprocess.PIPE).stdout.decode(
+                                                   'utf-8')
+            try:
+                bw = capinfos_data.split('\n')[1].split(',')[-1]
+                return float(bw) / 10**6
+            except:
+                bw = None
+                return None
 
+        btlbw = experiment['btlbw']
+        bw_measured = get_bw_tcpdump()
+        bw_diff = {'expected_bw_diff' : (round(bw_measured) / btlbw)}
+                
+        with open(output.expected_bw_diff, 'w') as f:
+            json.dump(bw_diff, f)
+        
+rule check_bw_too_low:
+    input:
+        unpack(get_local_exps_bwdiff),
+        classify='data-processed/{exp_name}.classify'
+    output:
+        bw_too_low='data-processed/{exp_name}.bwtoolow'
+    run:
+        import json
+        
+        with open(input.classify) as f:
+            classify_results=json.load(f)
 
+        # check if bw too low
+        predicted_label = classify_results['predicted_label']
 
+        with open(getattr(input, predicted_label)) as f:
+            expected_bw_diff = json.load(f)['expected_bw_diff']
 
-# rule classify
-# rule metadata
-# rule mark invalid
+        observed_bw_diff = classify_results['observed_bw_diff']   
+        bw_too_low = expected_bw_diff > observed_bw_diff
+        expected_bw = {'expected_bw_diff': expected_bw_diff,
+                       'bw_too_low': bw_too_low}
+        
+        with open(output.bw_too_low, 'w') as f:
+            json.dump(expected_bw, f)
+
+rule merge_results:
+    input:
+        classify='data-processed/{exp_name}.classify',
+        bw_too_low='data-processed/{exp_name}.bwtoolow'
+    output:
+        results='data-processed/{exp_name}.results'
+    run:
+        with open(input.classify) as f:
+            results = json.load(f)
+        with open(input.bw_too_low) as f:
+            results.update(json.load(f))
+        with open(output.results, 'w') as f:
+            json.dump(results, f)
+        
+rule store_all_results:
+    input:
+        results=expand('data-processed/{exp_name}.results', exp_name=AWS_EXP_NAMES),
+        expected_bw=expand('data-processed/{exp_name}.bwtoolow', exp_name=AWS_EXP_NAMES)
+    output:
+        all_results='data-processed/classify-aws-exps.csv'
+    run:
+        import pandas as pd
+        import json
+
+        all_exp_results = []
+        for exp_results in input.results:
+            with open(exp_results) as f:
+                all_exp_results.append(json.load(f))
+        df_all_results = pd.DataFrame(all_exp_results)
+        df_all_results.to_csv(output.all_results, index=False)
+
+        
+        
+#.assign(region=lambda df: (re
+#                           .match('.*q-(.*)-\d+.tar.gz', df.index)
+#                           .groups()[0]))
+    
