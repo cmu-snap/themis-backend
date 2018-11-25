@@ -177,6 +177,7 @@ def add_disk_space():
         cmd), shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
+
 def load_all_ccalgs():
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
     proc = subprocess.run(cmd, shell=True)
