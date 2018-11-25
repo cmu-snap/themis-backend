@@ -461,7 +461,9 @@ def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalg
 
     if ccalgs is None:
         ccalgs = CCALGS
-    
+
+    num_exps = len(regions) * len(ntwrk_conditions) * len(ccalgs)
+        
     logging.info('Found {} regions: {}'.format(len(regions), regions))
     # TODO: wait for all created images to be created
     created_images = []
@@ -506,9 +508,9 @@ def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalg
                     num_completed_exps += 1
                     if rtt <= too_small_rtt:
                         print('Skipping experiment RTT too small')
-                        num_completed_exps += (len(CCALGS) - 1)
+                        num_completed_exps += (len(CCALGS)-1)
                         break
-                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * len(CCALGS), region, ccalg, btlbw, rtt, queue_size))
+                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, num_exps, region, ccalg, btlbw, rtt, queue_size))
                     proc = run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
                                               queue_size, region, force=force)
                     if proc == -1:
@@ -554,10 +556,8 @@ def parse_args():
                         help='AWS regions to perform experiment. Default is all 15 AWS regions')
     parser.add_argument('--network', '-n', nargs=3,
                         action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'),
-                        default= [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
-                                  (10,35,32), (10,85,128), (10,130,128), (10,275,256),
-                                  (15,35,64), (15,85,128), (15,130,256), (15,275,512)],
-                        dest='networks', type=int,
+                        dest='networks', type=int, required=False,
+                        default=[],
                         help='Network conditions to use for experiments')
     parser.add_argument('--ccalgs', '-c',
                         nargs='+',
@@ -574,7 +574,15 @@ if __name__ == '__main__':
         run_local_exps(args.networks, args.force)
     else:
         #git_secret = getpass.getpass('Github secret: ')
-        run_aws_exps(force_create_instance=True, regions=args.regions, networks=args.networks, ccalgs=args.ccalgs, force=args.force)
+        if args.networks == []:
+            args.networks = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                             (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+        run_aws_exps(force_create_instance=True,
+                     regions=args.regions,
+                     networks=args.networks,
+                     ccalgs=args.ccalgs,
+                     force=args.force)
 
     
 
