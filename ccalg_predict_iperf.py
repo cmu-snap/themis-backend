@@ -22,13 +22,15 @@ import ccalg_predict
 import traceback
 import argparse
 
+import rtt_exps
+
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
 logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 # CCALGS = ['cubic','reno','bbr']
-CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+CCALGS = ['cubic','reno','bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -441,13 +443,11 @@ def run_local_exps(networks, force):
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
 
-def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
+def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalgs=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1'] #['us-east-1']
+    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1','us-east-1'] #['us-east-1']
     if regions is None:
         regions=get_all_regions()
-    #else:
-    #    regions = ['us-east-1'] #get_all_regions()
     
     #regions = [
     #    'ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2',
@@ -458,10 +458,14 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
                             (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
-
     else:
         ntwrk_conditions = networks
-    
+
+    if ccalgs is None:
+        ccalgs = CCALGS
+
+    num_exps = len(regions) * len(ntwrk_conditions) * len(ccalgs)
+        
     logging.info('Found {} regions: {}'.format(len(regions), regions))
     # TODO: wait for all created images to be created
     created_images = []
@@ -487,8 +491,10 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
                 instance.wait_until_running()
                 instance.load()
                 if image is None:
-                    logging.info('Setting up cctestbed on instance')
-                    setup_ec2(ec2_region, instance, git_secret, ec2_username='ubuntu')
+                    #logging.info('Setting up cctestbed on instance')
+                    #setup_ec2(ec2_region, instance, git_secret, ec2_username='ubuntu')
+                    logging.error('Image not setup for this region')
+                    raise ValueError('Image not setup for this region')
             except Exception as e:
                 instance.stop()
                 raise e
@@ -500,13 +506,13 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
             num_completed_exps = 0
             too_small_rtt = 0
             for btlbw, rtt, queue_size in ntwrk_conditions:
-                for ccalg in CCALGS:
+                for ccalg in ccalgs:
                     num_completed_exps += 1
                     if rtt <= too_small_rtt:
                         print('Skipping experiment RTT too small')
-                        num_completed_exps += (len(CCALGS) - 1)
+                        num_completed_exps += (len(CCALGS)-1)
                         break
-                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * len(CCALGS), region, ccalg, btlbw, rtt, queue_size))
+                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, num_exps, region, ccalg, btlbw, rtt, queue_size))
                     proc = run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
                                               queue_size, region, force=force)
                     if proc == -1:
@@ -547,23 +553,37 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run controlled iperf3 experiment')
-    parser.add_argument('--regions','-r', required=False, nargs='+', default=None,
+    parser.add_argument('--regions','-r',
+                        required=False, nargs='+', default=get_all_regions(),
                         help='AWS regions to perform experiment. Default is all 15 AWS regions')
-    parser.add_argument('--network', '-n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'), default=None,
-                        dest='networks', type=int,
+    parser.add_argument('--network', '-n', nargs=3,
+                        action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'),
+                        dest='networks', type=int, required=False,
+                        default=[],
                         help='Network conditions to use for experiments')
-    parser.add_argument('--force','-f', action='store_true', help='Force experiments tthat were already run to run again')
+    parser.add_argument('--ccalgs', '-c',
+                        nargs='+',
+                        default=CCALGS,
+                        help='Congestion control algs')
+    parser.add_argument('--force','-f', action='store_true',
+                        help='Force experiments that were already run to run again')
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse_args()
     if 'local' in args.regions:
+        args.networks = rtt_exps.ntwrk_conditions['bess-3']
         run_local_exps(args.networks, args.force)
     else:
-        git_secret = getpass.getpass('Github secret: ')
-        run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
+        #git_secret = getpass.getpass('Github secret: ')
+        if args.networks == []:
+            args.networks = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                             (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+        run_aws_exps(force_create_instance=True,
+                     regions=args.regions,
+                     networks=args.networks,
+                     ccalgs=args.ccalgs,
+                     force=args.force)
 
-    
-
-    

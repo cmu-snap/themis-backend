@@ -13,18 +13,28 @@ USER = os.environ['USER']
 IDENTITY_FILE = '/users/{}/.ssh/{}_cloudlab.pem'.format(USER, USER)
     
 def get_host_info():
+    bess_hostname = subprocess.run('hostname', stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
+    bess_hostname = bess_hostname.split('.')[0]
+
+    if bess_hostname == 'bess':
+        server_hostname = 'server'
+    else:
+        num_testbed = bess_hostname.split('-')[-1]
+        server_hostname = 'server-{}'.format(num_testbed)
+        client_hostname = 'client-{}'.format(num_testbed)
+
     geni_namespace = {'geni':'http://www.geni.net/resources/rspec/3'}
     cloudlab_manifest = subprocess.run(['geni-get','manifest'], stdout=subprocess.PIPE).stdout
     root = ET.fromstring(cloudlab_manifest)
 
     server_ip_wan=root.find(
-        '.geni:node[@client_id="server"]/geni:host',geni_namespace).attrib['ipv4']
+        '.geni:node[@client_id="{}"]/geni:host'.format(server_hostname),geni_namespace).attrib['ipv4']
     server_ip_lan=root.find(
-        '.geni:node[@client_id="server"]/geni:interface/geni:ip',geni_namespace).attrib['address']
+        '.geni:node[@client_id="{}"]/geni:interface/geni:ip'.format(server_hostname),geni_namespace).attrib['address']
     server_if = root.findall(
-        '.geni:link[@client_id="server-bess"]/geni:interface_ref',geni_namespace)[0].attrib['client_id'] 
+        '.geni:link[@client_id="server-{}"]/geni:interface_ref'.format(bess_hostname),geni_namespace)[0].attrib['client_id'] 
     bess_server_ip =  root.find(
-        '.geni:node[@client_id="bess"]/geni:interface[@client_id="{}"]/geni:ip'.format(server_if),
+        '.geni:node[@client_id="{}"]/geni:interface[@client_id="{}"]/geni:ip'.format(bess_hostname, server_if),
         geni_namespace).attrib['address']
     server_ifname_local = subprocess.run("ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(
         bess_server_ip), shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
@@ -38,13 +48,13 @@ def get_host_info():
                    'username': USER}
 
     client_ip_wan=root.find(
-        '.geni:node[@client_id="client"]/geni:host',geni_namespace).attrib['ipv4']
+        '.geni:node[@client_id="{}"]/geni:host'.format(client_hostname),geni_namespace).attrib['ipv4']
     client_ip_lan=root.find(
-        '.geni:node[@client_id="client"]/geni:interface/geni:ip',geni_namespace).attrib['address']
+        '.geni:node[@client_id="{}"]/geni:interface/geni:ip'.format(client_hostname),geni_namespace).attrib['address']
     client_if = root.findall(
-        '.geni:link[@client_id="client-bess"]/geni:interface_ref',geni_namespace)[0].attrib['client_id'] 
+        '.geni:link[@client_id="client-{}"]/geni:interface_ref'.format(bess_hostname),geni_namespace)[0].attrib['client_id'] 
     bess_client_ip =  root.find(
-        '.geni:node[@client_id="bess"]/geni:interface[@client_id="{}"]/geni:ip'.format(client_if),
+        '.geni:node[@client_id="{}"]/geni:interface[@client_id="{}"]/geni:ip'.format(bess_hostname, client_if),
         geni_namespace).attrib['address']
     client_ifname_local = subprocess.run("ifconfig | grep -B1 {} | head -n1 | awk '{{print $1}}'".format(
         bess_client_ip), shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
@@ -167,6 +177,7 @@ def add_disk_space():
         cmd), shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
+
 def load_all_ccalgs():
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
     proc = subprocess.run(cmd, shell=True)
