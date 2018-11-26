@@ -15,33 +15,54 @@ def queue_experiment(conn, website, filename, btlbw, rtt):
         'rtt': rtt
     }
 
-    conn.rpush('queue:experiment', json.dumps(inputs)
+    conn.rpush('queue:experiment', json.dumps(inputs))
 
 def dequeue_experiment(conn):
     packed = conn.blpop(['queue:experiment'], 0)
     if packed:
         inputs = json.loads(packed[1])
         # TODO: Set experiment status
-        tar = run_experiment(inputs['website'], inputs['filename'], inputs['btlbw'], inputs['rtt'])
-        # TODO: Store finished experiment in database
+        (tar, name) = run_experiment(inputs['website'], inputs['filename'], inputs['btlbw'], inputs['rtt'])
+        if tar == '' or name == '':
+            print('Failed to get experiment name')
+            return -1
+        
+        # Store experiment with experiment name as key
+        experiment = {
+            'tar': tar,
+            'website': inputs['website'],
+            'filename': inputs['filename'],
+            'btlbw': inputs['btlbw'],
+            'rtt': inputs['rtt']
+        }
+        conn.hmset(name, experiment)
+        return 0
     
-# Call ccalg_predict.py with the given arguments and return the experiment tar filename
+# Call ccalg_predict.py with the given arguments and return the experiment
+# tar filename and unique experiment name
 def run_experiment(website, filename, btlbw, rtt):
     cmd = 'python3.6 ccalg_predict.py --website {} {} --network {} {}'
     args = shlex.split(cmd.format(website, filename, btlbw, rtt))
     output = subprocess.run(args, stdout=subprocess.PIPE)
     
-    regex = r"tar_filename=(.+\n)"
+    regex_tar = r"tar_filename=(.+\n)"
+    regex_name = r"exp_name=(.+\n)"
     tar = ''
-    if re.search(regex, output):
-        match = re.search(regex, output)
+    name = ''
+    if re.search(regex_tar, output):
+        match = re.search(regex_tar, output)
         tar = match.group(1)
 
-    return tar
+    if re.search(regex_name, output):
+        match = re.search(regex_name, output)
+        name = match.group(1)
+
+    return (tar, name)
 
 def main():
     r = redis.StrictRedis(host=redis_host, port=redis_port, password=redis_password)
-    # TODO: infinite loop dequeue_experiment
+    while(True):
+        dequeue_experiment(r)
 
 if __name__ == '__main__':
     main()

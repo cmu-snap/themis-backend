@@ -173,7 +173,7 @@ def run_experiment(website1, url1, website2, url2, btlbw=10, queue_size=128, rtt
                 logging.error(stdout.read())
                 raise RuntimeError('Error running flow.')
     proc = exp._compress_logs_url()
-    return (proc, exp.tar_filename)
+    return (proc, exp.tar_filename, experiment_name)
 
 @contextmanager
 def add_dnat_rule(exp, url_ip):
@@ -311,8 +311,8 @@ def main(websites, ntwrk_conditions=None, force=False):
                     print('Skipping experiment RTT too small')
                     num_completed_experiments += 1
                     break
-                (proc, tar_filename) = run_experiment(website1, url1, website2, url2, btlbw, queue_size, rtt, force=force)
-                print('Experiment tar_filename={}'.format(tar_filename))
+                (proc, tar_filename, exp_name) = run_experiment(website1, url1, website2, url2, btlbw, queue_size, rtt, force=force)
+                print('Experiment tar_filename={} exp_name={}'.format(tar_filename, exp_name))
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
                     too_small_rtts.append(rtt)
