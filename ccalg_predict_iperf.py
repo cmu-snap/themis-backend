@@ -22,13 +22,15 @@ import ccalg_predict
 import traceback
 import argparse
 
+import rtt_exps
+
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
 logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 # CCALGS = ['cubic','reno','bbr']
-CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+CCALGS = ['cubic','reno','bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -571,6 +573,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     if 'local' in args.regions:
+        args.networks = rtt_exps.ntwrk_conditions['bess-3']
         run_local_exps(args.networks, args.force)
     else:
         #git_secret = getpass.getpass('Github secret: ')
@@ -584,6 +587,3 @@ if __name__ == '__main__':
                      ccalgs=args.ccalgs,
                      force=args.force)
 
-    
-
-    
