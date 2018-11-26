@@ -1,3 +1,4 @@
+# requires wireshark, tcpdump
 
 # TODO: persist experiment data to redis
 # TODO: figure out how to only load local exps with the correct ccalgs & ntwrk condition
@@ -5,8 +6,7 @@
 
 # bic
 
-EXP_NAME_PATTERN='data-raw/{exp_name, bic-15bw-85rtt-128q-us-east-1-.*}.tar.gz'
-#EXP_NAME_PATTERN='data-raw/{exp_name,.*-us-east-1-.*}.tar.gz'
+EXP_NAME_PATTERN='data-raw/{exp_name, .*-us-east-1-.*}.tar.gz'
 AWS_EXP_NAMES, = glob_wildcards(EXP_NAME_PATTERN)
 CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp',
           'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
@@ -359,7 +359,9 @@ rule get_metadata:
             metadata['exp_name'] = wildcards.exp_name
             metadata['delay_added'] = int(exp['flows'][0][3])
             metadata['rtt_initial'] = metadata['rtt_measured'] - metadata['delay_added']
-
+            # awks -- sometimes this is NaN
+            metadata['true_label'] = exp['flows'][0][0]
+            
             #if 'ping_log' in exp['logs']:
             metadata.update(get_rtt_ping())
             metadata['bw_measured'] = get_bw_tcpdump()
@@ -400,7 +402,7 @@ rule classify_flow:
         metadata='data-processed/{exp_name}.metadata',
         dtws=get_dtws
     output:
-        classify='data-processed/{exp_name}.classify'
+        classify=temp('data-processed/{exp_name}.classify')
     run:
         import pandas as pd
         import json
@@ -415,7 +417,6 @@ rule classify_flow:
             distances.update(json.load(f))
 
         # TODO: FIX THIS ERROR; INDEXING NOT WORKING
-        print(pd.DataFrame([distances])[CCALGS])
         classify_results = (pd.DataFrame([distances])
         .assign(predicted_label=lambda df: df[CCALGS].idxmin(1))
         .assign(closest_distance=lambda df: df[CCALGS].min(1))
@@ -423,7 +424,7 @@ rule classify_flow:
         .to_dict('index'))
 
         classify_results = classify_results[0]        
-        
+
         with open(output.classify, 'w') as f:
             json.dump(classify_results, f)
 
@@ -468,7 +469,7 @@ rule check_bw_too_low:
         unpack(get_local_exps_bwdiff),
         classify='data-processed/{exp_name}.classify'
     output:
-        bw_too_low='data-processed/{exp_name}.bwtoolow'
+        bw_too_low=temp('data-processed/{exp_name}.bwtoolow')
     run:
         import json
         
@@ -506,7 +507,6 @@ rule merge_results:
 rule store_all_results:
     input:
         results=expand('data-processed/{exp_name}.results', exp_name=AWS_EXP_NAMES),
-        expected_bw=expand('data-processed/{exp_name}.bwtoolow', exp_name=AWS_EXP_NAMES)
     output:
         all_results='data-processed/classify-aws-exps.csv'
     run:
@@ -520,9 +520,4 @@ rule store_all_results:
         df_all_results = pd.DataFrame(all_exp_results)
         df_all_results.to_csv(output.all_results, index=False)
 
-        
-        
-#.assign(region=lambda df: (re
-#                           .match('.*q-(.*)-\d+.tar.gz', df.index)
-#                           .groups()[0]))
-    
+                
