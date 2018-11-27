@@ -4,12 +4,12 @@
 # TODO: figure out how to only load local exps with the correct ccalgs & ntwrk condition
 # TODO: how to get figures of local exps in the all part?
 
-# bic
-
 EXP_NAME_PATTERN='data-raw/{exp_name, .*-us-east-1-.*}.tar.gz'
+#EXP_NAME_PATTERN='data-raw/{exp_name, .*bic-5bw-85rtt-64q-us-east-1-20181117T235955.*}.tar.gz' 
 AWS_EXP_NAMES, = glob_wildcards(EXP_NAME_PATTERN)
 CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp',
           'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+
 
 # won't need all the wildcards so make an input function to tell us
 # which one we actually need given an exp_name
@@ -23,9 +23,10 @@ def get_local_exps(wildcards):
     experiments = []
     for ccalg in CCALGS:
         # select most recent experiment with this pattern
-        files = sorted(glob.glob('data-raw/{}-{}*.tar.gz'.format(ccalg,
+        files = sorted(glob.glob('data-raw/{}-{}-local-20181113*.tar.gz'.format(ccalg,
                                                                  ntwrk_conditions)))
         experiments.append(os.path.basename(files[0])[:-7])
+    assert(len(experiments)==len(CCALGS))
     return experiments
 
 def get_local_exps_features(wildcards):
@@ -59,6 +60,7 @@ rule all:
         # expand('graphics/{exp_name}.png', exp_name=LOCAL_EXP_NAMES),
         # get_local_exps_plots,
         # all aws results ,
+        expand('graphics/{exp_name}-classify.png', exp_name=AWS_EXP_NAMES),
         all_results='data-processed/classify-aws-exps.csv'
 
 rule load_raw_queue_data:
@@ -163,7 +165,7 @@ rule compute_flow_features:
         queue_store='data-processed/queue-{exp_name}.h5',
         exp_description='data-processed/{exp_name}.json'
     output:
-        features=temp('data-processed/{exp_name}.features')
+        features='data-processed/{exp_name}.features'
     run:
         import pandas as pd
         import json
@@ -380,7 +382,7 @@ rule compute_dtw:
         testing_flow='data-processed/{testing_exp_name}.features',
         training_flow='data-processed/{training_exp_name}.features'
     output:
-        dtw=temp('data-processed/{testing_exp_name}.{training_exp_name}.dtw')
+        dtw='data-processed/{testing_exp_name}.{training_exp_name}.dtw'
     run:
         from fastdtw import dtw
         import pandas as pd
@@ -396,7 +398,6 @@ rule compute_dtw:
         with open(output.dtw, 'w') as f:
             json.dump(dtw_result, f)
 
-# TODO: need metadata
 rule classify_flow:
     input:
         metadata='data-processed/{exp_name}.metadata',
@@ -406,12 +407,17 @@ rule classify_flow:
     run:
         import pandas as pd
         import json
+        import os
         
         distances = {}
         num_ties = 0  # record if there any ties
+        training_exp_names = {} # store the name of the exps so we can store winning exp
         for dtw in input.dtws:
             with open(dtw) as f:
-                distances.update(json.load(f))
+                dist = json.load(f)
+                training_exp_names[list(dist.keys())[0]] = os.path.basename(
+                    dtw).split('.')[1]
+                distances.update(dist)
 
         with open(input.metadata) as f:
             distances.update(json.load(f))
@@ -423,7 +429,9 @@ rule classify_flow:
         .assign(num_distance_ties=lambda df: (df[CCALGS] == df.closest_distance).sum())
         .to_dict('index'))
 
-        classify_results = classify_results[0]        
+        classify_results = classify_results[0]
+        classify_results['closest_exp_name'] = training_exp_names[
+            classify_results['predicted_label']]
 
         with open(output.classify, 'w') as f:
             json.dump(classify_results, f)
@@ -503,6 +511,64 @@ rule merge_results:
             results.update(json.load(f))
         with open(output.results, 'w') as f:
             json.dump(results, f)
+
+rule plot_results:
+    input:
+        results='data-processed/{exp_name}.results',
+        features='data-processed/{exp_name}.features',
+        training_features=get_local_exps_features
+    output:
+        results_plot='graphics/{exp_name}-classify.png'
+    run:
+        import json
+        import matplotlib.pyplot as plt
+        import matplotlib.style as style
+        import pandas as pd
+
+        plt.rcParams.update(plt.rcParamsDefault)
+        style.use(['seaborn-colorblind', 'seaborn-paper', 'seaborn-white'])
+        plt.rc('font', size=12)
+        plt.rc('axes', titlesize=12, titleweight='bold', labelsize=12)
+        plt.rc('xtick', labelsize=12)
+        plt.rc('ytick', labelsize=12)
+        plt.rc('legend', fontsize=12)
+        plt.rc('figure', titlesize=12)
+        plt.rc('lines', linewidth=3)
+        plt.rc('axes.spines', right=False, top=False)
+
+        with open(input.results) as f:
+            results = json.load(f)
+
+        training_exp_name = results['closest_exp_name']
+        resample_interval = results['rtt']
+        dtw_distance = results['closest_distance']
+        ccalg = results['predicted_label']
+        exp_name = results['exp_name']
+        queue_size = results['queue_size']
+
+        # hardcoded the filename of the training experimant 
+        df_training = pd.read_csv('data-processed/{}.features'.format(training_exp_name)).squeeze()
+        df_testing = pd.read_csv(input.features).squeeze()
+        
+        fig, axes = plt.subplots(1,1, figsize=(10,5))
+        X = df_testing
+        Y = df_training
+        Y = Y[:len(X)]
+        X = X[:len(Y)]
+        X.index = X.index * resample_interval / 1000
+        Y.index = Y.index * resample_interval / 1000
+        ax=(X * queue_size).plot(ax=axes,
+                                label='{}'.format(exp_name),
+                                 alpha=0.7)
+        ax=(Y * queue_size).plot(ax=axes, label='{}-training'.format(ccalg),
+                                 ylim=(0,queue_size),
+                                 alpha=0.7)
+        ax.set_xlabel('time (s)')
+        ax.set_ylabel('queue occupancy \n (packets)')
+        ax.set_title('DTW distance={:.2f}'.format(dtw_distance))
+        ax.legend()
+        fig.tight_layout()
+        ax.figure.savefig(output.results_plot,transparent=True,bbox_inches='tight')
         
 rule store_all_results:
     input:
