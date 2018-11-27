@@ -125,7 +125,7 @@ def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
     if ccalgs is None:
         ccalgs = ['bbr', 'cubic', 'reno']
     if loss is None:
-        loss = [0]
+        loss = [None]
     for rtt in rtts:
         for queue_size in queue_sizes:
             for ccalg in ccalgs:
@@ -136,7 +136,8 @@ def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
                     else:
                         experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
                             ccalg,btlbw, rtt, int(queue_size), exp_name_suffix)
-                    if loss > 0:
+
+                    if loss_rate is not None:
                         experiment_name = '{}-{}bw-{}rtt-{}q-{}loss-{}'.format(
                             ccalg, btlbw, rtt, int(queue_size), float(loss_rate), exp_name_suffix)
                     experiment = {'btlbw': btlbw,
