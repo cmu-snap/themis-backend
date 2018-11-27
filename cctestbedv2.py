@@ -21,6 +21,8 @@ import paramiko
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)
+# turn off paramiko INFO logging (everytime you do an ssh)
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
@@ -47,7 +49,8 @@ Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
 
 class Experiment:
     def __init__(self, name, btlbw, queue_size,
-                 flows, server, client, config_filename, server_nat_ip=None):
+                 flows, server, client, config_filename, server_nat_ip=None,
+                 loss_rate=None):
         self.exp_time = (datetime.now().isoformat()
                             .replace(':','').replace('-','').split('.')[0])
         self.name = name
@@ -55,6 +58,8 @@ class Experiment:
         self.queue_size = queue_size
         self.server = server
         self.client = client
+        # add ability to specify loss rate for controlled experiments
+        self.loss_rate = loss_rate
         # store what version of this code we are running -- could be useful later
         self.cctestbed_git_commit = run_local_command('git rev-parse HEAD').strip()
         self.bess_git_commit = run_local_command('git --git-dir=/opt/bess/.git '

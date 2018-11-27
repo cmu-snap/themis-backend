@@ -9,12 +9,18 @@ pci_server = experiment['server'][-3]
 pci_client = experiment['client'][-3]
 queue_size = int(experiment['queue_size'])
 btlbw = int(experiment['btlbw'])
-
+flow_delay = experiment['flows'][0][3]
+loss_rate = 0
+if 'loss_rate' in experiment:
+    if experiment['loss_rate'] is not None:
+        loss_rate = float(experiment['loss_rate'])
+    
 print('exp_description =', exp_description)
 print('pci_server =', pci_server)
 print('pci_client =', pci_client)
 print('queue_size =', queue_size)
 print('btlbw =', btlbw)	
+print('loss_rate = ', loss_rate)
 
 client = PMDPort(pci=pci_client) #pci_client)
 server = PMDPort(pci=pci_server)#pci_server)
@@ -32,42 +38,11 @@ bess.add_tc('bit_limit',
 	resource='bit',
 	limit={'bit': 1000000*btlbw}) # how many mbits, default is 1
 btl_queue.attach_task(parent='bit_limit')
- 
 
-client_in -> btl_queue -> server_out
-
-if len(experiment['flows']) == 1:
-     flow_delay = experiment['flows'][0][3]
-     server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
-elif experiment['flows'][0][3] == experiment['flows'][1][3]:
-     flow_delay = experiment['flows'][0][3]
-     server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
+if loss_rate > 0:
+    drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
+    client_in -> drop_pkts -> btl_queue -> server_out
 else:
-     # exact match on destination port number; destinations will be destinations on port
-     port_match = PortMatch()
-     merge = Merge()
-
-     server_in -> port_match
-
-     for idx, flow in enumerate(experiment['flows']):
-          flow_name = flow[0]
-          flow_delay = flow[3]
-          flow_dst_port = flow[4]
-          #queue_delay = QueueDelay(size=4096, delay=flow_delay)
-          print('flow=name:{}, delay:{}, dst_port:{}'.format(flow_name,
-							     flow_delay,
-							     flow_dst_port))
-	  port_match.add(dst_port=flow_dst_port, gate=idx) 
-          port_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay)  -> merge
-     # default gate skips any QueueDelay module and sends right to client
-     port_match.set_default_gate(gate=len(experiment['flows']))
-     port_match:len(experiment['flows']) -> merge
-     merge -> client_out
-
-#delay_queue = QueueDelay(size=4096, delay=int($BESS_QUEUE_DELAY!'1'))    
-#server_in -> Timestamp() -> delay_queue -> client_out
-#client_in -> btl_queue -> server_out
-
-
-
-
+    drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
+    client_in -> drop_pkts -> btl_queue -> server_out
+server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
