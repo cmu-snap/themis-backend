@@ -130,10 +130,19 @@ def add_arp_rule(host_server, host_client):
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
-def setup_nat():
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client /bin/bash /opt/cctestbed/setup-nat.sh'
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
+def setup_nat(host_server, host_client):
+    cmds = ['sudo iptables --flush',
+            'sudo iptables --table nat --flush',
+            'sudo iptables --delete-chain',
+            'sudo iptables --table nat --delete-chain',
+            'echo 1 | sudo tee -a /proc/sys/net/ipv4/ip_forward',
+            'sudo iptables -t nat -A POSTROUTING --source {} -o enp1s0f0 -j SNAT --to {}'.format(host_server.ip_lan, host_client.ip_wan)]
+
+    for cmd in cmds:
+        proc = subprocess.run(
+            'ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(cmd),
+            shell=True)
+        assert(proc.returncode == 0)
 
 def connect_bess(host_server, host_client):
     cmd= 'sudo sysctl vm.nr_hugepages=1024'
@@ -221,16 +230,16 @@ def increase_win_sizes():
         assert(proc.returncode == 0)
     
 def main():
-    host_server, host_client = get_host_info()
-    increase_win_sizes()
-    turn_off_tso(host_server, host_client)
-    add_route(host_server, host_client)
-    add_arp_rule(host_server, host_client)
+    #host_server, host_client = get_host_info()
+    #increase_win_sizes()
+    #turn_off_tso(host_server, host_client)
+    #add_route(host_server, host_client)
+    #add_arp_rule(host_server, host_client)
     setup_nat()
-    load_all_ccalgs()
-    export_environs(host_server, host_client)
-    add_disk_space()
-    connect_bess(host_server, host_client)
+    #load_all_ccalgs()
+    #export_environs(host_server, host_client)
+    #add_disk_space()
+    #connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
     main()
