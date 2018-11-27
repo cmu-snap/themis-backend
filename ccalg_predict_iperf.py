@@ -445,7 +445,7 @@ def run_local_exps(networks, force):
 
 def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalgs=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1','us-east-1'] #['us-east-1']
+    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1']
     if regions is None:
         regions=get_all_regions()
     
@@ -567,14 +567,18 @@ def parse_args():
                         help='Congestion control algs')
     parser.add_argument('--force','-f', action='store_true',
                         help='Force experiments that were already run to run again')
+    parser.add_argument('--loss','-l', nargs='+', required=False, type=float, default=None)
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse_args()
     if 'local' in args.regions:
-        args.networks = rtt_exps.ntwrk_conditions['bess-3']
-        run_local_exps(args.networks, args.force)
+        if args.loss is None:
+            #args.networks = rtt_exps.ntwrk_conditions['bess-3']
+            run_local_exps(args.networks, args.force)
+        else:
+            run_local_exps_loss(args.networks, args.loss, args.force)
     else:
         #git_secret = getpass.getpass('Github secret: ')
         if args.networks == []:
