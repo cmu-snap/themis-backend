@@ -140,9 +140,12 @@ def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
                     if loss_rate is not None:
                         experiment_name = '{}-{}bw-{}rtt-{}q-{}loss-{}'.format(
                             ccalg, btlbw, rtt, int(queue_size), float(loss_rate), exp_name_suffix)
-                    experiment = {'btlbw': btlbw,
-                                  'queue_size': int(queue_size),
-                                  'loss_rate': float(loss_rate)}
+                        experiment = {'btlbw': btlbw,
+                                      'queue_size': int(queue_size),
+                                      'loss_rate': float(loss_rate)}
+                    else:
+                        experiment = {'btlbw': btlbw,
+                                      'queue_size': int(queue_size)}
                     flows = [{'ccalg': ccalg,
                               'start_time': 0,
                               'end_time': end_time,

@@ -598,7 +598,7 @@ def load_experiments(config, config_filename,
                          flows=flows, server=server, client=client,
                          config_filename=config_filename,
                          server_nat_ip=server_nat_ip,
-                         loss_rate=float(experiment['loss_rate']))
+                         loss_rate=float(experiment['loss_rate']) if 'loss_rate' in experiment and experiment['loss_rate'] is not None else None)
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
         # save experiment to json file
