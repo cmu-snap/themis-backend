@@ -116,7 +116,7 @@ def ccalg_predict_config_websites(btlbw, rtt, end_time, queue_size, exp_name_suf
 
 
 def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
-                         exp_name_suffix=None, ccalgs=None):
+                         exp_name_suffix=None, ccalgs=None, loss=None):
     config = {}
     config['server'] = HOST_SERVER._asdict()
     config['client'] = HOST_CLIENT._asdict()
@@ -124,17 +124,25 @@ def ccalg_predict_config(btlbw, rtts, end_time, queue_sizes,
 
     if ccalgs is None:
         ccalgs = ['bbr', 'cubic', 'reno']
+    if loss is None:
+        loss = [None]
     for rtt in rtts:
         for queue_size in queue_sizes:
             for ccalg in ccalgs:
-                if exp_name_suffix is None:
-                    experiment_name = '{}-{}bw-{}rtt-{}q'.format(
-                        ccalg,btlbw, rtt, int(queue_size))
-                else:
-                    experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
-                        ccalg,btlbw, rtt, int(queue_size), exp_name_suffix)
+                for loss_rate in loss:
+                    if exp_name_suffix is None:
+                        experiment_name = '{}-{}bw-{}rtt-{}q'.format(
+                            ccalg,btlbw, rtt, int(queue_size))
+                    else:
+                        experiment_name = '{}-{}bw-{}rtt-{}q-{}'.format(
+                            ccalg,btlbw, rtt, int(queue_size), exp_name_suffix)
+
+                    if loss_rate is not None:
+                        experiment_name = '{}-{}bw-{}rtt-{}q-{}loss-{}'.format(
+                            ccalg, btlbw, rtt, int(queue_size), float(loss_rate), exp_name_suffix)
                     experiment = {'btlbw': btlbw,
-                          'queue_size': int(queue_size)}
+                                  'queue_size': int(queue_size),
+                                  'loss_rate': float(loss_rate)}
                     flows = [{'ccalg': ccalg,
                               'start_time': 0,
                               'end_time': end_time,

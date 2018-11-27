@@ -43,6 +43,5 @@ if loss_rate > 0:
     drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
     client_in -> drop_pkts -> btl_queue -> server_out
 else:
-    drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
-    client_in -> drop_pkts -> btl_queue -> server_out
+    client_in -> btl_queue -> server_out
 server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out

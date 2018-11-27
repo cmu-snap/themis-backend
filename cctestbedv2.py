@@ -597,7 +597,8 @@ def load_experiments(config, config_filename,
                          queue_size=int(experiment['queue_size']),
                          flows=flows, server=server, client=client,
                          config_filename=config_filename,
-                         server_nat_ip=server_nat_ip)
+                         server_nat_ip=server_nat_ip,
+                         loss_rate=float(experiment['loss_rate']))
         assert(experiment_name not in experiments)
         experiments[experiment_name] = exp
         # save experiment to json file

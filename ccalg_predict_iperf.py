@@ -393,7 +393,7 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments(networks=None, force=True):    
+def get_taro_experiments(networks=None, force=True, loss=None):    
     if networks is None:
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
@@ -411,7 +411,8 @@ def get_taro_experiments(networks=None, force=True):
                 end_time=60,
                 exp_name_suffix='local',
                 queue_sizes=[queue_size],
-                ccalgs=CCALGS)
+                ccalgs=CCALGS,
+                loss=loss)
             config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-{}q-{}.yaml'.format(
                 btlbw,
                 rtt,
@@ -425,8 +426,8 @@ def get_taro_experiments(networks=None, force=True):
     return experiments
 
     
-def run_local_exps(networks, force):
-    experiments = get_taro_experiments(networks, force)
+def run_local_exps(networks, force, loss):
+    experiments = get_taro_experiments(networks, force, loss)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
@@ -445,7 +446,7 @@ def run_local_exps(networks, force):
 
 def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalgs=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1','us-east-1'] #['us-east-1']
+    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1']
     if regions is None:
         regions=get_all_regions()
     
@@ -567,20 +568,22 @@ def parse_args():
                         help='Congestion control algs')
     parser.add_argument('--force','-f', action='store_true',
                         help='Force experiments that were already run to run again')
+    parser.add_argument('--loss','-l', nargs='+', required=False, type=float, default=None)
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse_args()
+    if args.networks == []:
+        args.networks = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                        (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                         (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+        
     if 'local' in args.regions:
-        args.networks = rtt_exps.ntwrk_conditions['bess-3']
-        run_local_exps(args.networks, args.force)
+        #args.networks = rtt_exps.ntwrk_conditions['bess-3']
+        run_local_exps(args.networks, args.force, args.loss)
     else:
         #git_secret = getpass.getpass('Github secret: ')
-        if args.networks == []:
-            args.networks = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
-                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
-                             (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
         run_aws_exps(force_create_instance=True,
                      regions=args.regions,
                      networks=args.networks,
