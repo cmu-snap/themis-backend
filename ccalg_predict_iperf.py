@@ -30,7 +30,7 @@ fileConfig(log_file_path)
 logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 # CCALGS = ['cubic','reno','bbr']
-CCALGS = ['cubic','reno','bbr', 'bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+CCALGS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
