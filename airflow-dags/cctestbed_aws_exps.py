@@ -24,4 +24,4 @@ with DAG("cctestbed_aws",
     run_experiment = BashOperator(task_id='run_experiment',
                                   bash_command=(
                                       "cd /opt/cctestbed && "
-    "python3.6 /opt/cctestbed/ccalg_predict_iperf.py -r {{ dag_run.conf['region'] }}"))
+    "python3.6 /opt/cctestbed/ccalg_predict_iperf.py {{ dag_run.conf['cmdline_args'] }}"))
