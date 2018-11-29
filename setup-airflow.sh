@@ -11,4 +11,5 @@ ssh -t $BESS "cd /opt/cctestbed && git pull" && \
     scp /opt/airflow/airflow.cfg.cloudlab $BESS:/opt/airflow/airflow.cfg && \
     scp /opt/airflow/airflow.cloudlab $BESS:/opt/airflow/airflow && \
     scp /opt/airflow/airflow-worker.service $BESS:/opt/airflow/ && \
-    ssh $BESS "sudo mv /opt/airflow/airflow-worker.service /usr/lib/systemd/system/"
+    ssh $BESS "sudo mv /opt/airflow/airflow-worker.service /usr/lib/systemd/system/" && \
+    ssh $BESS "sudo service airflow-worker start"
