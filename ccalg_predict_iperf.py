@@ -584,7 +584,7 @@ if __name__ == '__main__':
         run_local_exps(args.networks, args.force, args.loss)
     else:
         #git_secret = getpass.getpass('Github secret: ')
-        run_aws_exps(force_create_instance=True,
+        run_aws_exps(force_create_instance=False,
                      regions=args.regions,
                      networks=args.networks,
                      ccalgs=args.ccalgs,

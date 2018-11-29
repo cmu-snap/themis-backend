@@ -182,7 +182,7 @@ class Experiment:
         logs = []
         logs += [os.path.basename(log) for log in all_logs]
         logging.info('Compressing {} logs into tarfile: {}'.format(len(logs), self.tar_filename))
-        cmd = '/bin/bash run-cctestbed-cleanup.sh {}-{} {} {} {} {}'.format(
+        cmd = '/bin/bash /opt/cctestbed/run-cctestbed-cleanup.sh {}-{} {} {} {} {}'.format(
             self.name,
             self.exp_time,
             self.tar_filename,
