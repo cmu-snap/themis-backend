@@ -18,11 +18,11 @@ default_args = {
     # 'end_date': datetime(2016, 1, 1),
 }
 
-with DAG("cctestbed_aws",
+with DAG("cctestbed_local",
          default_args=default_args,
          schedule_interval=None) as dag:
     run_experiment = BashOperator(task_id='run_experiment',
                                   bash_command=(
                                       "cd /opt/cctestbed && "
-    "python3.6 /opt/cctestbed/ccalg_predict_iperf.py {{ dag_run.conf['cmdline_args'] }}"))
-    
+    "python3.6 /opt/cctestbed/ccalg_predict_iperf.py -r local -c {{ dag_run.conf['cca'] }} --force"))
+
