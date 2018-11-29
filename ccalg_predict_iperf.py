@@ -476,8 +476,8 @@ def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalg
             logging.warning('Skipping region {}'.format(region))
             continue
         instance = get_instance(region)
+        ec2_region = get_ec2(region)
         if (instance is None) or (force_create_instance):
-            ec2_region = get_ec2(region)
             if get_key_name(ec2_region) is None:
                 logging.warning('Creating key pair for region {}'.format(region))
                 create_key_pair(ec2_region, region)        
