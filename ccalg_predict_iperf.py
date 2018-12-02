@@ -393,7 +393,7 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments(networks=None, force=True, loss=None):    
+def get_taro_experiments(networks=None, force=True, loss=None, ccalgs=CCALGS):    
     if networks is None:
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
@@ -411,7 +411,7 @@ def get_taro_experiments(networks=None, force=True, loss=None):
                 end_time=60,
                 exp_name_suffix='local',
                 queue_sizes=[queue_size],
-                ccalgs=CCALGS,
+                ccalgs=ccalgs,
                 loss=loss)
             config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-{}q-{}.yaml'.format(
                 btlbw,
@@ -426,8 +426,8 @@ def get_taro_experiments(networks=None, force=True, loss=None):
     return experiments
 
     
-def run_local_exps(networks, force, loss):
-    experiments = get_taro_experiments(networks, force, loss)
+def run_local_exps(networks, force, loss, ccalgs):
+    experiments = get_taro_experiments(networks, force, loss, ccalgs)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
@@ -581,7 +581,7 @@ if __name__ == '__main__':
         
     if 'local' in args.regions:
         #args.networks = rtt_exps.ntwrk_conditions['bess-3']
-        run_local_exps(args.networks, args.force, args.loss)
+        run_local_exps(args.networks, args.force, args.loss, args.ccalgs)
     else:
         #git_secret = getpass.getpass('Github secret: ')
         run_aws_exps(force_create_instance=False,
