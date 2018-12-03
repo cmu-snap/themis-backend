@@ -30,5 +30,5 @@ with DAG("cctestbed_local_rtt",
     run_experiment = BashOperator(task_id='run_experiment',
                                   bash_command=(
                                       "cd /opt/cctestbed && "
-                                      "python3.6 /opt/cctestbed/ccalg_predict_iperf.py -r local -c {{ dag_run.conf['cca'] }} --force" + ntwrk_cmdline_args))
+                                      "python3.6 /opt/cctestbed/ccalg_predict_iperf.py -r local -c {{ dag_run.conf['cca'] }} --force " + ntwrk_cmdline_args))
 
