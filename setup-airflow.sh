@@ -16,9 +16,4 @@ configure() {
 	ssh $BESS "sudo service airflow-worker start"
 }
 
-update_dags(){
-    for BESS in bess-1, bess-2, bess-3, bess-4, bess-5; do
-	ssh -t bess-1 "cd /opt/cctestbed && git pull"   
-}
-
-$1
+configure

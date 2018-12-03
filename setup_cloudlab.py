@@ -230,16 +230,16 @@ def increase_win_sizes():
         assert(proc.returncode == 0)
     
 def main():
-    #host_server, host_client = get_host_info()
-    #increase_win_sizes()
-    #turn_off_tso(host_server, host_client)
-    #add_route(host_server, host_client)
-    #add_arp_rule(host_server, host_client)
+    host_server, host_client = get_host_info()
+    increase_win_sizes()
+    turn_off_tso(host_server, host_client)
+    add_route(host_server, host_client)
+    add_arp_rule(host_server, host_client)
     setup_nat()
-    #load_all_ccalgs()
-    #export_environs(host_server, host_client)
-    #add_disk_space()
-    #connect_bess(host_server, host_client)
+    load_all_ccalgs()
+    export_environs(host_server, host_client)
+    add_disk_space()
+    connect_bess(host_server, host_client)
 
 if __name__ == '__main__':
     main()
