@@ -6,6 +6,7 @@ server <-----------> bess <-----------> client
 
 
 The cctestbed scripts assume there is an ssh config on the bess machine (~/.ssh/config) that looks like this:
+```sh
 Host cctestbed-server
      HostName 128.104.222.116
      User rware
@@ -14,6 +15,7 @@ Host cctestbed-client
      HostName 128.104.222.183
      User rware
      IdentityFile ~/.ssh/rware_cloudlab.pem
+```
 
 The setup-cloudlab.py scripts will create this file. Note, this file will not work outside of Cloudlab.
 
@@ -66,22 +68,18 @@ Parenthesis indicate which machine to run commands on. Parts of commands that ar
     ```sh
     cd /opt/cctestbed 
     # NOTE: install_bess script needs to be slightly modified for non-Cloudlab environment
-    ./setup-bess.sh install_bess
+    ./setup_bess.sh install_bess
     ./setup-bess.sh enable_hugepages()
     ```
-8. (client) Build & install tcpprobe. (Only required to run controlled experiments)
-    ```sh
-    cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko
-    ``` 
-9. (server, client) Install iperf3. (Only required to run controlled experiments)
+8. (server, client) Install iperf3. (Only required to run controlled experiments)
     ```sh
     cd /opt/cctestbed && ./setup_kernel.sh install_iperf3
     ```
-10. (client, server) Install modified tcpprobe. (Only required to run controlled experiments)
+9. (client, server) Install modified tcpprobe. (Only required to run controlled experiments)
     ```sh
     cd /opt/cctestbed/tcp_bbr_measure && make && sudo insmod tcp_probe_ray.ko
     ```
-11. (bess) Increase window sizes, turn off segmentation offloading, add routes, add arp rules, setup the nat, load all congestion control modules, connect interfaces to DPDK. Increase disk space. Store experiment results on BESS machine and need extra space on server in case downloaded files don't get deleted by wget. **THIS SCRIPT DOES NOT WORK OUTSIDE OF CLOUDLAB.**
+10. (bess) Increase window sizes, turn off segmentation offloading, add routes, add arp rules, setup the nat, load all congestion control modules, connect interfaces to DPDK. Increase disk space. Store experiment results on BESS machine and need extra space on server in case downloaded files don't get deleted by wget. **THIS SCRIPT DOES NOT WORK OUTSIDE OF CLOUDLAB.**
     ```sh
     cd /opt/cctestbed && python3.6 setup_cloudlab.py
     ```
