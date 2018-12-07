@@ -446,7 +446,7 @@ def run_local_exps(networks, force, loss, ccalgs):
 
 def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalgs=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1']
+    skip_regions = [] #['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1']
     if regions is None:
         regions=get_all_regions()
     
