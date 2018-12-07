@@ -313,8 +313,9 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     if not force and ccalg_predict.is_completed_experiment(experiment_name):
         return
     else:
-        if ccalg_predict.ran_experiment_today(experiment_name):
-            return
+        pass
+        #if ccalg_predict.ran_experiment_today(experiment_name):
+        #    return
     logging.info('Creating experiment for instance: {}-{}'.format(region, ccalg))
     instance_rtt = int(float(get_ping_rtt(instance.public_ip_address)))
     logging.info('Got instance RTT: {}'.format(instance_rtt))
