@@ -235,7 +235,7 @@ def main():
     turn_off_tso(host_server, host_client)
     add_route(host_server, host_client)
     add_arp_rule(host_server, host_client)
-    setup_nat()
+    setup_nat(host_server, host_client)
     load_all_ccalgs()
     export_environs(host_server, host_client)
     add_disk_space()
