@@ -167,7 +167,7 @@ def add_disk_space():
     cmd = ('sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt '
            '&& sudo mkdir /mnt/tmp '
            '&& sudo chmod 1777 /mnt/tmp '
-           '&& sudo cp /tmp/* /mnt/tmp '
+           '&& sudo cp -R /tmp/* /mnt/tmp '
            '&& sudo  rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp '
            '&& sudo chown -R rware:dna-PG0 /tmp/*')
@@ -178,7 +178,7 @@ def add_disk_space():
     cmd = ("sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt "
            "&& sudo mkdir /mnt/tmp "
            "&& sudo chmod 1777 /mnt/tmp "
-           "&& sudo cp /tmp/* /mnt/tmp "
+           "&& sudo cp -R /tmp/* /mnt/tmp "
            "&& sudo rm -r /tmp "
            "&& sudo ln -s /mnt/tmp /tmp "
            "&& sudo chown -R rware:dna-PG0 /tmp/*")
