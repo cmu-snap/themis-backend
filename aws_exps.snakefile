@@ -4,12 +4,21 @@
 # TODO: figure out how to only load local exps with the correct ccalgs & ntwrk condition
 # TODO: how to get figures of local exps in the all part?
 
-EXP_NAME_PATTERN='data-raw/{exp_name, .*-us-east-1-.*}.tar.gz'
+aws_regions = ['ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2','eu-central-1', 'us-east-1','us-east-2','us-west-1', 'ca-central-1', 'eu-west-3','eu-west-2', 'us-west-2', 'ap-south-1','eu-west-1'] 
+EXP_NAME_PATTERN='data-raw/{exp_name, .*q-(' + '|'.join(aws_regions) + ')-.*}.tar.gz'
 #EXP_NAME_PATTERN='data-raw/{exp_name, .*bic-5bw-85rtt-64q-us-east-1-20181117T235955.*}.tar.gz' 
 AWS_EXP_NAMES, = glob_wildcards(EXP_NAME_PATTERN)
 CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp',
           'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+NTWRK_CONDITIONS = [(5,35,16), (5,85,64), (5,130,64), (5,275,128), (10,35,32), (10,85,128), (10,130,128), (10,275,256), (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+import glob
+LOCAL_EXPS_DICT={'{}bw-{}rtt-{}q'.format(bw, rtt, q): glob.glob(
+    'data-training/*{}bw-{}rtt-{}q-local-*.tar.gz'.format(bw, rtt, q)) for bw, rtt, q in NTWRK_CONDITIONS}
 
+# reusable
+EXP_NAMES=AWS_EXP_NAMES
+CSV_OUTPUT_NAME='data-processed/classify-aws-exps-20181010.csv'
 
 # won't need all the wildcards so make an input function to tell us
 # which one we actually need given an exp_name
@@ -20,13 +29,13 @@ def get_local_exps(wildcards):
     
     ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
                                 wildcards.exp_name).groups()[0]
-    experiments = []
-    for ccalg in CCALGS:
+    #experiments = []
+    #for ccalg in CCAS:
         # select most recent experiment with this pattern
-        files = sorted(glob.glob('data-raw/{}-{}-local-20181113*.tar.gz'.format(ccalg,
-                                                                 ntwrk_conditions)))
-        experiments.append(os.path.basename(files[0])[:-7])
-    assert(len(experiments)==len(CCALGS))
+    #    files = sorted(glob.glob('data-training/{}-{}-local-20181113*.tar.gz'.format(ccalg,
+    #                                                             ntwrk_conditions)))
+    experiments = list(map(lambda tarfile_path: os.path.basename(tarfile_path)[:-7], LOCAL_EXPS_DICT[ntwrk_conditions]))
+    assert(len(experiments)==len(CCAS))
     return experiments
 
 def get_local_exps_features(wildcards):
@@ -47,7 +56,7 @@ def get_local_exps_bwdiff(wildcards):
 # decidde which subset of local experiments we actually need to compute dtw for this exp
 def get_dtws(wildcards):
     experiments = get_local_exps(wildcards)
-    dtws=expand('data-processed/{testing_exp_name}.{training_exp_name}.dtw',
+    dtws=expand('data-processed/{testing_exp_name}:{training_exp_name}.dtw',
                 testing_exp_name=wildcards.exp_name, training_exp_name=experiments)
     return dtws
     
@@ -55,13 +64,13 @@ def get_dtws(wildcards):
 rule all:
     input:
         # all aws plots
-        expand('graphics/{exp_name}.png', exp_name=AWS_EXP_NAMES),
+        #expand('graphics/{exp_name}.png', exp_name=LOSS_EXP_NAMES),
         # all local exp plots
         # expand('graphics/{exp_name}.png', exp_name=LOCAL_EXP_NAMES),
         # get_local_exps_plots,
         # all aws results ,
-        expand('graphics/{exp_name}-classify.png', exp_name=AWS_EXP_NAMES),
-        all_results='data-processed/classify-aws-exps.csv'
+        expand('graphics/{exp_name}-classify.png', exp_name=EXP_NAMES),
+        all_results=CSV_OUTPUT_NAME
 
 rule load_raw_queue_data:
     input:
@@ -200,7 +209,7 @@ rule plot_flow_features:
         exp_description='data-processed/{exp_name}.json',
         features='data-processed/{exp_name}.features'
     output:
-        features_plot='graphics/{exp_name}.png'
+        features_plot='graphics/{exp_name, .*(\d+)}.png'
     run:
         import matplotlib.pyplot as plt
         import matplotlib.style as style
@@ -382,7 +391,7 @@ rule compute_dtw:
         testing_flow='data-processed/{testing_exp_name}.features',
         training_flow='data-processed/{training_exp_name}.features'
     output:
-        dtw='data-processed/{testing_exp_name}.{training_exp_name}.dtw'
+        dtw='data-processed/{testing_exp_name}:{training_exp_name}.dtw'
     run:
         from fastdtw import dtw
         import pandas as pd
@@ -416,7 +425,7 @@ rule classify_flow:
             with open(dtw) as f:
                 dist = json.load(f)
                 training_exp_names[list(dist.keys())[0]] = os.path.basename(
-                    dtw).split('.')[1]
+                    dtw).split(':')[1][:-4]
                 distances.update(dist)
 
         with open(input.metadata) as f:
@@ -424,14 +433,15 @@ rule classify_flow:
 
         # TODO: FIX THIS ERROR; INDEXING NOT WORKING
         classify_results = (pd.DataFrame([distances])
-        .assign(predicted_label=lambda df: df[CCALGS].idxmin(1))
-        .assign(closest_distance=lambda df: df[CCALGS].min(1))
-        .assign(num_distance_ties=lambda df: (df[CCALGS] == df.closest_distance).sum())
+        .assign(predicted_label=lambda df: df[CCAS].idxmin(1))
+        .assign(closest_distance=lambda df: df[CCAS].min(1))
+        .assign(num_distance_ties=lambda df: (df[CCAS] == df.closest_distance).sum())
         .to_dict('index'))
 
         classify_results = classify_results[0]
         classify_results['closest_exp_name'] = training_exp_names[
             classify_results['predicted_label']]
+
 
         with open(output.classify, 'w') as f:
             json.dump(classify_results, f)
@@ -467,7 +477,8 @@ rule get_expected_bw:
 
         btlbw = experiment['btlbw']
         bw_measured = get_bw_tcpdump()
-        bw_diff = {'expected_bw_diff' : (round(bw_measured) / btlbw)}
+        bw_diff = {'expected_bw_diff' : (round(bw_measured) / btlbw),
+                   'expected_bw' : bw_measured}
                 
         with open(output.expected_bw_diff, 'w') as f:
             json.dump(bw_diff, f)
@@ -488,15 +499,18 @@ rule check_bw_too_low:
         predicted_label = classify_results['predicted_label']
 
         with open(getattr(input, predicted_label)) as f:
-            expected_bw_diff = json.load(f)['expected_bw_diff']
+            bwtoolow = json.load(f)
+            expected_bw_diff = bwtoolow['expected_bw_diff']
+            expected_bw = bwtoolow['expected_bw']
 
         observed_bw_diff = classify_results['observed_bw_diff']   
         bw_too_low = expected_bw_diff > observed_bw_diff
-        expected_bw = {'expected_bw_diff': expected_bw_diff,
+        expected_bw_dict = {'expected_bw_diff': expected_bw_diff,
+                       'expected_bw': expected_bw,
                        'bw_too_low': bw_too_low}
         
         with open(output.bw_too_low, 'w') as f:
-            json.dump(expected_bw, f)
+            json.dump(expected_bw_dict, f)
 
 rule merge_results:
     input:
@@ -572,9 +586,9 @@ rule plot_results:
         
 rule store_all_results:
     input:
-        results=expand('data-processed/{exp_name}.results', exp_name=AWS_EXP_NAMES),
+        results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES),
     output:
-        all_results='data-processed/classify-aws-exps.csv'
+        all_results=CSV_OUTPUT_NAME
     run:
         import pandas as pd
         import json
@@ -585,5 +599,8 @@ rule store_all_results:
                 all_exp_results.append(json.load(f))
         df_all_results = pd.DataFrame(all_exp_results)
         df_all_results.to_csv(output.all_results, index=False)
+
+                
+
 
                 
