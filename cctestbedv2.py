@@ -608,7 +608,7 @@ def load_experiments(config, config_filename,
 def start_bess(experiment, bess_config_name='active-middlebox-pmd'):
     cmd = '/opt/bess/bessctl/bessctl daemon start'
     try:
-        run_local_command(cmd)
+        run_local_command(cmd, timeout=120)
     except Exception as e:
         pass
     cmd = ("/opt/bess/bessctl/bessctl run {} "
