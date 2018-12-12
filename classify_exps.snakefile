@@ -11,7 +11,7 @@ for bw, rtt, q in NTWRK_CONDITIONS:
     for rtt_diff in rtt_diffs:
         testing_exp = '{}bw-{}rtt-{}q'.format(bw, int(rtt*rtt_diff), q)
         LOCAL_EXPS_DICT[testing_exp] = []
-        for exp in glob.glob('data-training/*{}bw-{}rtt-{}q-local-*.features'.format(bw, rtt, q)):
+        for exp in glob.glob('/opt/cctestbed/data-training/*{}bw-{}rtt-{}q-local-*.features'.format(bw, rtt, q)):
             LOCAL_EXPS_DICT[testing_exp].append(os.path.basename(exp)[:-9])
         assert(len(LOCAL_EXPS_DICT[testing_exp]) == len(CCAS))
 
@@ -27,13 +27,13 @@ def get_local_exps(wildcards):
 
 def get_local_exps_features(wildcards):
     experiments = get_local_exps(wildcards)
-    return expand('data-training/{exp_name}.features',
+    return expand('/opt/cctestbed/data-training/{exp_name}.features',
                   exp_name=experiments)
 
 def get_local_exps_metadata(wildcards):
     experiments = get_local_exps(wildcards)
     # key is the ccalg
-    return {exp_name.split('-')[0] :'data-training/{exp_name}.metadata'.format(exp_name=exp_name) for exp_name in experiments}
+    return {exp_name.split('-')[0] :'/opt/cctestbed/data-training/{exp_name}.metadata'.format(exp_name=exp_name) for exp_name in experiments}
 
 # decidde which subset of local experiments we actually need to compute dtw for this exp
 def get_dtws(wildcards):
@@ -329,7 +329,7 @@ rule get_metadata:
 rule compute_dtw:
     input:
         testing_flow='data-processed/{testing_exp_name}.features',
-        training_flow='data-training/{training_exp_name}.features'
+        training_flow='/opt/cctestbed/data-training/{training_exp_name}.features'
     output:
         dtw='data-processed/{testing_exp_name}:{training_exp_name}.dtw'
     run:
