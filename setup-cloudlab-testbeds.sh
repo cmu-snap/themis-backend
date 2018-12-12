@@ -1,8 +1,10 @@
-NUM_TESTBEDS=$1
+COMMAND=$1
+NUM_TESTBEDS=$2
 # need git secret to do git updates
 echo -n GIT SECRET:
 read -s GIT_SECRET
 echo 
+
 
 create_ssh_alias () {
     bess_node=$1
@@ -12,7 +14,7 @@ create_ssh_alias () {
     echo "    User rware" >> /home/ranysha/.ssh/config
     echo "    IdentityFile /home/ranysha/.ssh/rware_cloudlab.pem" >> /home/ranysha/.ssh/config
     echo "    StrictHostKeyChecking no" >> /home/ranysha/.ssh/config
-    echo >> /home/ranysha/.ssh/config
+    echo "" >> /home/ranysha/.ssh/config
 
 }
 
@@ -51,23 +53,66 @@ setup_airflow() {
 	ssh $bess_node "sudo service airflow-worker start"
 }
 
-    
-# clear ssh config file
-echo '' > ~/.ssh/config
-
-for i in $(seq 1 $NUM_TESTBEDS)
-do
+configure() {
+    i=$NUM_TESTBEDS
     bess_node_name=bess-$i
     echo Configuring $bess_node_name...
     # add aliases for each bess node
-    echo [$bess_node_name] Creating ssh alias...
-    create_ssh_alias $bess_node_name && \
+    echo [$bess_node_name] Creating ssh alias... && \
+	create_ssh_alias $bess_node_name && \
         echo [$bess_node_name] Updating git... && \
 	update_git $bess_node_name && \
 	echo [$bess_node_name] Configuring aws... && \
 	configure_aws $bess_node_name && \
 	echo [$bess_node_name] Installing cctestbed... && \
 	setup_cloudlab $bess_node_name && \
-	echo [$bess_node_name] Installing airflow... && \	
+	echo [$bess_node_name] Installing airflow... && \
 	setup_airflow $bess_node_name
-done
+}
+
+configure_all() {
+    
+    # clear ssh config file
+    #echo '' > ~/.ssh/config
+    touch ~/.ssh/config
+    
+    for i in $(seq 6 $NUM_TESTBEDS)
+    do
+	bess_node_name=bess-$i
+	echo Configuring $bess_node_name...
+	# add aliases for each bess node
+	echo [$bess_node_name] Creating ssh alias...
+	create_ssh_alias $bess_node_name && \
+            echo [$bess_node_name] Updating git... && \
+	    update_git $bess_node_name && \
+	    echo [$bess_node_name] Configuring aws... && \
+	    configure_aws $bess_node_name && \
+	    echo [$bess_node_name] Installing cctestbed... && \
+	    setup_cloudlab $bess_node_name && \
+	    echo [$bess_node_name] Installing airflow... && \	
+	setup_airflow $bess_node_name
+    done
+}
+
+update_dags_all() {
+    for i in $(seq 1 $NUM_TESTBEDS)
+    do
+	bess_node_name=bess-$i
+	echo [$bess_node_name] Updating git... && \
+	    update_git $bess_node_name
+    done
+}
+
+start_airflow_all() {
+    for i in $(seq 1 $NUM_TESTBEDS)
+    do
+	bess_node_name=bess-$i
+	echo [$bess_node_name] Starting airflow worker... && \
+	    ssh $bess_node_name "sudo service airflow-worker start"
+	sleep 3
+	ssh $bess_node_name "sudo service airflow-worker status"
+    done
+}
+
+
+$COMMAND
