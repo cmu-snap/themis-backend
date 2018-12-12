@@ -99,7 +99,7 @@ update_dags_all() {
     do
 	bess_node_name=bess-$i
 	echo [$bess_node_name] Updating git... && \
-	    update_git $bess_node_name
+	    update_git $bess_node_name &
     done
 }
 
