@@ -1,0 +1,1 @@
+{"rtt": 35, "btlbw": 5, "queue_size": 16, "rtt_measured": 35.193, "exp_name": "vegas-5bw-35rtt-16q-local-20181113T122426", "delay_added": 35, "rtt_initial": 0.19299999999999784, "true_label": "vegas", "rtt_mean": null, "rtt_std": null, "bw_measured": 4.05056117, "pkts_dropped_queue": 0, "pkts_lost_tcpdump": 0, "pkts_dequeued": 24368, "num_pkts_lost": 0, "observed_bw_diff": 0.8}
