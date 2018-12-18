@@ -5,6 +5,7 @@ echo -n GIT SECRET:
 read -s GIT_SECRET
 echo 
 
+# EXPERIMENT MUST BE CALLED CCA-PREDICT
 
 create_ssh_alias () {
     bess_node=$1
@@ -53,6 +54,20 @@ setup_airflow() {
 	ssh $bess_node "sudo service airflow-worker start"
 }
 
+setup_data_analysis() {
+    bess_node=$1
+    ssh $bess_node "sudo pip3.6 install snakemake"
+    ssh $bess_node "sudo pip3.6 install tables"
+    ssh $bess_node "sudo pip3.6 install matplotlib"
+    ssh $bess_node "sudo pip3.6 install sklearn"
+    ssh $bess_node "sudo pip3.6 install fastdtw"
+    ssh $bess_node "sudo mkdir /tmp/data-raw"
+    ssh $bess_node "sudo mkdir /tmp/data-processed"
+    ssh $bess_node "sudo mv /tmp/*.tar.gz /tmp/data-raw/"
+    ssh $bess_node "sudo chown -R rware:dna-PG0 /tmp/data-processed"
+    ssh $bess_node "sudo chown -R rware:dna-PG0 /tmp/data-raw" 
+}
+
 configure() {
     i=$NUM_TESTBEDS
     bess_node_name=bess-$i
@@ -67,7 +82,9 @@ configure() {
 	echo [$bess_node_name] Installing cctestbed... && \
 	setup_cloudlab $bess_node_name && \
 	echo [$bess_node_name] Installing airflow... && \
-	setup_airflow $bess_node_name
+	setup_airflow $bess_node_name && \
+	echo [$bess_node_name] Setting up data analysis... && \
+	setup_data_analysis $bess_node_name
 }
 
 configure_all() {
@@ -76,7 +93,7 @@ configure_all() {
     #echo '' > ~/.ssh/config
     touch ~/.ssh/config
     
-    for i in $(seq 6 $NUM_TESTBEDS)
+    for i in $(seq 2 $NUM_TESTBEDS)
     do
 	bess_node_name=bess-$i
 	echo Configuring $bess_node_name...
@@ -89,8 +106,10 @@ configure_all() {
 	    configure_aws $bess_node_name && \
 	    echo [$bess_node_name] Installing cctestbed... && \
 	    setup_cloudlab $bess_node_name && \
-	    echo [$bess_node_name] Installing airflow... && \	
-	setup_airflow $bess_node_name
+	    echo [$bess_node_name] Installing airflow... && \
+	    setup_airflow $bess_node_name && \
+	    echo [$bess_node_name] Setting up data analysis... && \
+	    setup_data_analysis $bess_node_name
     done
 }
 
@@ -113,6 +132,5 @@ start_airflow_all() {
 	ssh $bess_node_name "sudo service airflow-worker status"
     done
 }
-
 
 $COMMAND

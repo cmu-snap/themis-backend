@@ -160,8 +160,11 @@ rule compute_flow_features:
             exp_description = json.load(f)
         flow_ccalg = exp_description['flows'][0][0]
         queue_size = exp_description['queue_size']
+        ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
+                                    input.exp_description).groups()[0]
+        training_exp_name = LOCAL_EXPS_DICT[ntwrk_conditions][0]
         resample_interval =  int(re.match('.*bw-(.*)rtt',
-                                          exp_description['name']).groups()[0])
+                                          training_exp_name).groups()[0])
 
         with pd.HDFStore(input.queue_store, mode='r') as hdf_queue:
             df_queue = hdf_queue.select('df_queue', columns=['size'])
@@ -303,24 +306,31 @@ rule get_metadata:
         with open(input.exp_description) as f:
             exp = json.load(f)
 
-            metadata['rtt'] = int(re.match('.*bw-(.*)rtt', exp['name']).groups()[0])
-            metadata['btlbw'] = int(exp['btlbw'])
-            metadata['queue_size'] = int(exp['queue_size'])
-            metadata['rtt_measured'] = float(exp['rtt_measured'])
-            metadata['exp_name'] = wildcards.exp_name
-            metadata['delay_added'] = int(exp['flows'][0][3])
-            metadata['rtt_initial'] = metadata['rtt_measured'] - metadata['delay_added']
-            # awks -- sometimes this is NaN
-            metadata['true_label'] = exp['flows'][0][0]
-            
-            #if 'ping_log' in exp['logs']:
-            metadata.update(get_rtt_ping())
-            metadata['bw_measured'] = get_bw_tcpdump()
-            metadata.update(get_loss_rate_tcpdump())
-            if metadata['bw_measured'] is not None:
-                metadata['observed_bw_diff'] = (round(metadata['bw_measured']) / metadata['btlbw'])
-            else:
-                metadata['observed_bw_diff'] = None
+        ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
+                                        input.exp_description).groups()[0]
+        training_exp_name = LOCAL_EXPS_DICT[ntwrk_conditions][0]
+        resample_interval =  int(re.match('.*bw-(.*)rtt',
+                                          training_exp_name).groups()[0])
+        metadata['rtt'] = resample_interval
+        
+        #int(re.match('.*bw-(.*)rtt', exp['name']).groups()[0])
+        metadata['btlbw'] = int(exp['btlbw'])
+        metadata['queue_size'] = int(exp['queue_size'])
+        metadata['rtt_measured'] = float(exp['rtt_measured'])
+        metadata['exp_name'] = wildcards.exp_name
+        metadata['delay_added'] = int(exp['flows'][0][3])
+        metadata['rtt_initial'] = metadata['rtt_measured'] - metadata['delay_added']
+        # awks -- sometimes this is NaN
+        metadata['true_label'] = exp['flows'][0][0]
+        
+        #if 'ping_log' in exp['logs']:
+        metadata.update(get_rtt_ping())
+        metadata['bw_measured'] = get_bw_tcpdump()
+        metadata.update(get_loss_rate_tcpdump())
+        if metadata['bw_measured'] is not None:
+            metadata['observed_bw_diff'] = (round(metadata['bw_measured']) / metadata['btlbw'])
+        else:
+            metadata['observed_bw_diff'] = None
             
         with open(output.metadata, 'w') as f:
             json.dump(metadata, f)

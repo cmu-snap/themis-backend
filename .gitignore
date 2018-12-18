@@ -164,3 +164,7 @@ host_info.pkl
 .tmp_versions/
 Module.symvers
 modules.order
+
+data-training/*.tar.gz
+data-training/*.json
+data-training/*.h5
