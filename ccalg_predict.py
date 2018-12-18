@@ -15,12 +15,38 @@ import yaml
 import datetime
 import argparse
 
+import numpy as np
+from data_analysis.prediction import get_labels_dtw, get_deltas_dtw, resample_dtw, get_features_dtw
+import subprocess
+
+
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
     85: {5:64, 10:128, 15:128},
     130: {5:64, 10:128, 15:256},
     275: {5:128, 10:256, 15:512}}
 
+DBROW = namedtuple('DBROW', ['exp_id', 'url', 'website', 'filesize', 'num_retry', 'url_host', 'url_port', 'url_ip', 'rtt', 'cname', 'exp_name', 'ntwrk_conditions', 'exp_hostname', 'bw_too_low', 'num_pkts_lost', 'wget_error', 'dig_error']) 
+
+EXP_HOSTNAME=cctestbed.run_local_command('hostname -f', shell=True)
+
+class WebsiteExperiment(Experiment):
+    def __init__(self, url, url_ip, url_host, website, exp_rtt):
+        self.url = url
+        self.url_ip = url_ip
+        self.url_host = url_host
+        self.website = website
+        self.exp_hostname = EXP_HOSTNAME
+        self.exp_rtt = exp_rtt
+        super().__init__(self)
+        self.results = {
+            'hdf_queue': '/tmp/queue-{}-{}.h5'.format(self.name, self.exp_time),
+            'features': '/tmp/{}-{}.features'.format(self.name, self.exp_time),
+            'results': '/tmp/{}-{}.results'.format(self.name, self.exp_time)
+        }
+        self.exp_id = None
+
+        
 def is_completed_experiment(experiment_name):
     num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
     experiment_done = len(num_completed) > 0
@@ -48,7 +74,7 @@ def run_rtt_monitor(url_ip):
     rtt = cctestbed.run_local_command(cmd, shell=True)
     return rtt
 
-def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
+def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False, compress_logs=True):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
     if not force and is_completed_experiment(experiment_name):
         return
@@ -56,7 +82,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         if ran_experiment_today(experiment_name):
             return
     logging.info('Creating experiment for website: {}'.format(website))
-    url_ip = get_website_ip(url)
+    url_ip, url_host = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
     website_rtt = int(float(get_nping_rtt(url_ip)))
     logging.info('Got website RTT: {}'.format(website_rtt))
@@ -84,12 +110,18 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                       server_port=server_port, client_port=client_port,
                       client_log=None, server_log=None)]
     
-    exp = cctestbed.Experiment(name=experiment_name,
-                     btlbw=btlbw,
-                     queue_size=queue_size,
-                     flows=flows, server=server, client=client,
-                     config_filename='experiments-all-ccalgs-aws.yaml',
-                     server_nat_ip=server_nat_ip)
+    exp = WebsiteExperiment(name=experiment_name,
+                            btlbw=btlbw,
+                            queue_size=queue_size,
+                            flows=flows, server=server, client=client,
+                            config_filename='experiments-all-ccalgs-aws.yaml',
+                            server_nat_ip=server_nat_ip,
+                            url=url,
+                            url_ip=url_ip,
+                            website=website,
+                            exp_rtt=rtt,
+                            url_host=url_host)
+
     
     logging.info('Running experiment: {}'.format(exp.name))
 
@@ -146,8 +178,11 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             else:
                 logging.error(stdout.read())
                 raise RuntimeError('Error running flow.')
-    proc = exp._compress_logs_url()
-    return proc
+    if compress_logs:
+        proc = exp._compress_logs_url()
+        return proc
+    else:
+        return exp #proc
 
 @contextmanager
 def add_dnat_rule(exp, url_ip):
@@ -212,7 +247,7 @@ def get_website_ip(url):
     ip_addr = ip_addrs.split('\n')[0]
     if ip_addr.strip() == '':
         raise ValueError('Could not find IP addr for {}'.format(url))
-    return ip_addr
+    return ip_addr, hostname
 
 def update_url_with_ip(url, url_ip):
     # also make sure use http and not https
@@ -221,49 +256,112 @@ def update_url_with_ip(url, url_ip):
     url_parts[1] = url_ip
     return urlunsplit(url_parts)
 
-def get_taro_experiments():    
-    experiments = {}
-    for rtt in [35, 85, 130, 275]:
-        for btlbw in [5, 10, 15]:
-            queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]
-            config = generate_experiments.ccalg_predict_config_websites(
-                btlbw=btlbw,
-                rtt=rtt,
-                end_time=60,
-                exp_name_suffix='taro',
-                queue_size=queue_size)
-            config_filename = 'experiments-ccalg-predict-{}bw-{}rtt.yaml'.format(btlbw, rtt)
-            logging.info('Writing config file {}'.format(config_filename))
-            with open(config_filename, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False)
-            experiments.update(cctestbed.load_experiments(config,
-                                                          config_filename, force=True))
-    return experiments
-    
-def run_taro_experiments():
-    experiments = get_taro_experiments()
-    completed_experiment_procs = []
-    logging.info('Going to run {} experiments.'.format(len(experiments)))
+### CLASSIFICATION ####
 
-    running_experiment = 1
-    
-    for experiment in experiments.values():
+def store_queue_hdf(experiment):
+    raw_queue_data = experiment.logs['queue_log']
+    hdf_queue = '{}.h5'.format(raw_queue_data[:-3])
+    def tohex(x):
         try:
-            print('Running experiments {}/{}'.format(running_experiment, len(experiments)))
-            cctestbed.run_local_command('/opt/bess/bessctl/bessctl daemon stop')
-            proc = experiment.run()
-            completed_experiment_procs.append(proc)
-            running_experiment += 1
-        except Exception as e:
-            print('ERROR RUNNING EXPERIMENT: {}'.format(e))
+            return int(x, 16)
+        except ValueError:
+            print("Value error converting {} to hex".format(x))
+            return 0
 
-    for proc in completed_experiment_procs:
-        logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
-        proc.wait()
-        if proc.returncode != 0:
-            logging.warning('Error running cmd PID={}'.format(proc.pid))
+    df = (pd
+          .read_csv(raw_queue_data,
+                    names = ['dequeued',
+                             'time',
+                             'src',
+                             'seq',
+                             'datalen',
+                             'size',
+                             'dropped',
+                             'queued',
+                             'batch'],
+                    converters = {'seq': tohex,
+                                  'src': tohex},
+                    dtype={'dequeued': bool,
+                           'time': np.uint64,
+                           'datalen': np.uint16,
+                           'size': np.uint32,
+                           'dropped':bool,
+                           'queued': np.uint16,
+                           'batch': np.uint16}, skip_blank_lines=True)
+          .assign(seq=lambda df: df.astype(np.uint32))
+          .assign(src=lambda df: df.astype( np.uint16))
+          .assign(lineno=lambda df: df.index + 1)
+          .set_index('time'))
+    
+    df_enq = (pd
+              .get_dummies(df[(df.dequeued==0) & (df.dropped==0)]['src'])
+              .astype(np.uint8))
+    df_deq = (pd
+              .get_dummies(df[df.dequeued==1]['src'])
+              .replace(1,-1)
+              .astype(np.int8))
+    df_flows = (df_enq
+                .append(df_deq)
+                .sort_index()
+                .cumsum()
+                .fillna(0)
+                .astype(np.uint32))
+    df = (df
+          .reset_index()
+          .join(df_flows.reset_index().drop('time', axis=1))
+          .sort_index()
+          .ffill()
+          .assign(time=lambda df: pd.to_datetime(df.time,
+                                                 infer_datetime_format=True,
+                                                 unit='ns'))
+          .set_index('time'))
+    
+    with pd.HDFStore(hdf_queue, mode='w') as store:
+        store.append('df_queue',
+                     df,
+                     format='table',
+                     data_columns=['src', 'dropped', 'dequeued'])
 
-def main(websites, ntwrk_conditions=None, force=False):
+    return df['size']
+
+
+def compute_flow_features(df_queue, experiment):
+    flow_ccalg = experiment.flows[0].ccalg
+    queue_size = experiment.queue_size
+    resample_interval = experiment.exp_rtt
+
+    df_queue.name = flow_ccalg
+    df_queue = df_queue.sort_index()
+    # there could be duplicate rows if batch size is every greater than 1
+    # want to keep last entry for any duplicated rows
+    df_queue = df_queue[~df_queue.index.duplicated(keep='last')]
+    df_queue = df_queue / queue_size
+    
+    resampled = resample_dtw(df_queue, resample_interval)
+    deltas = get_deltas_dtw(resampled)
+    labels = get_labels_dtw(deltas)
+    features = get_features_dtw(labels)
+    features.to_csv(output.features, header=['queue_occupancy'], index=False)
+
+    return features
+
+
+def get_logs_async(experiment):
+    if os.stat("file").st_size == 0:
+        cmd = 'tshark -r "{}" -Tfields -e frame.time_relative -e tcp.analysis.ack_rtt | tee {}'.format(experiment.logs['server_tcpdump_log'],experiment.logs['rtt_log'])
+        rtt_log_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE))
+        logging.info('Running background command: {} (PID={})'.format(cmd, rtt_log_proc.pid))
+        cmd = 'capinfos -iTm {} | tee {}'.format(experiment.logs['server_tcpdump_log'],
+                                                 experiment.logs['capinfos_log'])
+        capinfos_log_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        logging.info('Running background command: {} (PID={})'.format(cmd, capinfos_log_proc.pid))
+    else:
+        raise ValueError('Found empty queue file {}.'.format(experiment.logs['queue_log']))
+    return rtt_log_proc, capinfos_log_proc
+
+
+def main(websites, max_pkt_loss, max_bw_diff,
+         ntwrk_conditions=None, force=False, compress_logs=False):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
@@ -286,12 +384,22 @@ def main(websites, ntwrk_conditions=None, force=False):
                     print('Skipping experiment RTT too small')
                     num_completed_experiments += 1
                     break
-                proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
-                # spaghetti code to skip websites that don't work for given rtt
-                if proc == -1:
-                    too_small_rtts.append(rtt)
-                elif proc is not None:
-                    completed_experiment_procs.append(proc)
+                
+                if compress_logs:
+                    proc = run_experiment(website, url, btlbw,
+                                          queue_size, rtt, force=force)
+                    # spaghetti code to skip websites that don't work for given rtt
+                    if proc == -1:
+                        too_small_rtts.append(rtt)
+                    elif proc is not None:
+                        completed_experiment_procs.append(proc)
+                else:
+                    exp = run_experiment(website, url, btlbw,
+                                         queue_size, rtt, force=force)
+                    if exp == -1:
+                        # too small rtt
+                        return -1
+                    return exp
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
@@ -322,6 +430,11 @@ def parse_args():
         help='Network conditions for download from website.')
     parser.add_argument('--force', '-f', action='store_true',
                         help='Force experiments that were already run to run again')
+    parser.add_argument('--max_pkt_loss','-p', type=int, default=0, help='Maximum allowed packet loss before retrying')
+    parser.add_argument('--max_bw_diff','-b', type=float, default=0.9,
+                        help='Maximum allowed difference in bandwidth between correct experiment and incorrect')
+    parser.add_argument('--compress_logs','-t', action='store_false', 
+                        help='Dont compress logs')
     args = parser.parse_args()
     return args
             
@@ -331,4 +444,4 @@ if __name__ == '__main__':
     fileConfig(log_file_path)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     args = parse_args()
-    main(args.websites, ntwrk_conditions=args.ntwrk_conditions, force=args.force)
+    main(**args)
