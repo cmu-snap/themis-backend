@@ -16,7 +16,8 @@ for bw, rtt, q in NTWRK_CONDITIONS:
         assert(len(LOCAL_EXPS_DICT[testing_exp]) == len(CCAS))
 
         
-EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
+#EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
+EXP_NAMES, = glob_wildcards('data-processed/queue-{exp_name}.h5')
             
 def get_local_exps(wildcards):
     import re
