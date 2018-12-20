@@ -18,6 +18,7 @@ import argparse
 import numpy as np
 from data_analysis.prediction import get_labels_dtw, get_deltas_dtw, resample_dtw, get_features_dtw
 import subprocess
+from collections import namedtuple
 
 
 QUEUE_SIZE_TABLE = {
@@ -30,7 +31,7 @@ DBROW = namedtuple('DBROW', ['exp_id', 'url', 'website', 'filesize', 'num_retry'
 
 EXP_HOSTNAME=cctestbed.run_local_command('hostname -f', shell=True)
 
-class WebsiteExperiment(Experiment):
+class WebsiteExperiment(cctestbed.Experiment):
     def __init__(self, url, url_ip, url_host, website, exp_rtt):
         self.url = url
         self.url_ip = url_ip
