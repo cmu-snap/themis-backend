@@ -11,7 +11,7 @@ default_args = {
     "email_on_retry": False,
     "retries": 5,
     "retry_delay": timedelta(minutes=1),
-    "queue":"cctestbed_aws",
+    "queue": "cca_predict", #"cctestbed_aws",
     # 'queue': 'bash_queue',
     # 'pool': 'backfill',
     # 'priority_weight': 10,
