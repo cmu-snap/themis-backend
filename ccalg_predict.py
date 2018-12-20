@@ -349,7 +349,7 @@ def compute_flow_features(df_queue, experiment):
 def get_logs_async(experiment):
     if os.stat("file").st_size == 0:
         cmd = 'tshark -r "{}" -Tfields -e frame.time_relative -e tcp.analysis.ack_rtt | tee {}'.format(experiment.logs['server_tcpdump_log'],experiment.logs['rtt_log'])
-        rtt_log_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE))
+        rtt_log_proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
         logging.info('Running background command: {} (PID={})'.format(cmd, rtt_log_proc.pid))
         cmd = 'capinfos -iTm {} | tee {}'.format(experiment.logs['server_tcpdump_log'],
                                                  experiment.logs['capinfos_log'])
