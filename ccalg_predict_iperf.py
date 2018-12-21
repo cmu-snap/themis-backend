@@ -476,7 +476,10 @@ def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalg
         if region in skip_regions:
             logging.warning('Skipping region {}'.format(region))
             continue
-        instance = get_instance(region)
+        if not force_create_instance:
+            instance = get_instance(region)
+        else:
+            instance = None
         ec2_region = get_ec2(region)
         if (instance is None) or (force_create_instance):
             if get_key_name(ec2_region) is None:
