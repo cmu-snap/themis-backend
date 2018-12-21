@@ -17,7 +17,7 @@ for bw, rtt, q in NTWRK_CONDITIONS:
 
         
 #EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
-EXP_NAMES, = glob_wildcards('data-processed/queue-{exp_name}.h5')
+EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
             
 def get_local_exps(wildcards):
     import re
