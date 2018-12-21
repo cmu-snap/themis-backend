@@ -5,7 +5,7 @@ CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illin
 import glob
 import os
 
-rtt_diffs = [1, 1+.25, 1-.25,1+.5,1-.5,1+.75,1-.75,1+1]
+rtt_diffs = [1, 1+.1, 1-.1, 1+.05, 1-.05, 1+.25, 1-.25,1+.5,1-.5,1+.75,1-.75,1+1]
 LOCAL_EXPS_DICT = {}
 for bw, rtt, q in NTWRK_CONDITIONS:
     for rtt_diff in rtt_diffs:
