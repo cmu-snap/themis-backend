@@ -352,6 +352,7 @@ class Experiment:
             run_local_command('kill {}'.format(pid))
             run_local_command('grep -e "^0" -e "^1" {} > /tmp/queue-log-tmp.txt'.format(self.logs['queue_log']), shell=True)
             run_local_command('mv /tmp/queue-log-tmp.txt {}'.format(self.logs['queue_log']))
+            
     @contextmanager
     def _run_rtt_monitor(self, program='nping'):
         ping_source_ip = self.server.ip_wan
@@ -379,10 +380,10 @@ class Experiment:
                 pid = run_local_command('pgrep -f "nping --count 0 --delay 1s"')
             elif program == 'ping':
                 pid = run_local_command('pgrep -f "ping -i 1"')
-                assert(pid)
-                pid = int(pid)
-                logging.info('PID={}'.format(pid))
-                yield pid
+            assert(pid)
+            pid = int(pid)
+            logging.info('PID={}'.format(pid))
+            yield pid
         finally:
             logging.info('Cleaning up cmd: {}'.format(cmd))
             run_local_command('kill {}'.format(pid))
