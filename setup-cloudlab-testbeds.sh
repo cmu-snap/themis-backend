@@ -8,10 +8,12 @@ echo
 # EXPERIMENT MUST BE CALLED CCA-PREDICT
 
 create_ssh_alias () {
-    bess_node=$1
-
-    echo Host $bess_node >> ~/.ssh/config
-    echo "    HostName $(dig +short bess-$i.cca-predict.dna-PG0.wisc.cloudlab.us cname)" >> /home/ranysha/.ssh/config
+    num_testbed=$1
+    
+    bess_hostname=$(dig +short bess-$num_testbed.cca-predict.dna-PG0.wisc.cloudlab.us cname | head -n 1)
+    bess_hostname=${bess_hostname%"."}
+    echo Host bess-$num_testbed bess-$num_testbed.cca.predict.dna-PG0.wisc.cloudlab.us $bess_hostname >> /home/ranysha/.ssh/config
+    echo "    Hostname $bess_hostname" >> /home/ranysha/.ssh/config
     echo "    User rware" >> /home/ranysha/.ssh/config
     echo "    IdentityFile /home/ranysha/.ssh/rware_cloudlab.pem" >> /home/ranysha/.ssh/config
     echo "    StrictHostKeyChecking no" >> /home/ranysha/.ssh/config
@@ -74,7 +76,7 @@ configure() {
     echo Configuring $bess_node_name...
     # add aliases for each bess node
     echo [$bess_node_name] Creating ssh alias... && \
-	create_ssh_alias $bess_node_name && \
+	create_ssh_alias $i && \
         echo [$bess_node_name] Updating git... && \
 	update_git $bess_node_name && \
 	echo [$bess_node_name] Configuring aws... && \
@@ -93,13 +95,13 @@ configure_all() {
     #echo '' > ~/.ssh/config
     touch ~/.ssh/config
     
-    for i in $(seq 2 $NUM_TESTBEDS)
+    for i in $(seq 1 $NUM_TESTBEDS)
     do
 	bess_node_name=bess-$i
 	echo Configuring $bess_node_name...
 	# add aliases for each bess node
 	echo [$bess_node_name] Creating ssh alias...
-	create_ssh_alias $bess_node_name && \
+	create_ssh_alias $i && \
             echo [$bess_node_name] Updating git... && \
 	    update_git $bess_node_name && \
 	    echo [$bess_node_name] Configuring aws... && \
@@ -130,6 +132,15 @@ start_airflow_all() {
 	    ssh $bess_node_name "sudo service airflow-worker start"
 	sleep 3
 	ssh $bess_node_name "sudo service airflow-worker status"
+    done
+}
+
+check_airflow_setup_all() {
+    for i in $(seq 1 $NUM_TESTBEDS)
+    do
+	bess_node_name=bess-$i
+	echo [$bess_node_name] Checking airflow worker... && \
+	    ssh $bess_node_name "sudo service airflow-worker status"
     done
 }
 
