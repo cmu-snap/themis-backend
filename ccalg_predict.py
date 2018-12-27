@@ -23,7 +23,7 @@ QUEUE_SIZE_TABLE = {
     275: {5:128, 10:256, 15:512}}
 
 def is_completed_experiment(experiment_name):
-    num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
+    num_completed = glob.glob('/tmp/data-raw/{}-*.tar.gz'.format(experiment_name))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
@@ -32,7 +32,7 @@ def is_completed_experiment(experiment_name):
 
 def ran_experiment_today(experiment_name):
     today = datetime.datetime.now().isoformat()[:10].replace('-','')
-    num_completed = glob.glob('/tmp/{}-{}*.tar.gz'.format(experiment_name, today))
+    num_completed = glob.glob('/tmp/data-raw/{}-{}*.tar.gz'.format(experiment_name, today))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
@@ -91,15 +91,6 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                      flows=flows, server=server, client=client,
                      config_filename='experiments-all-ccalgs-aws.yaml',
                      server_nat_ip=server_nat_ip)
-
-    logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
-    with open(exp.logs['website_log'], 'w') as f:
-        website_info = {}
-        website_info['website'] = website
-        website_info['url'] = url
-        website_info['website_rtt'] = website_rtt
-        website_info['url_ip'] = url_ip
-        json.dump(website_info, f)
     
     logging.info('Running experiment: {}'.format(exp.name))
 
@@ -149,6 +140,17 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
+
+        logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
+        with open(exp.logs['website_log'], 'w') as f:
+            website_info = {}
+            website_info['website'] = website
+            website_info['url'] = url
+            website_info['website_rtt'] = website_rtt
+            website_info['url_ip'] = url_ip
+            website_info['flow_runtime'] = flow_end_time - flow_start_time 
+            json.dump(website_info, f)
+
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
                 print('Timeout. Flow longer than 65s.')
@@ -156,6 +158,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             else:
                 logging.error(stdout.read())
                 raise RuntimeError('Error running flow.')
+
     proc = exp._compress_logs_url()
     return proc
 
