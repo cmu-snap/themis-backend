@@ -22,7 +22,7 @@ with DAG("cctestbed_website",
          default_args=default_args,
          schedule_interval=None) as dag:
     classify_wesbite_flows = BashOperator(
-        task_id="run_experiment",
+        task_id="classify_website_flows",
         bash_command=("cd /opt/cctestbed && "
                       "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/"))
     
