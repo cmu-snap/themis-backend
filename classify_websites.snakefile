@@ -1,9 +1,26 @@
 # requires wireshark, tcpdump
+import glob
+import os
+import json
+
+workdir: "/tmp/"
+
+onsuccess:
+    pass
+    #shell('rm -f /tmp/data-tmp/*')
+    # check if results are invalid
+    #for result_file in glob.glob('/tmp/data-processed/*.results'):
+    #    with open(result_file) as f:
+    #        results = json.load(f)
+    #        print(result_file, results['predicted_label'], results['mark_invalid'], results['bw_measured'],
+    #              results['expected_bw'], results['num_pkts_lost'])
+                
+            
+BW_THRESHOLD=0.5
+PKT_LOSS_THRESHOLD=0
 
 NTWRK_CONDITIONS = [(5,35,16), (5,85,64), (5,130,64), (5,275,128), (10,35,32), (10,85,128), (10,130,128), (10,275,256), (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
 CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
-import glob
-import os
 
 rtt_diffs = [1, 1+.1, 1-.1, 1+.05, 1-.05, 1+.25, 1-.25,1+.5,1-.5,1+.75,1-.75,1+1]
 LOCAL_EXPS_DICT = {}
@@ -17,11 +34,12 @@ for bw, rtt, q in NTWRK_CONDITIONS:
 
         
 #EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
-EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
+EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
             
 def get_local_exps(wildcards):
     import re
-    ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
+    # made this regex specific to webite experiments
+    ntwrk_conditions = re.match('(\d+bw-\d+rtt-\d+q).*',
                                 wildcards.exp_name).groups()[0]
     experiments = LOCAL_EXPS_DICT[ntwrk_conditions]
     return experiments
@@ -46,8 +64,9 @@ def get_dtws(wildcards):
 # specify final output of the pipeline
 rule all:
     input:
-         all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
-
+         #all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
+         all_results=expand('{exp_name}.website.tar.gz',exp_name=EXP_NAMES)
+         
 rule load_raw_queue_data:
     input:
         'data-raw/{exp_name}.tar.gz'
@@ -161,7 +180,8 @@ rule compute_flow_features:
             exp_description = json.load(f)
         flow_ccalg = exp_description['flows'][0][0]
         queue_size = exp_description['queue_size']
-        ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
+        print(input.exp_description)
+        ntwrk_conditions = re.match('.*/(\d+bw-\d+rtt-\d+q).*',
                                     input.exp_description).groups()[0]
         training_exp_name = LOCAL_EXPS_DICT[ntwrk_conditions][0]
         resample_interval =  int(re.match('.*bw-(.*)rtt',
@@ -185,6 +205,19 @@ rule compute_flow_features:
 
 
 ##### CLASSIFICATION ######
+# not possible website file doesn't exist
+rule load_exp_website_log:
+    input:
+        exp_tarfile='data-raw/{exp_name}.tar.gz'
+    params:
+        exp_website_log='website-{exp_name}.json'
+    output:
+        website=temp('data-raw/website-{exp_name}.json')
+    shell:
+        """
+        tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_website_log}
+        """
+
 
 # upon failure will make empty file -- possible log doesn't exist
 rule load_exp_ping_log:
@@ -232,7 +265,8 @@ rule get_metadata:
         tcpdump='data-raw/server-tcpdump-{exp_name}.pcap',
         ping='data-raw/ping-{exp_name}.txt',
         capinfos='data-raw/capinfos-{exp_name}.txt',
-        hdf_queue='data-processed/queue-{exp_name}.h5'
+        hdf_queue='data-processed/queue-{exp_name}.h5',
+        website='data-raw/website-{exp_name}.json'
     output:
         metadata='data-processed/{exp_name}.metadata'
     run:
@@ -248,7 +282,10 @@ rule get_metadata:
                     ping_regex = re.compile('.*time=(.*)\s+ms')
                     ping_events = [float(ping_regex.match(row).groups()[0]) for row in ping_data.split('\n') if ping_regex.match(row)]
                     df_ping = pd.DataFrame(ping_events).squeeze()                    
-                    return {'rtt_mean': df_ping.mean(), 'rtt_std': df_ping.std()}
+                    return {'rtt_mean': df_ping.mean(),
+                            'rtt_std': df_ping.std(),
+                            'rtt_min': df_ping.min(),
+                            'rtt_max': df_ping.max()}
                 elif ping_data.strip() != '':
                     ping_regex = re.compile('(SENT|RECV) \((.*)s\)')
                     ping_events = [ping_regex.match(row).groups() for row in ping_data.split('\n') if ping_regex.match(row)]
@@ -306,8 +343,8 @@ rule get_metadata:
         metadata = {}
         with open(input.exp_description) as f:
             exp = json.load(f)
-
-        ntwrk_conditions = re.match('.*-(\d+bw-\d+rtt-\d+q).*',
+            
+        ntwrk_conditions = re.match('.*/(\d+bw-\d+rtt-\d+q).*',
                                         input.exp_description).groups()[0]
         training_exp_name = LOCAL_EXPS_DICT[ntwrk_conditions][0]
         resample_interval =  int(re.match('.*bw-(.*)rtt',
@@ -322,17 +359,20 @@ rule get_metadata:
         metadata['delay_added'] = int(exp['flows'][0][3])
         metadata['rtt_initial'] = metadata['rtt_measured'] - metadata['delay_added']
         # awks -- sometimes this is NaN
-        metadata['true_label'] = exp['flows'][0][0]
-        
+        metadata['true_label'] = None #exp['flows'][0][0]
+        metadata['ntwrk_conditions'] = '{}bw-{}rtt-{}q'.format(
+            metadata['btlbw'], metadata['rtt'], metadata['queue_size'])        
         #if 'ping_log' in exp['logs']:
         metadata.update(get_rtt_ping())
         metadata['bw_measured'] = get_bw_tcpdump()
         metadata.update(get_loss_rate_tcpdump())
-        if metadata['bw_measured'] is not None:
-            metadata['observed_bw_diff'] = (round(metadata['bw_measured']) / metadata['btlbw'])
-        else:
-            metadata['observed_bw_diff'] = None
-            
+        assert(metadata['bw_measured'] is not None)
+        metadata['loss_too_high'] = metadata['num_pkts_lost'] > PKT_LOSS_THRESHOLD
+        
+        # add info about website
+        with open(input.website) as f:
+            metadata.update(json.load(f))
+
         with open(output.metadata, 'w') as f:
             json.dump(metadata, f)
 
@@ -408,20 +448,22 @@ rule check_bw_too_low:
         
         with open(input.classify) as f:
             classify_results=json.load(f)
+            measured_bw = classify_results['bw_measured']
 
         # check if bw too low
         predicted_label = classify_results['predicted_label']
 
         with open(getattr(input, predicted_label)) as f:
             training_metadata = json.load(f)
-            expected_bw_diff = training_metadata['observed_bw_diff']
             expected_bw = training_metadata['bw_measured']
-        
-        observed_bw_diff = classify_results['observed_bw_diff']   
-        bw_too_low = expected_bw_diff > observed_bw_diff
+
+        expected_bw_diff = BW_THRESHOLD
+        observed_bw_diff = measured_bw / expected_bw
+        bw_too_low = observed_bw_diff < expected_bw_diff
         expected_bw_dict = {'expected_bw_diff': expected_bw_diff,
-                       'expected_bw': expected_bw,
-                       'bw_too_low': bw_too_low}
+                            'observed_bw_diff': observed_bw_diff,
+                            'expected_bw': expected_bw,
+                            'bw_too_low': bw_too_low}
         
         with open(output.bw_too_low, 'w') as f:
             json.dump(expected_bw_dict, f)
@@ -437,10 +479,25 @@ rule merge_results:
             results = json.load(f)
         with open(input.bw_too_low) as f:
             results.update(json.load(f))
+
+        # check if experiment invalid
+        results['mark_invalid'] = results['bw_too_low'] | results['loss_too_high']
+        
         with open(output.results, 'w') as f:
             json.dump(results, f)
-                        
 
-
-                
-
+rule scp_results:
+    input:
+        results='data-processed/{exp_name}.results',
+        exp_tarfile='data-raw/{exp_name}.tar.gz',
+        metadata='data-processed/{exp_name}.metadata',
+        queue='data-processed/queue-{exp_name}.h5',
+        features='data-processed/{exp_name}.features'    
+    output:
+        compressed_results='{exp_name}.website.tar.gz'
+    shell:
+       """
+       tar -czvf {output.compressed_results} {input.results} {input.exp_tarfile} {input.metadata} {input.metadata} {input.queue} {input.features} && scp -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-raw/*{exp_name}* && rm data-processed/*{exp_name}*
+       """
+       
+    

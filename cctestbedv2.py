@@ -77,7 +77,8 @@ class Experiment:
             'dig_log': '/tmp/dig-{}-{}.txt'.format(self.name, self.exp_time),
             'rtt_log': '/tmp/rtt-{}-{}.txt'.format(self.name, self.exp_time),
             'capinfos_log': '/tmp/capinfos-{}-{}.txt'.format(self.name, self.exp_time),
-            'ping_log': '/tmp/ping-{}-{}.txt'.format(self.name, self.exp_time)
+            'ping_log': '/tmp/ping-{}-{}.txt'.format(self.name, self.exp_time),
+            'website_log': '/tmp/website-{}-{}.json'.format(self.name, self.exp_time)
             }
         self.tar_filename = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         # update flow objects with log filenames
