@@ -24,5 +24,5 @@ with DAG("cctestbed_website",
     classify_wesbite_flows = BashOperator(
         task_id="classify_website_flows",
         bash_command=("cd /opt/cctestbed && "
-                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/"))
+                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 -s /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/"))
     
