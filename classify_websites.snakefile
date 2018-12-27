@@ -6,14 +6,16 @@ import json
 workdir: "/tmp/"
 
 onsuccess:
-    shell('rm -f /tmp/data-tmp/*')
+    pass
+    #shell('rm -f /tmp/data-tmp/*')
     # check if results are invalid
-    for result_file in glob.glob('/tmp/data-processed/*.results'):
-        with open(result_file) as f:
-            results = json.load(f)
-            print(result_file, results['predicted_label'], results['mark_invalid'], results['bw_measured'],
-                  results['expected_bw'], results['num_pkts_lost'])
-    
+    #for result_file in glob.glob('/tmp/data-processed/*.results'):
+    #    with open(result_file) as f:
+    #        results = json.load(f)
+    #        print(result_file, results['predicted_label'], results['mark_invalid'], results['bw_measured'],
+    #              results['expected_bw'], results['num_pkts_lost'])
+                
+            
 BW_THRESHOLD=0.5
 PKT_LOSS_THRESHOLD=0
 
@@ -62,8 +64,9 @@ def get_dtws(wildcards):
 # specify final output of the pipeline
 rule all:
     input:
-         all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
-
+         #all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
+         all_results=expand('{exp_name}.website.tar.gz',exp_name=EXP_NAMES)
+         
 rule load_raw_queue_data:
     input:
         'data-raw/{exp_name}.tar.gz'
@@ -482,9 +485,19 @@ rule merge_results:
         
         with open(output.results, 'w') as f:
             json.dump(results, f)
-        
-     
 
-
-                
-
+rule scp_results:
+    input:
+        results='data-processed/{exp_name}.results',
+        exp_tarfile='data-raw/{exp_name}.tar.gz',
+        metadata='data-processed/{exp_name}.metadata',
+        queue='data-processed/queue-{exp_name}.h5',
+        features='data-processed/{exp_name}.features'    
+    output:
+        compressed_results='{exp_name}.website.tar.gz'
+    shell:
+       """
+       tar -czvf {output.compressed_results} {input.results} {input.exp_tarfile} {input.metadata} {input.metadata} {input.queue} {input.features} && scp -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-raw/*{exp_name}* && rm data-processed/*{exp_name}*
+       """
+       
+    

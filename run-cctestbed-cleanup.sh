@@ -37,7 +37,6 @@ get_bitrate() {
     capinfos -iTm $SERVER_TCPDUMP > /tmp/capinfos-$EXP_NAME.txt
 }
 
-
 if queue_has_data
 then
     get_tcpdump_rtts
