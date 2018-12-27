@@ -14,6 +14,7 @@ import os
 import yaml
 import datetime
 import argparse
+import json
 
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
@@ -90,6 +91,15 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                      flows=flows, server=server, client=client,
                      config_filename='experiments-all-ccalgs-aws.yaml',
                      server_nat_ip=server_nat_ip)
+
+    logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
+    with open(exp.logs['website_log'], 'w') as f:
+        website_info = {}
+        website_info['website'] = website
+        website_info['url'] = url
+        website_info['website_rtt'] = website_rtt
+        website_info['url_ip'] = url_ip
+        json.dump(website_info, f)
     
     logging.info('Running experiment: {}'.format(exp.name))
 
@@ -148,6 +158,11 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                 raise RuntimeError('Error running flow.')
     proc = exp._compress_logs_url()
     return proc
+
+
+#TODO
+def log_experiment(**kwargs):
+    raise NotImplementedError
 
 @contextmanager
 def add_dnat_rule(exp, url_ip):
@@ -307,8 +322,8 @@ def main(websites, ntwrk_conditions=None, force=False):
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
         if proc.returncode != 0:
-            logging.warning('Error running cmd PID={}'.format(proc.pid))
-    
+            logging.warning('Error cleaning up experiment PID={}'.format(proc.pid))
+        
             
 def parse_args():
     """Parse commandline arguments"""

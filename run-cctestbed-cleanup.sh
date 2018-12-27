@@ -47,9 +47,19 @@ then
 	cd /tmp && tar -czf $TAR_FILENAME $(cd /tmp/ && ls $LOGS $(basename $EXP_CONFIG_FILENAME) 2> /dev/null)
 	rm -f /tmp/$(basename $EXP_CONFIG_FILENAME)
 	cd /tmp/ && rm -f $LOGS
+	# added for website experiments 
+	mkdir -p /tmp/data-tmp/
+	cp $TAR_FILENAME /tmp/data-tmp/
+	mkdir -p /tmp/data-raw/
+	mv $TAR_FILENAME /tmp/data-raw/
     else
 	cd /tmp && tar -czf $TAR_FILENAME $(ls $LOGS 2> /dev/null)
 	cd /tmp/ && rm -f $LOGS
+	# added for website experiments 
+	mkdir -p /tmp/data-tmp/
+	cp $TAR_FILENAME /tmp/data-tmp/
+	mkdir -p /tmp/data-raw/
+	mv $TAR_FILENAME /tmp/data-raw/
     fi
 else
     :
