@@ -21,16 +21,8 @@ default_args = {
 with DAG("cctestbed_website",
          default_args=default_args,
          schedule_interval=None) as dag:
-    run_experiment = BashOperator(
+    classify_wesbite_flows = BashOperator(
         task_id="run_experiment",
         bash_command=("cd /opt/cctestbed && "
-                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }}"))
-
-    classify_flows = BashOperator(
-        task_id="classify_flows",
-        bash_command=("cd /opt/cctestbed && "
-                     "snakemake -j 40 /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/"))
-
-    classify_flows.set_upstream(run_experiment)
-
+                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/"))
     
