@@ -497,7 +497,7 @@ rule scp_results:
         compressed_results='{exp_name}.website.tar.gz'
     shell:
        """
-       tar -czvf {output.compressed_results} {input.results} {input.exp_tarfile} {input.metadata} {input.metadata} {input.queue} {input.features} && scp -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-raw/*{exp_name}* && rm data-processed/*{exp_name}*
+       tar -czvf {output.compressed_results} {input.results} {input.exp_tarfile} {input.metadata} {input.metadata} {input.queue} {input.features} && scp -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
        """
        
     
