@@ -9,7 +9,7 @@ default_args = {
     "email": ["airflow@airflow.com"],
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 3,
+    "retries": 0,
     "retry_delay": timedelta(minutes=1),
     "queue":"cca_predict",
     # 'queue': 'bash_queue',
@@ -24,5 +24,5 @@ with DAG("cctestbed_website",
     classify_wesbite_flows = BashOperator(
         task_id="classify_website_flows",
         bash_command=("cd /opt/cctestbed && "
-                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }}; snakemake -j 40 -s /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/ --latency-wait 120"))
+                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }}; snakemake -j 40 -s /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/ --latency-wait 120 || snakemake -j 40 -s /opt/cctestbed/classify_websites.snakefile --keep-going -d /tmp/ --latency-wait 120"))
     
