@@ -294,20 +294,19 @@ def main(websites, ntwrk_conditions=None, force=False):
     for website, url in websites:
         try:
             num_completed_experiments = 1
-            too_small_rtts = []
+            too_small_rtt = 0
             for btlbw, rtt in ntwrk_conditions:
                 queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
                 print('Running experiment {}/{} website={}, btlbw={}, queue_size={}, rtt={}.'.format(
                     num_completed_experiments,len(websites)*len(ntwrk_conditions), website,btlbw,queue_size,rtt))
                 num_completed_experiments += 1
-                if rtt in too_small_rtts:
+                if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
-                    num_completed_experiments += 1
-                    break
+                    continue
                 proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
-                    too_small_rtts.append(rtt)
+                    too_small_rtt = max(too_small_rtt, rtt)
                 elif proc is not None:
                     completed_experiment_procs.append(proc)
         except Exception as e:
