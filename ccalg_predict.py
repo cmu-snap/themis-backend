@@ -23,7 +23,7 @@ QUEUE_SIZE_TABLE = {
     275: {5:128, 10:256, 15:512}}
 
 def is_completed_experiment(experiment_name):
-    num_completed = glob.glob('/tmp/data-raw/{}-*.tar.gz'.format(experiment_name))
+    num_completed = glob.glob('/tmp/data-tmp/{}-*.tar.gz'.format(experiment_name))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
@@ -32,7 +32,7 @@ def is_completed_experiment(experiment_name):
 
 def ran_experiment_today(experiment_name):
     today = datetime.datetime.now().isoformat()[:10].replace('-','')
-    num_completed = glob.glob('/tmp/data-raw/{}-{}*.tar.gz'.format(experiment_name, today))
+    num_completed = glob.glob('/tmp/data-tmp/{}-{}*.tar.gz'.format(experiment_name, today))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
