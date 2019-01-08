@@ -71,3 +71,10 @@ ln --symbolic \
    --target-directory=/opt/bess/core/modules/ \
    /opt/cctestbed/port_match.cc
 
+
+# setup links for active-middlebox-pmd config file into bess folder
+ln --symbolic \
+   --force \
+   --verbose \
+   --target-directory=/opt/bess/bessctl/conf/ \
+   /opt/cctestbed/active-middlebox-pmd-fairness.bess

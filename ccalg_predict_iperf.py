@@ -348,7 +348,8 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                       end_time=flow['end_time'], rtt=flow['rtt'],
                       server_port=server_port, client_port=client_port,
-                      client_log=None, server_log=None)]
+                            client_log=None, server_log=None, kind='iperf',
+                            client=client)]
     
     exp = cctestbed.Experiment(name=experiment_name,
                                btlbw=btlbw,

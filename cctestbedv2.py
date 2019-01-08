@@ -26,7 +26,8 @@ logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
-                           'server_port', 'client_port', 'client_log', 'server_log'])
+                           'server_port', 'client_port', 'client_log', 'server_log',
+                           'kind', 'client'])
 
 
 
@@ -394,7 +395,7 @@ class Experiment:
         self.write_description_log()
         stderr = None
         try:
-            start_bess(self)
+            start_bess(self, bess_config_name)
             # give bess some time to start
             time.sleep(5)
             # changing to ping between server and client
@@ -589,7 +590,8 @@ def load_experiments(config, config_filename,
             flows.append(Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                               end_time=flow['end_time'], rtt=int(flow['rtt']),
                               server_port=server_port, client_port=client_port,
-                              client_log=None, server_log=None))
+                              client_log=None, server_log=None, kind='iperf',
+                              client=client))
             server_port += 1
             client_port += 1
         # sort flows according to their start times so they can be run in order

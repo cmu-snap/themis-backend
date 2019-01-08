@@ -49,13 +49,72 @@ def run_rtt_monitor(url_ip):
     rtt = cctestbed.run_local_command(cmd, shell=True)
     return rtt
 
-def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
-    experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
-    if not force and is_completed_experiment(experiment_name):
-        return
-    else:
-        if ran_experiment_today(experiment_name):
-            return
+def start_iperf_flows(experiment, stack):
+    for flow in experiment.flows:
+        if flow.kind != 'iperf':
+            continue
+        start_server_cmd = ('iperf3 --server '
+                            '--bind {} '
+                            '--port {} '
+                            '--one-off '
+                            '--affinity {} '
+                            '--logfile {} ').format(
+                                experiment.server.ip_lan,
+                                flow.server_port,
+                                1,
+                                flow.server_log)
+        start_server = cctestbed.RemoteCommand(start_server_cmd,
+                                            experiment.server.ip_wan,
+                                            username=experiment.server.username,
+                                            logs=[flow.server_log],
+                                            key_filename=experiment.server.key_filename)
+        stack.enter_context(start_server())
+
+    for idx, flow in enumerate(experiment.flows):
+        if flow.kind != 'iperf':
+            continue
+        # make sure first flow runs for the whole time regardless of start time
+        # note this assumes self.flows is sorted by start time
+        flow_duration = flow.end_time - flow.start_time
+        if idx == 0:
+            flow_duration = flow.end_time
+        start_client_cmd = ('iperf3 --client {} '
+                            '--port {} '
+                            '--verbose '
+                            '--bind {} '
+                            '--cport {} '
+                            '--linux-congestion {} '
+                            '--interval 0.5 '
+                            '--time {} '
+                            #'--length 1024K '#1024K '
+                            '--affinity {} '
+                            #'--set-mss 500 ' # default is 1448
+                            #'--window 100K '
+                            '--zerocopy '
+
+
+                            '--json '
+                            '--logfile {} ').format(experiment.server.ip_lan,
+                                                    flow.server_port,
+                                                    flow.client.ip_lan,
+                                                    flow.client_port,
+                                                    flow.ccalg,
+                                                    flow_duration,
+                                                    idx % 32,
+                                                    flow.client_log)
+        start_client = cctestbed.RemoteCommand(
+            start_client_cmd,
+            flow.client.ip_wan,
+            username=flow.client.username,
+            logs=[flow.client_log],
+            key_filename=flow.client.key_filename)
+        stack.enter_context(start_client())
+        
+def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
+                          btlbw=10, queue_size=128, rtt=35):
+    experiment_name = '{}bw-{}rtt-{}q-{}-{}{}'.format(btlbw, rtt,
+                                                      queue_size, website,
+                                                      num_competing, competing_ccalg)
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
@@ -85,6 +144,15 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
                             server_port=server_port, client_port=client_port,
                             client_log=None, server_log=None, kind='website',
                             client=client)]
+    for x in range(num_competing):
+        server_port += 1
+        client_port += 1
+        flows.append(cctestbed.Flow(ccalg=competing_ccalg,
+                                    start_time=flow['start_time'],
+                                    end_time=flow['end_time'], rtt=rtt,
+                                    server_port=server_port, client_port=client_port,
+                                    client_log=None, server_log=None, kind='iperf',
+                                    client=HOST_CLIENT))
     
     exp = cctestbed.Experiment(name=experiment_name,
                      btlbw=btlbw,
@@ -119,12 +187,13 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         # so skip ping needs to be true
         # https://bugs.python.org/issue27122
         cctestbed.stop_bess()
-        stack.enter_context(exp._run_bess(ping_source='server', skip_ping=False))
+        stack.enter_context(exp._run_bess(ping_source='server', skip_ping=False, bess_config_name='active-middlebox-pmd-fairness'))
         # give bess some time to start
         time.sleep(5)
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
         stack.enter_context(exp._run_rtt_monitor())
+        start_iperf_flows(exp,stack)
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
@@ -304,7 +373,11 @@ def main(websites, ntwrk_conditions=None, force=False):
                 if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
                     continue
-                proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
+                num_competing = 2
+                competing_ccalg = 'cubic'
+                proc = run_experiment_1vmany(website, url,
+                                             competing_ccalg, num_competing,
+                                             btlbw, queue_size, rtt)
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
                     too_small_rtt = max(too_small_rtt, rtt)
@@ -331,7 +404,7 @@ def main(websites, ntwrk_conditions=None, force=False):
 def parse_args():
     """Parse commandline arguments"""
     parser = argparse.ArgumentParser(
-        description='Run ccctestbed experiment to classify which congestion control algorithm a website is using')
+        description='Run ccctestbed experiment to measure interaction between flows')
     parser.add_argument(
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')
