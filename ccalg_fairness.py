@@ -111,10 +111,10 @@ def start_iperf_flows(experiment, stack):
         stack.enter_context(start_client())
         
 def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
-                          btlbw=10, queue_size=128, rtt=35):
-    experiment_name = '{}bw-{}rtt-{}q-{}-{}{}'.format(btlbw, rtt,
+                          btlbw=10, queue_size=128, rtt=35, duration=60):
+    experiment_name = '{}bw-{}rtt-{}q-{}-{}{}-{}s'.format(btlbw, rtt,
                                                       queue_size, website,
-                                                      num_competing, competing_ccalg)
+                                                          num_competing, competing_ccalg, duration)
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
@@ -136,7 +136,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
     client_port = 5555
 
     flow = {'ccalg': 'reno',
-            'end_time': 60,
+            'end_time': duration,
             'rtt': rtt - website_rtt,
             'start_time': 0}
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
@@ -200,7 +200,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
             filename = os.path.basename(url)
             if filename.strip() == '':
                 logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout 65s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
+            start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -223,8 +223,8 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
 
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
-                print('Timeout. Flow longer than 65s.')
-                logging.warning('Timeout. Flow longer than 65s.')
+                print('Timeout. Flow longer than {}s.'.format(duration+5))
+                logging.warning('Timeout. Flow longer than {}s.'.format(duration+5))
             else:
                 logging.error(stdout.read())
                 raise RuntimeError('Error running flow.')
@@ -351,7 +351,7 @@ def run_taro_experiments():
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
 
-def main(websites, ntwrk_conditions=None, force=False):
+def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=None):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
@@ -373,11 +373,9 @@ def main(websites, ntwrk_conditions=None, force=False):
                 if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
                     continue
-                num_competing = 2
-                competing_ccalg = 'cubic'
                 proc = run_experiment_1vmany(website, url,
                                              competing_ccalg, num_competing,
-                                             btlbw, queue_size, rtt)
+                                             btlbw, queue_size, rtt, duration)
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
                     too_small_rtt = max(too_small_rtt, rtt)
@@ -411,8 +409,14 @@ def parse_args():
     parser.add_argument(
         '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
         help='Network conditions for download from website.')
-    parser.add_argument('--force', '-f', action='store_true',
-                        help='Force experiments that were already run to run again')
+    parser.add_argument(
+        '--num_competing','-c', type=int, default=2)
+    parser.add_argument(
+        '--competing_ccalg','-a', choices=['cubic','bbr','reno'], default='cubic')
+    parser.add_argument(
+        '--duration', '-d', type=int)
+    #parser.add_argument('--force', '-f', action='store_true',
+    #                    help='Force experiments that were already run to run again')
     args = parser.parse_args()
     return args
             
@@ -422,4 +426,4 @@ if __name__ == '__main__':
     fileConfig(log_file_path)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     args = parse_args()
-    main(args.websites, ntwrk_conditions=args.ntwrk_conditions, force=args.force)
+    main(args.websites, ntwrk_conditions=args.ntwrk_conditions, num_competing=args.num_competing, competing_ccalg=args.competing_ccalg, duration=args.duration)

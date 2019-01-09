@@ -3,7 +3,7 @@ import glob
 import os
 import json
 
-workdir: "/opt/cctestbed"
+workdir: "/tmp"
          
 onsuccess:
     pass
@@ -18,6 +18,8 @@ onsuccess:
             
 BW_THRESHOLD=0.5
 PKT_LOSS_THRESHOLD=0
+BYTES_TO_BITS = 8
+BITS_TO_MEGABITS = 1.0 / 1000000.0
 
 NTWRK_CONDITIONS = [(5,35,16), (5,85,64), (5,130,64), (5,275,128), (10,35,32), (10,85,128), (10,130,128), (10,275,256), (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
 CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
@@ -150,17 +152,38 @@ rule get_goodput_timeseries:
          .set_index('relative_time')
         )
         goodput.to_csv(output.goodput)
-        
+
+rule get_goodput_total:
+    input:
+        queue='data-processed/queue-{exp_name}.h5'
+    output:
+        goodput='data-processed/{exp_name}.goodput.total'
+    run:
+        import pandas as pd
+
+        with pd.HDFStore(input.queue, mode='r') as hdf_queue:
+            df_queue = hdf_queue.select('df_queue')
+        last_20_seconds = int((df_queue[df_queue['dequeued']].index - df_queue[df_queue['dequeued']].index[0]).total_seconds().max() - 20)
+        goodput=(df_queue[df_queue['dequeued']]
+         .assign(relative_time=lambda df: (df.index - df.index[0]).total_seconds())
+         .set_index('relative_time')
+         .truncate(before=20, after=last_20_seconds)
+         .groupby('src')['datalen']
+         .agg(lambda df: (df.sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / last_20_seconds)
+         )
+        goodput.to_csv(output.goodput)
+
 rule scp_results:
     input:
         exp_tarfile='data-raw/{exp_name}.tar.gz',
         goodput='data-processed/{exp_name}.goodput',
+        goodput_total='data-processed/{exp_name}.goodput.total',
         queue='data-processed/queue-{exp_name}.h5',
     output:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
        """
-       tar -czvf {output.compressed_results} {input.goodput} {input.exp_tarfile} {input.queue} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+       tar -czvf {output.compressed_results} {input.goodput} {input.goodput_total} {input.exp_tarfile} {input.queue} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
        """
        
     
