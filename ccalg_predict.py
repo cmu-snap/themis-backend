@@ -53,9 +53,6 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
     if not force and is_completed_experiment(experiment_name):
         return
-    else:
-        if ran_experiment_today(experiment_name):
-            return
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
