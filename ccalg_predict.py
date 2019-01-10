@@ -284,6 +284,8 @@ def main(websites, ntwrk_conditions=None, force=False):
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
     num_completed_websites = 0
+    print('NETWORK CONDITIONS')
+    print(ntwrk_conditions)
     if ntwrk_conditions is None:
         ntwrk_conditions = [(5,35,64), (5,85,64), (5,130,64), (5,275,64),
                             (10,35,64), (10,85,64), (10,130,64), (10,275,64),
