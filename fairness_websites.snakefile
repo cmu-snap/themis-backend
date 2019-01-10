@@ -61,6 +61,18 @@ rule load_exp_description:
         tar -C data-processed/ -xzvf {input.exp_tarfile} {params.exp_description}
         """
 
+rule load_exp_tcpdump:
+    input:
+        exp_tarfile='data-raw/{exp_name}.tar.gz'
+    params:
+        exp_tcpdump_log='server-tcpdump-{exp_name}.pcap'
+    output:
+        tcpdump=temp('data-raw/server-tcpdump-{exp_name}.pcap')
+    shell:
+        """
+        tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_tcpdump_log}
+        """
+        
 rule store_queue_hdf:
     input:
         raw_queue_data='data-raw/queue-{exp_name}.txt'
@@ -164,6 +176,12 @@ rule get_goodput_total:
         with pd.HDFStore(input.queue, mode='r') as hdf_queue:
             df_queue = hdf_queue.select('df_queue')
         last_20_seconds = int((df_queue[df_queue['dequeued']].index - df_queue[df_queue['dequeued']].index[0]).total_seconds().max() - 20)
+
+        if last_20_seconds < 0:
+            # flow is shorter than 20 seconds so just make an empty file
+            shell('touch {output.goodput}')
+            return
+        
         goodput=(df_queue[df_queue['dequeued']]
          .assign(relative_time=lambda df: (df.index - df.index[0]).total_seconds())
          .set_index('relative_time')
@@ -173,17 +191,32 @@ rule get_goodput_total:
          )
         goodput.to_csv(output.goodput)
 
+rule get_flow_complete_times:
+    input:
+        pcap='data-raw/server-tcpdump-{exp_name}.pcap'
+    output:
+        fct='data-processed/{exp_name}.fct',
+        fct_tmp=temp('data-processed/{exp_name}.fct.tmp')
+    run:
+        import pandas as pd
+        shell('tshark -r {input.pcap} -T fields -e tcp.stream -e tcp.srcport -e tcp.time_relative | grep ^[0-9] > {output.fct_tmp}')
+        
+        df = pd.read_csv(output.fct_tmp, sep='\t', header=None, names=['tcp_stream','tcp_srcport', 'time_relative'])
+        df.groupby('tcp_stream')[['tcp_srcport','time_relative']].last().reset_index().to_csv(output.fct, index=False)
+            
+        
 rule scp_results:
     input:
         exp_tarfile='data-raw/{exp_name}.tar.gz',
         goodput='data-processed/{exp_name}.goodput',
         goodput_total='data-processed/{exp_name}.goodput.total',
         queue='data-processed/queue-{exp_name}.h5',
+        fct='data-processed/{exp_name}.fct'
     output:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
        """
-       tar -czvf {output.compressed_results} {input.goodput} {input.goodput_total} {input.exp_tarfile} {input.queue} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+       tar -czvf {output.compressed_results} {input.goodput} {input.goodput_total} {input.exp_tarfile} {input.queue} {input.fct} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
        """
        
     
