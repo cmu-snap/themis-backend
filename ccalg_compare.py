@@ -291,7 +291,7 @@ def run_taro_experiments():
 def main(websites, ntwrk_conditions=None, force=False):
     completed_experiment_procs = []
     logging.info('Found {} website pairs'.format(len(websites)))
-    print('Found {} websites pairs'.format(len(websites)))
+    print('Found {} website pairs'.format(len(websites)))
     num_completed_pairs = 0
     if ntwrk_conditions is None:
         ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
@@ -345,7 +345,7 @@ def parse_args():
         help='Urls of files to download from two websites. Files should be sufficently big to enable classification.')
     parser.add_argument(
         '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
-        help='Network conditions for download from website.')
+        help='Network conditions for downloads from websites.')
     parser.add_argument('--force', '-f', action='store_true',
                         help='Force experiments that were already run to run again')
     args = parser.parse_args()
