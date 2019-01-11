@@ -66,6 +66,7 @@ rule all:
     input:
          #all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
          all_results=expand('{exp_name}.website.tar.gz',exp_name=EXP_NAMES)
+         #rerun='experiments.rerun'
          
 rule load_raw_queue_data:
     input:
@@ -499,5 +500,61 @@ rule scp_results:
        """
        tar -czvf {output.compressed_results} {input.results} {input.exp_tarfile} {input.metadata} {input.metadata} {input.queue} {input.features} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
        """
-       
-    
+
+""" CAN'T GET THIS TO WORK; GIVING UP
+rule rerun_invalid_exp:
+    input:
+        results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES),
+        compressed_results=expand('{exp_name}.website.tar.gz', exp_name=EXP_NAMES)
+    params:
+        airflow_cmd=lambda wildcards: 'ssh -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem ranysha@128.2.208.104 AIRFLOW_HOME=/opt/airflow /home/ranysha/.local/bin/airflow trigger_dag cctestbed_website --conf \'{{"cmdline_args":"--website {} \\"{}\\" {} --force"}}\''
+    output:
+        temp(touch('experiments.rerun'))
+    run:
+        import json
+        import pandas as pd
+        import subprocess
+        
+        # aggregate all the experiments we just analyzed and get invalid experiments
+        all_results = []
+        for results in input.results:
+            with open(results) as f:
+                all_results.append(json.load(f))
+        df_invalid_exps = (pd
+                           .DataFrame(all_results)
+                           .where(lambda df: df['mark_invalid'])
+                           .dropna(how='all')
+                           .assign(
+                               exp_name_short=lambda df: df['exp_name'].apply(
+                                   lambda exp_name: '-'.join(exp_name.split('-')[:-1]))))
+        invalid_exps = set(df_invalid_exps['exp_name_short'])
+
+        # check which invalid experiments have not already been repeated 4 times
+        to_rerun = {}
+        for exp in invalid_exps:
+            cmd = ('ssh -o StrictHostKeyChecking=no '
+                   '-i /users/rware/.ssh/rware-potato.pem ranysha@128.2.208.104 '
+                   '"ls /opt/cctestbed/data-websites/*{}*.website.tar.gz | wc -l"'
+            ).format(exp)
+            for line in shell(cmd, iterable=True):
+                num_exp_reps = int(line.strip())
+                break
+            if num_exp_reps < 4:
+                exp_details = df_invalid_exps[df_invalid_exps['exp_name_short'] == exp].iloc[0]
+                website = exp_details['website']
+                bw = exp_details['btlbw']
+                rtt = exp_details['rtt']
+                if website in to_rerun.keys():
+                    to_rerun[website]['ntwrk'].add(
+                        '--network {} {}'.format(bw, rtt))
+                else:
+                    url = exp_details['url']
+                    to_rerun[website] = {'url':exp_details['url'],
+                                         'ntwrk': set(
+                                             ['--network {} {}'.format(bw, rtt)])}
+
+        for website, exp in to_rerun.items():
+            cmd = params.airflow_cmd.format(website, exp['url'], ' '.join(exp['ntwrk'])).replace('{', '{{').replace('}','}}')
+            print(cmd)
+            shell(cmd)
+"""
