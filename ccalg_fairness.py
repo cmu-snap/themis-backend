@@ -16,6 +16,9 @@ import datetime
 import argparse
 import json
 
+#mkdir websites/nytimes/
+#wget -E -H -k -K -p https://www.nytimes.com
+
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
     85: {5:64, 10:128, 15:128},
@@ -233,9 +236,128 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
     return proc
 
 
-#TODO
-def log_experiment(**kwargs):
-    raise NotImplementedError
+def run_experiment_1vapache(website, url, competing_ccalg, 
+                          btlbw=10, queue_size=128, rtt=35, duration=60):
+    # force one competing apache flow
+    num_competing = 1
+    experiment_name = '{}bw-{}rtt-{}q-{}-1apache-{}s'.format(
+        btlbw, rtt, queue_size, website, competing_ccalg)
+    logging.info('Creating experiment for website: {}'.format(website))
+    url_ip = get_website_ip(url)
+    logging.info('Got website IP: {}'.format(url_ip))
+    website_rtt = int(float(get_nping_rtt(url_ip)))
+    logging.info('Got website RTT: {}'.format(website_rtt))
+
+    if website_rtt >= rtt:
+        logging.warning('Skipping experiment with website RTT {} >= {}'.format(
+            website_rtt, rtt))
+        return -1
+
+    client = HOST_CLIENT_TEMPLATE
+    client['ip_wan'] = url_ip
+    client = cctestbed.Host(**client)
+    server = HOST_SERVER
+    
+    server_nat_ip = HOST_CLIENT.ip_wan #'128.104.222.182'  taro
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'ccalg': 'reno',
+            'end_time': duration,
+            'rtt': rtt - website_rtt,
+            'start_time': 0}
+    flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
+                            end_time=flow['end_time'], rtt=flow['rtt'],
+                            server_port=server_port, client_port=client_port,
+                            client_log=None, server_log=None, kind='website',
+                            client=client)]
+    # competing are apache flows
+    for x in range(num_competing):
+        server_port += 1
+        client_port += 1
+        flows.append(cctestbed.Flow(ccalg=competing_ccalg,
+                                    start_time=flow['start_time'],
+                                    end_time=flow['end_time'],
+                                    rtt=rtt,
+                                    server_port=server_port,
+                                    client_port=client_port,
+                                    client_log=None,
+                                    server_log=None,
+                                    kind='apache',
+                                    client=HOST_CLIENT))
+    
+    exp = cctestbed.Experiment(name=experiment_name,
+                     btlbw=btlbw,
+                     queue_size=queue_size,
+                     flows=flows, server=server, client=client,
+                     config_filename='None',
+                     server_nat_ip=server_nat_ip)
+    
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    # make sure tcpdump cleaned up
+    logging.info('Making sure tcpdump is cleaned up')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+                        
+    with ExitStack() as stack:
+        # add DNAT rule
+        stack.enter_context(add_dnat_rule(exp, url_ip))
+        # add route to URL
+        stack.enter_context(add_route(exp, url_ip))
+        # add dns entry
+        stack.enter_context(add_dns_rule(exp, website, url_ip))
+        exp._run_tcpdump('server', stack)
+        # run the flow
+        # turns out there is a bug when using subprocess and Popen in Python 3.5
+        # so skip ping needs to be true
+        # https://bugs.python.org/issue27122
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(ping_source='server', skip_ping=False, bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess some time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        stack.enter_context(exp._run_rtt_monitor())
+        filename = os.path.basename(url)
+        if filename.strip() == '':
+            logging.warning('Could not get filename from URL')
+        start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)   
+        start_flow = cctestbed.RemoteCommand(
+            start_flow_cmd,
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename,
+            pgrep_string=url)
+        start_flow_pid = stack.enter_context(start_flow())
+        # waiting time before starting apache flow
+        time.sleep(1)
+        apache_flow_pid = start_apache_flow(exp.flows[1], exp, stack)
+        logging.info('Waiting for website flow to finish')
+        cctestbed.run_local_command(
+            'ssh cctestbed-server "wait {}"'.format(start_flow_pid))
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+        logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
+        with open(exp.logs['website_log'], 'w') as f:
+            website_info = {}
+            website_info['website'] = website
+            website_info['url'] = url
+            website_info['website_rtt'] = website_rtt
+            website_info['url_ip'] = url_ip
+            website_info['flow_runtime'] = None
+            #flow_end_time - flow_start_time 
+            json.dump(website_info, f)
+
+    proc = exp._compress_logs_url()
+    return proc
 
 @contextmanager
 def add_dnat_rule(exp, url_ip):
@@ -309,47 +431,149 @@ def update_url_with_ip(url, url_ip):
     url_parts[1] = url_ip
     return urlunsplit(url_parts)
 
-def get_taro_experiments():    
-    experiments = {}
-    for rtt in [35, 85, 130, 275]:
-        for btlbw in [5, 10, 15]:
-            queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]
-            config = generate_experiments.ccalg_predict_config_websites(
-                btlbw=btlbw,
-                rtt=rtt,
-                end_time=60,
-                exp_name_suffix='taro',
-                queue_size=queue_size)
-            config_filename = 'experiments-ccalg-predict-{}bw-{}rtt.yaml'.format(btlbw, rtt)
-            logging.info('Writing config file {}'.format(config_filename))
-            with open(config_filename, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False)
-            experiments.update(cctestbed.load_experiments(config,
-                                                          config_filename, force=True))
-    return experiments
-    
-def run_taro_experiments():
-    experiments = get_taro_experiments()
-    completed_experiment_procs = []
-    logging.info('Going to run {} experiments.'.format(len(experiments)))
+def start_apache_flow(flow, experiment, stack):
+    # start apache server which is running on the cctestbed-client
+    with cctestbed.get_ssh_client(flow.client.ip_wan,
+                                  flow.client.username,
+                                  key_filename=flow.client.key_filename) as ssh_client:
+        start_apache_cmd = "sudo service apache2 start"
+        cctestbed.exec_command(ssh_client, flow.client.ip_wan, start_apache_cmd)
+    # change default cclag for client
+    with cctestbed.get_ssh_client(flow.client.ip_wan,
+                                  flow.client.username,
+                                  key_filename=flow.client.key_filename) as ssh_client:
+        change_ccalg = 'echo {} | sudo tee /proc/sys/net/ipv4/tcp_congestion_control'.format(flow.ccalg)
+        cctestbed.exec_command(ssh_client, flow.client.ip_wan, change_ccalg)
+    #TODO: should change ccalg back to default after running flow
 
-    running_experiment = 1
-    
-    for experiment in experiments.values():
-        try:
-            print('Running experiments {}/{}'.format(running_experiment, len(experiments)))
-            cctestbed.run_local_command('/opt/bess/bessctl/bessctl daemon stop')
-            proc = experiment.run()
-            completed_experiment_procs.append(proc)
-            running_experiment += 1
-        except Exception as e:
-            print('ERROR RUNNING EXPERIMENT: {}'.format(e))
+    # delay flow start for start time plus 3 seconds
+    web_download_cmd = 'wget -p --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ http://{}:1234/nytimes/www.nytimes.com'.format(experiment.server.ip_lan, experiment.client.ip_lan)
+    start_download = cctestbed.RemoteCommand(
+            web_download_cmd,
+            experiment.server.ip_wan,
+            username=experiment.server.username,
+            key_filename=experiment.server.key_filename)
+    return stack.enter_context(start_download())
 
-    for proc in completed_experiment_procs:
-        logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
-        proc.wait()
-        if proc.returncode != 0:
-            logging.warning('Error running cmd PID={}'.format(proc.pid))
+def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
+    experiment_name = '{}-{}bw-{}rtt-{}q-{}iperf'.format(ccalg, btlbw, rtt, queue_size, num_flows)
+    client = HOST_CLIENT
+    server = HOST_SERVER
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'ccalg':ccalg,
+            'end_time': duration,
+            'rtt': rtt,
+            'start_time': 0}
+    flows = []
+    for x in range(num_flows):
+        server_port += 1
+        client_port += 1
+        flows.append(cctestbed.Flow(ccalg=ccalg,
+                                    start_time=flow['start_time'],
+                                    end_time=flow['end_time'], rtt=rtt,
+                                    server_port=server_port, client_port=client_port,
+                                    client_log=None, server_log=None, kind='iperf',
+                                    client=HOST_CLIENT))
+    exp = cctestbed.Experiment(name=experiment_name,
+                               btlbw=btlbw,
+                               queue_size=queue_size,
+                               flows=flows,
+                               server=server,
+                               client=client,
+                               config_filename='None',
+                               server_nat_ip=None)
+
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    logging.info('Making sure tcpdump is cleaned up ')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+
+    with ExitStack() as stack:
+        exp._run_tcpdump('server', stack)
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(ping_source='client',
+                                          skip_ping=False,
+                                          bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        start_iperf_flows(exp, stack)
+        time.sleep(duration)
+        exp._show_bess_pipeline()
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+    proc = exp._compress_logs_url()
+    return proc
+
+
+def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
+    experiment_name = '{}-{}bw-{}rtt-{}q-apache'.format(ccalg, btlbw, rtt, queue_size)
+    client = HOST_CLIENT
+    server = HOST_SERVER
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'ccalg':ccalg,
+            'end_time': duration,
+            'rtt': rtt,
+            'start_time': 0}
+    flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
+                            end_time=flow['end_time'], rtt=flow['rtt'],
+                            server_port=server_port, client_port=client_port,
+                            client_log=None, server_log=None, kind='apache',
+                            client=client)]
+    exp = cctestbed.Experiment(name=experiment_name,
+                               btlbw=btlbw,
+                               queue_size=queue_size,
+                               flows=flows,
+                               server=server,
+                               client=client,
+                               config_filename='None',
+                               server_nat_ip=None)
+
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    logging.info('Making sure tcpdump is cleaned up ')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+
+    with ExitStack() as stack:
+        exp._run_tcpdump('server', stack)
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(ping_source='client',
+                                          skip_ping=False,
+                                          bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        flow_pid = start_apache_flow(exp.flows[0], exp, stack)
+        # wait for flow to finish
+        cctestbed.run_local_command('ssh cctestbed-server "wait {}"'.format(flow_pid))        
+        exp._show_bess_pipeline()
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+    proc = exp._compress_logs_url()
+    return proc
+
 
 def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=None):
     completed_experiment_procs = []
@@ -365,21 +589,35 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
         try:
             num_completed_experiments = 1
             too_small_rtt = 0
-            for btlbw, rtt in ntwrk_conditions:
-                queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
+            for btlbw, rtt, queue_size in ntwrk_conditions:
+                #queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
                 print('Running experiment {}/{} website={}, btlbw={}, queue_size={}, rtt={}.'.format(
                     num_completed_experiments,len(websites)*len(ntwrk_conditions), website,btlbw,queue_size,rtt))
                 num_completed_experiments += 1
                 if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
                     continue
-                proc = run_experiment_1vmany(website, url,
+                """
+                proc1 = run_iperf_experiments(competing_ccalg, btlbw, rtt,
+                                             queue_size, duration, num_competing)
+                proc2 = run_experiment_1vmany(website, url,
                                              competing_ccalg, num_competing,
                                              btlbw, queue_size, rtt, duration)
+                """
+                proc = run_experiment_1vapache(website=website,
+                                               url=url,
+                                               competing_ccalg=competing_ccalg,
+                                               btlbw=btlbw,
+                                               rtt=rtt,
+                                               queue_size=queue_size,
+                                               duration=duration)
+                
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
                     too_small_rtt = max(too_small_rtt, rtt)
                 elif proc is not None:
+                    assert(proc is not None)
+                    completed_experiment_procs.append(proc)
                     completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
@@ -400,21 +638,21 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
         
             
 def parse_args():
-    """Parse commandline arguments"""
+    """Pbarse commandline arguments"""
     parser = argparse.ArgumentParser(
         description='Run ccctestbed experiment to measure interaction between flows')
     parser.add_argument(
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')
     parser.add_argument(
-        '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
+        '--network, -n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'), dest='ntwrk_conditions', default=None, type=int,
         help='Network conditions for download from website.')
     parser.add_argument(
-        '--num_competing','-c', type=int, default=2)
+        '--num_competing','-c', type=int, default=1)
     parser.add_argument(
         '--competing_ccalg','-a', choices=['cubic','bbr','reno'], default='cubic')
     parser.add_argument(
-        '--duration', '-d', type=int)
+        '--duration', '-d', type=int, default=60)
     #parser.add_argument('--force', '-f', action='store_true',
     #                    help='Force experiments that were already run to run again')
     args = parser.parse_args()
