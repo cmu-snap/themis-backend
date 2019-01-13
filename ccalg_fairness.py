@@ -328,7 +328,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         filename = os.path.basename(url)
         if filename.strip() == '':
             logging.warning('Could not get filename from URL')
-        start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)   
+        start_flow_cmd = 'timeout {}s wget --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {}'.format(duration+5, exp.server.ip_lan, url, filename)   
         start_flow = cctestbed.RemoteCommand(
             start_flow_cmd,
             exp.server.ip_wan,
@@ -342,6 +342,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         logging.info('Waiting for website flow to finish')
         cctestbed.run_local_command(
             'ssh cctestbed-server "wait {}"'.format(start_flow_pid))
+        exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
 
@@ -447,7 +448,7 @@ def start_apache_flow(flow, experiment, stack):
     #TODO: should change ccalg back to default after running flow
 
     # delay flow start for start time plus 3 seconds
-    web_download_cmd = 'wget -p --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ http://{}:1234/nytimes/www.nytimes.com'.format(experiment.server.ip_lan, experiment.client.ip_lan)
+    web_download_cmd = 'wget -p --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ http://{}:1234/www.nytimes.com'.format(experiment.server.ip_lan, experiment.client.ip_lan)
     start_download = cctestbed.RemoteCommand(
             web_download_cmd,
             experiment.server.ip_wan,
@@ -494,7 +495,7 @@ def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
             key_filename=exp.server.key_filename) as ssh_client:
         cctestbed.exec_command(
             ssh_client,
-            exp.client.ip_wan,
+            exp.server.ip_wan,
             'sudo pkill -9 tcpdump')
 
     with ExitStack() as stack:
@@ -618,7 +619,7 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
                 elif proc is not None:
                     assert(proc is not None)
                     completed_experiment_procs.append(proc)
-                    completed_experiment_procs.append(proc)
+                    #completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)

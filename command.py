@@ -140,8 +140,7 @@ class RemoteCommand:
                                 self.cmd, cmd_stderr.read()))
             pid = int(pid)
             self.exit_stack.callback(self._cleanup_cmd, pid)
-            #eyield pid
-            yield 
+            yield pid
         finally:
             self.exit_stack.close()
             
