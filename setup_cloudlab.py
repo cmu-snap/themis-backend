@@ -229,20 +229,20 @@ def increase_win_sizes():
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(cmd), shell=True)
         assert(proc.returncode == 0)
 
-def setup_webserver():
+def setup_webserver(host_client):
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo apt-get install -y apache2"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'sudo service apache2 stop'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo service apache2 stop"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && sudo wget --adjust-extension --span-hosts --convert-links --backup-converted --page-requisites www.nytimes.com"'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && sudo wget --no-check-certificate --adjust-extension --span-hosts --convert-links --backup-converted --page-requisites www.nytimes.com"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'echo Listen 192.0.0.4:1234 | sudo tee -a /etc/apache2/apache2.conf'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "echo Listen {}:1234 | sudo tee -a /etc/apache2/apache2.con"f'.format(host_client.ip_lan)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'sudo service apache2 start'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo service apache2 start"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
         
@@ -257,7 +257,8 @@ def main():
     export_environs(host_server, host_client)
     add_disk_space()
     connect_bess(host_server, host_client)
-
+    setup_webserver()
+    
 if __name__ == '__main__':
     main()
 

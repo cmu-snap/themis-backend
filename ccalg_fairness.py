@@ -334,6 +334,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
             exp.server.ip_wan,
             username=exp.server.username,
             key_filename=exp.server.key_filename,
+            cleanup_cmd='rm -f /tmp/{}*'.format(filename),
             pgrep_string=url)
         start_flow_pid = stack.enter_context(start_flow())
         # waiting time before starting apache flow
@@ -342,6 +343,8 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         logging.info('Waiting for website flow to finish')
         cctestbed.run_local_command(
             'ssh cctestbed-server "wait {}"'.format(start_flow_pid))
+        # add add a time buffer before finishing up experiment
+        time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
@@ -509,7 +512,7 @@ def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
         start_iperf_flows(exp, stack)
-        time.sleep(duration)
+        time.sleep(duration+5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
@@ -567,7 +570,9 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
         stack.enter_context(exp._run_bess_monitor())
         flow_pid = start_apache_flow(exp.flows[0], exp, stack)
         # wait for flow to finish
-        cctestbed.run_local_command('ssh cctestbed-server "wait {}"'.format(flow_pid))        
+        cctestbed.run_local_command('ssh cctestbed-server "wait {}"'.format(flow_pid))
+        # add add a time buffer before finishing up experiment
+        time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
@@ -605,7 +610,9 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
                                              competing_ccalg, num_competing,
                                              btlbw, queue_size, rtt, duration)
                 """
-                proc = run_experiment_1vapache(website=website,
+                proc1 = run_apache_experiments(competing_ccalg, btlbw, rtt, queue_size, duration)
+
+                proc2 = run_experiment_1vapache(website=website,
                                                url=url,
                                                competing_ccalg=competing_ccalg,
                                                btlbw=btlbw,
@@ -614,12 +621,12 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
                                                duration=duration)
                 
                 # spaghetti code to skip websites that don't work for given rtt
-                if proc == -1:
+                if proc2 == -1:
                     too_small_rtt = max(too_small_rtt, rtt)
-                elif proc is not None:
-                    assert(proc is not None)
-                    completed_experiment_procs.append(proc)
-                    #completed_experiment_procs.append(proc)
+                elif proc2 is not None:
+                    assert(proc1 is not None)
+                    completed_experiment_procs.append(proc1)
+                    completed_experiment_procs.append(proc2)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
