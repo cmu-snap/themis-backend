@@ -14,7 +14,7 @@ class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr, username,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
-                 cleanup_cmd=None, sudo=False, key_filename=None):
+                 cleanup_cmd=None, sudo=False, key_filename=None, pgrep_string=None):
         self.cmd = cmd.strip()
         self.ip_addr = ip_addr
         self.stdout = stdout
@@ -26,6 +26,7 @@ class RemoteCommand:
         self.username = username
         self.key_filename = key_filename
         self.exit_stack = ExitStack()
+        self.pgrep_string = pgrep_string
         
     def _get_ssh_client(self):
         return get_ssh_client(self.ip_addr, self.username, self.key_filename)
@@ -37,7 +38,13 @@ class RemoteCommand:
         with ExitStack() as stack:
             ssh_client = stack.enter_context(self._get_ssh_client())
             logging.info('Running cmd ({}): {}'.format(self.ip_addr, cmd))
-            _, stdout, _ = ssh_client.exec_command('pgrep -f "^{}"'.format(self.cmd))
+            #if 'wget' in cmd:
+                # just get url part of the command
+            #    cmd = cmd.split('||')[0][134:]
+            if self.pgrep_string is None:
+                self.pgrep_string = '^'+self.cmd
+            logging.info('Looking up pid: pgrep -f "{}"'.format(self.pgrep_string))
+            _, stdout, _ = ssh_client.exec_command('pgrep -f "{}"'.format(self.pgrep_string))
             stack.callback(stdout.close)
             pid = stdout.readline().strip()
             logging.info('PID={}'.format(pid))
@@ -108,7 +115,7 @@ class RemoteCommand:
                 cmd = self.cmd
             with closing(cmd_ssh_channel.makefile_stderr()) as cmd_stderr:
                 cmd_ssh_channel.exec_command('{} > {} 2> {} < {} &'.format(cmd,
-                                                                        self.stdout,
+                                                                           self.stdout,
                                                                            self.stderr,
                                                                            self.stdin))
                 # get PID
@@ -131,7 +138,7 @@ class RemoteCommand:
                         raise RuntimeError(
                             'Got a non-zero exit status running cmd: {}.\n{}'.format(
                                 self.cmd, cmd_stderr.read()))
-            pid = int(pid)            
+            pid = int(pid)
             self.exit_stack.callback(self._cleanup_cmd, pid)
             yield pid
         finally:
