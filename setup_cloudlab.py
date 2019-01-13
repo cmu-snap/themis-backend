@@ -228,7 +228,24 @@ def increase_win_sizes():
         assert(proc.returncode == 0)
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(cmd), shell=True)
         assert(proc.returncode == 0)
-    
+
+def setup_webserver():
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo apt-get install -y apache2"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'sudo service apache2 stop'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && sudo wget --adjust-extension --span-hosts --convert-links --backup-converted --page-requisites www.nytimes.com"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'echo Listen 192.0.0.4:1234 | sudo tee -a /etc/apache2/apache2.conf'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'sudo service apache2 start'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+        
 def main():
     host_server, host_client = get_host_info()
     increase_win_sizes()
