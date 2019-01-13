@@ -28,6 +28,7 @@ update_git() {
 
 setup_cloudlab() {
     bess_node=$1
+    ssh $bess_node "/bin/bash /opt/cctestbed/setup-links.sh"
     ssh $bess_node python3.6 /opt/cctestbed/setup_cloudlab.py
     scp $bess_node:/opt/cctestbed/host_info.pkl /opt/cctestbed/cctestbed_host_info_$bess_node.pkl
 }
