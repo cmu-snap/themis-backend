@@ -19,7 +19,7 @@ onsuccess:
 BW_THRESHOLD=0.5
 PKT_LOSS_THRESHOLD=0
 BYTES_TO_BITS = 8
-BITS_TO_MEGABITS = 1.0 / 1000000.0
+BITS_TO_MEGABITS = 1.0 / 1e6
 
 NTWRK_CONDITIONS = [(5,35,16), (5,85,64), (5,130,64), (5,275,128), (10,35,32), (10,85,128), (10,130,128), (10,275,256), (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
 CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
@@ -71,6 +71,18 @@ rule load_exp_tcpdump:
     shell:
         """
         tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_tcpdump_log}
+        """
+
+rule load_description:
+    input:
+        exp_tarfile='data-raw/{exp_name}.tar.gz'
+    params:
+        exp_description='{exp_name}.json'
+    output:
+        description=temp('data-raw/{exp_name}.json')
+    shell:
+        """
+        tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_description}
         """
         
 rule store_queue_hdf:
@@ -141,82 +153,92 @@ rule store_queue_hdf:
                          format='table',
                          data_columns=['src', 'dropped', 'dequeued'])
 
-rule get_goodput_timeseries:
+rule get_tcpdump_analysis:
     input:
+        tcpdump='data-raw/server-tcpdump-{exp_name}.pcap',
         queue='data-processed/queue-{exp_name}.h5'
     output:
-        goodput='data-processed/{exp_name}.goodput'
+        tcpdump_analysis='data-processed/{exp_name}.tshark'
     run:
         import pandas as pd
-
+        
+        # get ports seen by the queue -- only need this for website flows tho
         with pd.HDFStore(input.queue, mode='r') as hdf_queue:
             df_queue = hdf_queue.select('df_queue')
-        transfer_time = 1000 #ms
-        goodput = (df_queue[df_queue['dequeued']]
-         .groupby('src')
-         .datalen
-         .resample('{}ms'.format(transfer_time))
-         .sum()
-         .unstack(level='src')
-         .fillna(0)
-         .apply(lambda df: (df * BYTES_TO_BITS * BITS_TO_MEGABITS) / (transfer_time / 1000))
-         .assign(relative_time=lambda df: (df.index - df.index[0]).total_seconds())
-         .set_index('relative_time')
+        queue_seen_ports = df_queue['src'].astype('str').unique()
+        ports_filter = 'tcp.port eq {}'.format(' or tcp.port eq '.join(
+            queue_seen_ports))
+
+        shell('tshark -2 -r {} -R "{}" -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.time_relative -e tcp.len -E separator=, > {}'.format(
+                    input.tcpdump, ports_filter, output.tcpdump_analysis))
+        
+        
+rule get_goodput:
+    input:
+        tcpdump_analysis='data-processed/{exp_name}.tshark',
+        description='data-raw/{exp_name}.json'
+    output:
+        goodput='data-processed/{exp_name}.goodput',
+    run:
+        import json
+        import pandas as pd
+        from cctestbedv2 import Flow, Host
+
+        with open(input.description) as f:
+            description = json.load(f)
+
+        df_tshark = pd.read_csv(input.tcpdump_analysis,
+                                header=None,
+                                names=['stream','src','srcport',
+                                       'dst','dstport','time_relative','len'])
+
+        df_goodput = (df_tshark
+                      .groupby('stream')
+                      .agg({'src':'last','srcport':'last','dst':'last',
+                            'dstport':'last','len':'sum','time_relative':'last'})
+                      .assign(goodput=lambda df: (df['len'] / df['time_relative']) * BYTES_TO_BITS * BITS_TO_MEGABITS)
+                      .rename({'time_relative':'fct'}, axis=1)
         )
-        goodput.to_csv(output.goodput)
-
-rule get_goodput_total:
-    input:
-        queue='data-processed/queue-{exp_name}.h5'
-    output:
-        goodput='data-processed/{exp_name}.goodput.total'
-    run:
-        import pandas as pd
-
-        with pd.HDFStore(input.queue, mode='r') as hdf_queue:
-            df_queue = hdf_queue.select('df_queue')
-        last_20_seconds = int((df_queue[df_queue['dequeued']].index - df_queue[df_queue['dequeued']].index[0]).total_seconds().max())
-
-        #if last_20_seconds < 0:
-        #    # flow is shorter than 20 seconds so just make an empty file
-        #    shell('touch {output.goodput}')
-        #    return
         
-        goodput=(df_queue[df_queue['dequeued']]
-         .assign(relative_time=lambda df: (df.index - df.index[0]).total_seconds())
-         .set_index('relative_time')
-         #.truncate(before=20, after=last_20_seconds)
-         .groupby('src')['datalen']
-         .agg(lambda df: (df.sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / last_20_seconds)
-         )
-        goodput.to_csv(output.goodput)
-
-rule get_flow_complete_times:
-    input:
-        pcap='data-raw/server-tcpdump-{exp_name}.pcap'
-    output:
-        fct='data-processed/{exp_name}.fct',
-        fct_tmp=temp('data-processed/{exp_name}.fct.tmp')
-    run:
-        import pandas as pd
-        shell('tshark -r {input.pcap} -T fields -e tcp.stream -e tcp.srcport -e tcp.time_relative | grep ^[0-9] > {output.fct_tmp}')
         
-        df = pd.read_csv(output.fct_tmp, sep='\t', header=None, names=['tcp_stream','tcp_srcport', 'time_relative'])
-        df.groupby('tcp_stream')[['tcp_srcport','time_relative']].last().reset_index().to_csv(output.fct, index=False)
+        flow_ports = {}
+        for idx, flow in enumerate(description['flows']):
+            # reconstruct flow objects from json description
+            flow_obj = Flow(*flow)
+            host_obj = Host(*flow_obj.client)
+            flow_obj = flow_obj._replace(client=host_obj)
             
+            if flow_obj.kind == 'website':
+                website_ip = flow_obj.client.ip_wan
+                flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
+            elif flow_obj.kind == 'iperf':
+                flow_port = flow_obj.server_port
+            elif flow_obj.kind == 'apache':
+                flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
+            elif flow_obj.kind == 'video':
+                flow_port = None
+
+            assert(not flow_port in flow_ports)
+            flow_ports[flow_port] = idx
+   
+
+        num_flow = pd.Series(flow_ports)
+        num_flow.name = 'num_flow'
+        df_goodput = df_goodput.set_index('srcport').join(num_flow)
+        df_goodput.to_csv(output.goodput)
+
         
 rule scp_results:
     input:
         exp_tarfile='data-raw/{exp_name}.tar.gz',
         goodput='data-processed/{exp_name}.goodput',
-        goodput_total='data-processed/{exp_name}.goodput.total',
         queue='data-processed/queue-{exp_name}.h5',
-        fct='data-processed/{exp_name}.fct'
+        tcpdump_analysis='data-processed/{exp_name}.tshark'
     output:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
        """
-       tar -czvf {output.compressed_results} {input.goodput} {input.goodput_total} {input.exp_tarfile} {input.queue} {input.fct} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+       tar -czvf {output.compressed_results} {input.goodput} {input.exp_tarfile} {input.queue} {input.tcpdump_analysis} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
        """
        
     
