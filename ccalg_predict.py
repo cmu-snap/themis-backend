@@ -128,7 +128,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             filename = os.path.basename(url)
             if filename.strip() == '':
                 logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout 65s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
+            start_flow_cmd = 'timeout 65s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ "{}" || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
