@@ -328,7 +328,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         filename = os.path.basename(url)
         if filename.strip() == '':
             logging.warning('Could not get filename from URL')
-        start_flow_cmd = 'timeout {}s wget --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {}'.format(duration+5, exp.server.ip_lan, url, filename)   
+        start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)   
         start_flow = cctestbed.RemoteCommand(
             start_flow_cmd,
             exp.server.ip_wan,
@@ -338,12 +338,13 @@ def run_experiment_1vapache(website, url, competing_ccalg,
             pgrep_string=url)
         start_flow_pid = stack.enter_context(start_flow())
         # waiting time before starting apache flow
-        time.sleep(1)
-        apache_flow_pid = start_apache_flow(exp.flows[1], exp, stack)
-        logging.info('Waiting for website flow to finish')
-        cctestbed.run_local_command(
-            'ssh cctestbed-server "wait {}"'.format(start_flow_pid))
+        time.sleep(10)
+        assert(start_flow._is_running())
+        apache_flow = start_apache_flow(exp.flows[1], exp, stack)
+        logging.info('Waiting for apache flow to finish')
+        apache_flow._wait()
         # add add a time buffer before finishing up experiment
+        logging.info('Apache flow finished')
         time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
@@ -451,14 +452,17 @@ def start_apache_flow(flow, experiment, stack):
     #TODO: should change ccalg back to default after running flow
 
     # delay flow start for start time plus 3 seconds
-    web_download_cmd = 'wget -p --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ http://{}:1234/www.nytimes.com'.format(experiment.server.ip_lan, experiment.client.ip_lan)
+    web_download_cmd = 'wget --quiet --background --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ "http://{}:1234/www.nytimes.com"'.format(experiment.server.ip_lan, experiment.client.ip_lan)
     start_download = cctestbed.RemoteCommand(
             web_download_cmd,
             experiment.server.ip_wan,
             username=experiment.server.username,
-            key_filename=experiment.server.key_filename)
-    return stack.enter_context(start_download())
-
+            key_filename=experiment.server.key_filename,
+            pgrep_string='http://{}:1234/www.nytimes.com'.format(
+                experiment.client.ip_lan))
+    stack.enter_context(start_download())
+    return start_download
+    
 def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
     experiment_name = '{}-{}bw-{}rtt-{}q-{}iperf'.format(ccalg, btlbw, rtt, queue_size, num_flows)
     client = HOST_CLIENT
@@ -568,9 +572,11 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
         time.sleep(5)
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
-        flow_pid = start_apache_flow(exp.flows[0], exp, stack)
+        apache_flow = start_apache_flow(exp.flows[0], exp, stack)
         # wait for flow to finish
-        cctestbed.run_local_command('ssh cctestbed-server "wait {}"'.format(flow_pid))
+        apache_flow._wait()
+        # add add a time buffer before finishing up experiment
+        logging.info('Apache flow finished')
         # add add a time buffer before finishing up experiment
         time.sleep(5)
         exp._show_bess_pipeline()
@@ -581,7 +587,8 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
     return proc
 
 
-def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=None):
+def main(tests, websites,
+         num_competing, competing_ccalg, duration, ntwrk_conditions=None):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
@@ -596,37 +603,45 @@ def main(websites, num_competing, competing_ccalg, duration, ntwrk_conditions=No
             num_completed_experiments = 1
             too_small_rtt = 0
             for btlbw, rtt, queue_size in ntwrk_conditions:
-                #queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
-                print('Running experiment {}/{} website={}, btlbw={}, queue_size={}, rtt={}.'.format(
-                    num_completed_experiments,len(websites)*len(ntwrk_conditions), website,btlbw,queue_size,rtt))
-                num_completed_experiments += 1
-                if rtt <= too_small_rtt:
-                    print('Skipping experiment RTT too small')
-                    continue
-                """
-                proc1 = run_iperf_experiments(competing_ccalg, btlbw, rtt,
-                                             queue_size, duration, num_competing)
-                proc2 = run_experiment_1vmany(website, url,
-                                             competing_ccalg, num_competing,
-                                             btlbw, queue_size, rtt, duration)
-                """
-                proc1 = run_apache_experiments(competing_ccalg, btlbw, rtt, queue_size, duration)
+                #queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                             
+                for test in tests:
+                    print('Running experiment {}/{} website={}, btlbw={}, queue_size={}, rtt={}, test={}.'.format(
+                        num_completed_experiments,len(websites)*len(ntwrk_conditions)*len(tests), website,btlbw,queue_size,rtt,test))
+                    num_completed_experiments += 1
+                    if rtt <= too_small_rtt:
+                        print('Skipping experiment RTT too small')
+                        continue
 
-                proc2 = run_experiment_1vapache(website=website,
-                                               url=url,
-                                               competing_ccalg=competing_ccalg,
-                                               btlbw=btlbw,
-                                               rtt=rtt,
-                                               queue_size=queue_size,
-                                               duration=duration)
+                    if test == 'iperf':
+                        proc = run_iperf_experiments(competing_ccalg, btlbw, rtt,
+                                                     queue_size, duration, num_competing)
+                    elif test == 'iperf-website':
+                        proc = run_experiment_1vmany(website, url,
+                                                     competing_ccalg, num_competing,
+                                                     btlbw, queue_size, rtt, duration)
+                    elif test == 'apache':
+                        proc = run_apache_experiments(competing_ccalg, btlbw,
+                                                      rtt, queue_size, duration)
+                    elif test == 'apache-website':
+                        proc = run_experiment_1vapache(website=website,
+                                                       url=url,
+                                                       competing_ccalg=competing_ccalg,
+                                                       btlbw=btlbw,
+                                                       rtt=rtt,
+                                                       queue_size=queue_size,
+                                                       duration=duration)
+                    elif test == 'video':
+                        raise NotImplementedError
+                    elif test == 'video-website':
+                        raise NotImplementedError
+                    else:
+                        raise NotImplementedError
                 
-                # spaghetti code to skip websites that don't work for given rtt
-                if proc2 == -1:
-                    too_small_rtt = max(too_small_rtt, rtt)
-                elif proc2 is not None:
-                    assert(proc1 is not None)
-                    completed_experiment_procs.append(proc1)
-                    completed_experiment_procs.append(proc2)
+                    # spaghetti code to skip websites that don't work for given rtt
+                    if proc == -1:
+                        too_small_rtt = max(too_small_rtt, rtt)
+                    elif proc is not None:
+                        completed_experiment_procs.append(proc)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
@@ -649,6 +664,10 @@ def parse_args():
     """Pbarse commandline arguments"""
     parser = argparse.ArgumentParser(
         description='Run ccctestbed experiment to measure interaction between flows')
+    parser.add_argument('--test, -t', choices=['apache','iperf','video',
+                                               'apache-website','iperf-website',
+                                               'video-website'],
+                        action='append', dest='tests')
     parser.add_argument(
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')
@@ -672,4 +691,4 @@ if __name__ == '__main__':
     fileConfig(log_file_path)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     args = parse_args()
-    main(args.websites, ntwrk_conditions=args.ntwrk_conditions, num_competing=args.num_competing, competing_ccalg=args.competing_ccalg, duration=args.duration)
+    main(args.tests, args.websites, ntwrk_conditions=args.ntwrk_conditions, num_competing=args.num_competing, competing_ccalg=args.competing_ccalg, duration=args.duration)

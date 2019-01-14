@@ -175,17 +175,17 @@ rule get_goodput_total:
 
         with pd.HDFStore(input.queue, mode='r') as hdf_queue:
             df_queue = hdf_queue.select('df_queue')
-        last_20_seconds = int((df_queue[df_queue['dequeued']].index - df_queue[df_queue['dequeued']].index[0]).total_seconds().max() - 20)
+        last_20_seconds = int((df_queue[df_queue['dequeued']].index - df_queue[df_queue['dequeued']].index[0]).total_seconds().max())
 
-        if last_20_seconds < 0:
-            # flow is shorter than 20 seconds so just make an empty file
-            shell('touch {output.goodput}')
-            return
+        #if last_20_seconds < 0:
+        #    # flow is shorter than 20 seconds so just make an empty file
+        #    shell('touch {output.goodput}')
+        #    return
         
         goodput=(df_queue[df_queue['dequeued']]
          .assign(relative_time=lambda df: (df.index - df.index[0]).total_seconds())
          .set_index('relative_time')
-         .truncate(before=20, after=last_20_seconds)
+         #.truncate(before=20, after=last_20_seconds)
          .groupby('src')['datalen']
          .agg(lambda df: (df.sum() * BYTES_TO_BITS * BITS_TO_MEGABITS) / last_20_seconds)
          )
