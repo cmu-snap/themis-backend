@@ -257,7 +257,7 @@ def main():
     export_environs(host_server, host_client)
     add_disk_space()
     connect_bess(host_server, host_client)
-    setup_webserver()
+    setup_webserver(host_client)
     
 if __name__ == '__main__':
     main()
