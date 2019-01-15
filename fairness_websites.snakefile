@@ -211,7 +211,7 @@ rule get_goodput:
                 website_ip = flow_obj.client.ip_wan
                 flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
             elif flow_obj.kind == 'iperf':
-                print(flow_obj.server_port)
+                flow_port = flow_obj.client_port
             elif flow_obj.kind == 'apache':
                 flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
             elif flow_obj.kind == 'video':
