@@ -20,5 +20,5 @@ with DAG("cctestbed_fairness",
     website_fairness = BashOperator(
         task_id="website_fairness",
         bash_command=("cd /opt/cctestbed && "
-                      "python3.6 /opt/cctestbed/ccalg_predict.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 -s /opt/cctestbed/fairness_websites.snakefile --keep-going -d /tmp/ --latency-wait 120"))
+                      "python3.6 /opt/cctestbed/ccalg_fairness.py {{ dag_run.conf['cmdline_args'] }} && snakemake -j 40 -s /opt/cctestbed/fairness_websites.snakefile --keep-going -d /tmp/ --latency-wait 120"))
     
