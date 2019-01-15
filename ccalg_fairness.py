@@ -240,7 +240,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
                           btlbw=10, queue_size=128, rtt=35, duration=60):
     # force one competing apache flow
     num_competing = 1
-    experiment_name = '{}bw-{}rtt-{}q-{}-1apache-{}s'.format(
+    experiment_name = '{}bw-{}rtt-{}q-{}-1apache-{}'.format(
         btlbw, rtt, queue_size, website, competing_ccalg)
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
