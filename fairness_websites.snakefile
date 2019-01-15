@@ -191,15 +191,14 @@ rule get_goodput:
                                 header=None,
                                 names=['stream','src','srcport',
                                        'dst','dstport','time_relative','len'])
-
+        
         df_goodput = (df_tshark
                       .groupby('stream')
-                      .agg({'src':'last','srcport':'last','dst':'last',
-                            'dstport':'last','len':'sum','time_relative':'last'})
+                      .agg({'src':'first','srcport':'first','dst':'first',
+                            'dstport':'first','len':'sum','time_relative':'last'})
                       .assign(goodput=lambda df: (df['len'] / df['time_relative']) * BYTES_TO_BITS * BITS_TO_MEGABITS)
                       .rename({'time_relative':'fct'}, axis=1)
         )
-        
         
         flow_ports = {}
         for idx, flow in enumerate(description['flows']):
@@ -212,7 +211,7 @@ rule get_goodput:
                 website_ip = flow_obj.client.ip_wan
                 flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
             elif flow_obj.kind == 'iperf':
-                flow_port = flow_obj.server_port
+                print(flow_obj.server_port)
             elif flow_obj.kind == 'apache':
                 flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
             elif flow_obj.kind == 'video':
@@ -220,8 +219,7 @@ rule get_goodput:
 
             assert(not flow_port in flow_ports)
             flow_ports[flow_port] = idx
-   
-
+            
         num_flow = pd.Series(flow_ports)
         num_flow.name = 'num_flow'
         df_goodput = df_goodput.set_index('srcport').join(num_flow)
