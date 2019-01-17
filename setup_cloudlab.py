@@ -245,7 +245,28 @@ def setup_webserver(host_client):
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo service apache2 start"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-        
+
+    """
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo chown -R rware:dna-PG0 /var/www"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    # this command takes like an hour! wget parallel?
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && wget -r ftp://ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && mv ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/* ."'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+
+    # install chrome on the server
+    cmds = ['sudo apt-get update',
+            'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
+            'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
+            'sudo dpkg -i google-chrome*.deb',
+            'sudo apt-get install -f' # install missing dependencies
+            'rm google-chrome-stable_current_amd64.deb']
+    """
+    
 def main():
     host_server, host_client = get_host_info()
     increase_win_sizes()
