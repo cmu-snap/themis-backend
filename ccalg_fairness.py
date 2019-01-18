@@ -484,7 +484,7 @@ def start_video_flow(flow, experiment, stack):
     #TODO: should change ccalg back to default after running flow
 
     # delay flow start for start time plus 3 seconds
-    web_download_cmd = 'timeout {}s google-chrome --disable-gpu --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required "http://{}:1234/"'.format(flow.end_time+5, experiment.client.ip_lan)
+    web_download_cmd = 'timeout {}s google-chrome --disable-gpu --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required "http://{}:1234/"'.format(flow.end_time, experiment.client.ip_lan)
     start_download = cctestbed.RemoteCommand(
         web_download_cmd,
         experiment.server.ip_wan,
@@ -686,6 +686,137 @@ def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
     return proc
 
 
+def run_experiment_1video(website, url, competing_ccalg, 
+                          btlbw=10, queue_size=128, rtt=35, duration=60):
+    # force one competing video flow
+    num_competing = 1
+    experiment_name = '{}bw-{}rtt-{}q-{}-1video-{}-{}s'.format(
+        btlbw, rtt, queue_size, website, competing_ccalg, duration)
+    logging.info('Creating experiment for website: {}'.format(website))
+    url_ip = get_website_ip(url)
+    logging.info('Got website IP: {}'.format(url_ip))
+    website_rtt = int(float(get_nping_rtt(url_ip)))
+    logging.info('Got website RTT: {}'.format(website_rtt))
+
+    if website_rtt >= rtt:
+        logging.warning('Skipping experiment with website RTT {} >= {}'.format(
+            website_rtt, rtt))
+        return -1
+
+    client = HOST_CLIENT_TEMPLATE
+    client['ip_wan'] = url_ip
+    client = cctestbed.Host(**client)
+    server = HOST_SERVER
+    
+    server_nat_ip = HOST_CLIENT.ip_wan #'128.104.222.182'  taro
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'ccalg': 'reno',
+            'end_time': duration+20,
+            'rtt': rtt - website_rtt,
+            'start_time': 0}
+    flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
+                            end_time=flow['end_time'], rtt=flow['rtt'],
+                            server_port=server_port, client_port=client_port,
+                            client_log=None, server_log=None, kind='website',
+                            client=client)]
+    # competing are apache flows
+    for x in range(num_competing):
+        server_port += 1
+        client_port += 1
+        flows.append(cctestbed.Flow(ccalg=competing_ccalg,
+                                    start_time=flow['start_time'],
+                                    end_time=duration,
+                                    rtt=rtt,
+                                    server_port=server_port,
+                                    client_port=client_port,
+                                    client_log=None,
+                                    server_log=None,
+                                    kind='video',
+                                    client=HOST_CLIENT))
+    
+    exp = cctestbed.Experiment(name=experiment_name,
+                     btlbw=btlbw,
+                     queue_size=queue_size,
+                     flows=flows, server=server, client=client,
+                     config_filename='None',
+                     server_nat_ip=server_nat_ip)
+    
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    # make sure tcpdump cleaned up
+    logging.info('Making sure tcpdump is cleaned up')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+                        
+    with ExitStack() as stack:
+        # add DNAT rule
+        stack.enter_context(add_dnat_rule(exp, url_ip))
+        # add route to URL
+        stack.enter_context(add_route(exp, url_ip))
+        # add dns entry
+        stack.enter_context(add_dns_rule(exp, website, url_ip))
+        exp._run_tcpdump('server', stack)
+        exp._run_tcpdump('server', stack, capture_http=True)
+        # run the flow
+        # turns out there is a bug when using subprocess and Popen in Python 3.5
+        # so skip ping needs to be true
+        # https://bugs.python.org/issue27122
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(ping_source='server', skip_ping=False, bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess some time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        stack.enter_context(exp._run_rtt_monitor())
+        filename = os.path.basename(url)
+        if filename.strip() == '':
+            logging.warning('Could not get filename from URL')
+        start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)   
+        start_flow = cctestbed.RemoteCommand(
+            start_flow_cmd,
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename,
+            cleanup_cmd='rm -f /tmp/{}*'.format(filename),
+            pgrep_string=url)
+        start_flow_pid = stack.enter_context(start_flow())
+        # waiting time before starting apache flow
+        time.sleep(10)
+        assert(start_flow._is_running())
+        video_flow = start_video_flow(exp.flows[1], exp, stack)
+        logging.info('Waiting for video flow to finish')
+        video_flow._wait()
+        # add add a time buffer before finishing up experiment
+        logging.info('Video flow finished')
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+        logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
+        with open(exp.logs['website_log'], 'w') as f:
+            website_info = {}
+            website_info['website'] = website
+            website_info['url'] = url
+            website_info['website_rtt'] = website_rtt
+            website_info['url_ip'] = url_ip
+            website_info['flow_runtime'] = None
+            #flow_end_time - flow_start_time 
+            json.dump(website_info, f)
+
+    proc = exp._compress_logs_url()
+    return proc
+
+
+
 def main(tests, websites,
          num_competing, competing_ccalg, duration, ntwrk_conditions=None):
     completed_experiment_procs = []
@@ -736,7 +867,13 @@ def main(tests, websites,
                                                       queue_size,
                                                       duration)
                     elif test == 'video-website':
-                        raise NotImplementedError
+                        proc = run_experiment_1video(website=website,
+                                                     url=url,
+                                                     competing_ccalg=competing_ccalg,
+                                                     btlbw=btlbw,
+                                                     rtt=rtt,
+                                                     queue_size=queue_size,
+                                                     duration=duration)
                     else:
                         raise NotImplementedError
                 

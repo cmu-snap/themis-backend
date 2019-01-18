@@ -10,6 +10,7 @@ pci_client = experiment['client'][-3]
 queue_size = int(experiment['queue_size'])
 btlbw = int(experiment['btlbw'])
 flow_delay = experiment['flows'][0][3]
+
 loss_rate = 0
 if 'loss_rate' in experiment:
     if experiment['loss_rate'] is not None:
@@ -48,6 +49,8 @@ if len(experiment['flows']) == 1:
      else:
           client_in -> btl_queue -> server_out
 else:
+     # assume apache and video flows have the same delay
+     flow_delay = experiment['flows'][1][3]
      client_in -> btl_queue -> server_out
      ip_match = IPLookup()
      ip_match.add(prefix='192.0.0.0', prefix_len=24, gate=len(experiment['flows']))
@@ -56,6 +59,7 @@ else:
      server_in -> ip_match
      merge = Merge()
      merge -> client_out
+     # where apache and video experiments will go
      ip_match:len(experiment['flows']) -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
      for idx, flow in enumerate(experiment['flows']):
           flow_delay = flow[3]
@@ -63,10 +67,3 @@ else:
           if flow_kind == 'website':
                ip_match.add(prefix=flow[9][2], prefix_len=32, gate=idx)
                ip_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
-          elif flow_kind == 'iperf':
-               # assume all iperf flows have the same RTT
-               pass
-               #flow_dst_port = flow[5]
-               #port_match.add(dst_port=flow_dst_port, gate=idx)
-               #port_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
-
