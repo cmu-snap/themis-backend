@@ -462,7 +462,41 @@ def start_apache_flow(flow, experiment, stack):
                 experiment.client.ip_lan))
     stack.enter_context(start_download())
     return start_download
-    
+
+
+def start_video_flow(flow, experiment, stack):
+    # start apache server which is running on the cctestbed-client
+    with cctestbed.get_ssh_client(
+            flow.client.ip_wan,
+            flow.client.username,
+            key_filename=flow.client.key_filename) as ssh_client:
+        start_apache_cmd = "sudo service apache2 start"
+        cctestbed.exec_command(
+            ssh_client, flow.client.ip_wan, start_apache_cmd)
+    # change default cclag for client
+    with cctestbed.get_ssh_client(
+            flow.client.ip_wan,
+            flow.client.username,
+            key_filename=flow.client.key_filename) as ssh_client:
+        change_ccalg = 'echo {} | sudo tee /proc/sys/net/ipv4/tcp_congestion_control'.format(flow.ccalg)
+        cctestbed.exec_command(ssh_client, flow.client.ip_wan, change_ccalg)
+
+    #TODO: should change ccalg back to default after running flow
+
+    # delay flow start for start time plus 3 seconds
+    web_download_cmd = 'timeout {}s google-chrome --disable-gpu --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required "http://{}:1234/"'.format(flow.end_time+5, experiment.client.ip_lan)
+    start_download = cctestbed.RemoteCommand(
+        web_download_cmd,
+        experiment.server.ip_wan,
+        username=experiment.server.username,
+        key_filename=experiment.server.key_filename,
+        pgrep_string='google-chrome'.format(
+            experiment.client.ip_lan))
+    stack.enter_context(start_download())
+    return start_download
+
+
+
 def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
     experiment_name = '{}-{}bw-{}rtt-{}q-{}iperf'.format(ccalg, btlbw, rtt, queue_size, num_flows)
     client = HOST_CLIENT
@@ -586,6 +620,71 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
     proc = exp._compress_logs_url()
     return proc
 
+def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
+    experiment_name = '{}-{}bw-{}rtt-{}q-video-{}s'.format(
+        ccalg, btlbw, rtt, queue_size, duration)
+    client = HOST_CLIENT
+    server = HOST_SERVER
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'ccalg':ccalg,
+            'end_time': duration,
+            'rtt': rtt,
+            'start_time': 0}
+    flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
+                            end_time=flow['end_time'], rtt=flow['rtt'],
+                            server_port=server_port, client_port=client_port,
+                            client_log=None, server_log=None, kind='video',
+                            client=client)]
+    exp = cctestbed.Experiment(name=experiment_name,
+                               btlbw=btlbw,
+                               queue_size=queue_size,
+                               flows=flows,
+                               server=server,
+                               client=client,
+                               config_filename='None',
+                               server_nat_ip=None)
+
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    logging.info('Making sure tcpdump is cleaned up ')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.client.ip_wan,
+            'sudo pkill -9 tcpdump')
+
+    with ExitStack() as stack:
+        exp._run_tcpdump('server', stack)
+        exp._run_tcpdump('server', stack, capture_http=True)
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(
+            ping_source='client',
+            skip_ping=False,
+            bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        video_flow = start_video_flow(exp.flows[0], exp, stack)
+        logging.info('Waiting for flow to finish')
+        # wait for flow to finish
+        video_flow._wait()
+        # add add a time buffer before finishing up experiment
+        logging.info('Video flow finished')
+        # add add a time buffer before finishing up experiment
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+    proc = exp._compress_logs_url()
+    return proc
+
 
 def main(tests, websites,
          num_competing, competing_ccalg, duration, ntwrk_conditions=None):
@@ -631,7 +730,11 @@ def main(tests, websites,
                                                        queue_size=queue_size,
                                                        duration=duration)
                     elif test == 'video':
-                        raise NotImplementedError
+                        proc = run_video_experiments(competing_ccalg,
+                                                      btlbw,
+                                                      rtt,
+                                                      queue_size,
+                                                      duration)
                     elif test == 'video-website':
                         raise NotImplementedError
                     else:

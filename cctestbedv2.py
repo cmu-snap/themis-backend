@@ -26,8 +26,8 @@ logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 Host = namedtuple('Host', ['ifname_remote', 'ifname_local', 'ip_wan', 'ip_lan', 'pci', 'key_filename', 'username'])
 Flow = namedtuple('Flow', ['ccalg', 'start_time', 'end_time', 'rtt',
-                           'server_port', 'client_port', 'client_log', 'server_log',
-                           'kind', 'client'])
+                           'server_port', 'client_port', 'client_log',
+                           'server_log', 'kind', 'client'])
 
 
 
@@ -79,7 +79,8 @@ class Experiment:
             'rtt_log': '/tmp/rtt-{}-{}.txt'.format(self.name, self.exp_time),
             'capinfos_log': '/tmp/capinfos-{}-{}.txt'.format(self.name, self.exp_time),
             'ping_log': '/tmp/ping-{}-{}.txt'.format(self.name, self.exp_time),
-            'website_log': '/tmp/website-{}-{}.json'.format(self.name, self.exp_time)
+            'website_log': '/tmp/website-{}-{}.json'.format(self.name, self.exp_time),
+            'http_log': '/tmp/http-{}-{}.pcap'.format(self.name, self.exp_time)
             }
         self.tar_filename = '/tmp/{}-{}.tar.gz'.format(self.name, self.exp_time)
         # update flow objects with log filenames
@@ -173,7 +174,6 @@ class Experiment:
             self.logs['dig_log']), shell=True)
         return        
 
-
     def _compress_logs_url(self):
         all_logs = list(self.logs.values())
         for flow in self.flows:
@@ -266,15 +266,35 @@ class Experiment:
         logging.info('\n'+run_local_command(cmd))
 
 
-    def _run_tcpdump(self, host, stack):
-        start_tcpdump_cmd = ('tcpdump -n --packet-buffered '
-                             '--snapshot-length=65535 '
-                             '--interface={} '
-                             '-w {}')
-        tcpdump_logs = None
+    def _run_tcpdump(self, host, stack, capture_http=False):
+        if capture_http:
+            assert(host == 'server')
+            start_tcpdump_cmd = (
+                "tcpdump -n --packet-buffered "
+                "--interface={} "
+                "-w {} "
+                "-s 0 -A 'tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420' ") 
+            start_tcpdump_cmd = start_tcpdump_cmd.format(
+                self.server.ifname_remote,
+                self.logs['http_log'])
+            tcpdump_logs = [self.logs['http_log']]
+            start_tcpdump = RemoteCommand(start_tcpdump_cmd,
+                                          self.server.ip_wan,
+                                          logs=tcpdump_logs,
+                                          sudo=True,
+                                          username=self.server.username,
+                                          key_filename=self.server.key_filename,
+                                          pgrep_string=self.logs['http_log'])
+            return stack.enter_context(start_tcpdump())
+        else:
+            start_tcpdump_cmd = ('tcpdump -n --packet-buffered '
+                                 '--snapshot-length=65535 '
+                                 '--interface={} '
+                                 '-w {}')
         if host == 'server':
-            start_tcpdump_cmd = start_tcpdump_cmd.format(self.server.ifname_remote,
-                                                         self.logs['server_tcpdump_log'])
+            start_tcpdump_cmd = start_tcpdump_cmd.format(
+                self.server.ifname_remote,
+                self.logs['server_tcpdump_log'])
 
             tcpdump_logs = [self.logs['server_tcpdump_log']]
             start_tcpdump = RemoteCommand(start_tcpdump_cmd,
@@ -284,8 +304,9 @@ class Experiment:
                                           username=self.server.username,
                                           key_filename=self.server.key_filename)
         elif host == 'client':
-            start_tcpdump_cmd = start_tcpdump_cmd.format(self.client.ifname_remote,
-                                                         self.logs['client_tcpdump_log'])
+            start_tcpdump_cmd = start_tcpdump_cmd.format(
+                self.client.ifname_remote,
+                self.logs['client_tcpdump_log'])
             tcpdump_logs = [self.logs['client_tcpdump_log']]
             start_tcpdump = RemoteCommand(start_tcpdump_cmd,
                                           self.client.ip_wan,
