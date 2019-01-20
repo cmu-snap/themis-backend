@@ -31,7 +31,7 @@ EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
 rule all:
     input:
          all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
-         #all_results=expand('data-processed/queue-{exp_name}.h5',exp_name=EXP_NAMES)
+         #all_results=expand('data-processed/{exp_name}.bitrate',exp_name=EXP_NAMES)
          
 rule load_raw_queue_data:
     input:
@@ -73,6 +73,18 @@ rule load_exp_tcpdump:
         tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_tcpdump_log}
         """
 
+rule load_exp_http:
+    input:
+        exp_tarfile='data-raw/{exp_name}.tar.gz'
+    params:
+        exp_http_log='http-{exp_name}.pcap'
+    output:
+        http_pcap=temp('data-raw/http-{exp_name}.pcap')
+    shell:
+        """
+        tar -C data-raw/ -xzvf {input.exp_tarfile} {params.exp_http_log} || touch {output.http_pcap}
+        """
+        
 rule load_description:
     input:
         exp_tarfile='data-raw/{exp_name}.tar.gz'
@@ -171,7 +183,7 @@ rule get_tcpdump_analysis:
 
         shell('tshark -2 -r {} -R "{}" -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.time_relative -e tcp.len -E separator=, > {}'.format(
                     input.tcpdump, ports_filter, output.tcpdump_analysis))
-        
+
         
 rule get_goodput:
     input:
@@ -211,7 +223,7 @@ rule get_goodput:
                 website_ip = flow_obj.client.ip_wan
                 flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
             elif flow_obj.kind == 'iperf':
-                print(flow_obj.server_port)
+                flow_port = flow_obj.client_port
             elif flow_obj.kind == 'apache':
                 flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
             elif flow_obj.kind == 'video':
@@ -224,19 +236,76 @@ rule get_goodput:
         num_flow.name = 'num_flow'
         df_goodput = df_goodput.set_index('srcport').join(num_flow)
         df_goodput.to_csv(output.goodput)
-
         
+
+rule get_http_analysis:
+    input:
+        http_pcap='data-raw/http-{exp_name}.pcap'
+    output:
+        http_analysis='data-processed/{exp_name}.http'
+    shell:
+        """
+        tshark -2 -r {input.http_pcap} -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e frame.time_relative -e http.request.uri -E separator=, | grep bunny_ > {output.http_analysis} || touch {output.http_analysis}
+        """
+   
+        
+rule get_avg_bitrate:
+    input:
+        http_analysis='data-processed/{exp_name}.http'
+    output:
+        bitrate='data-processed/{exp_name}.bitrate'
+    run:
+        import pandas as pd
+        import os
+        import json
+        
+        if os.stat(input.http_analysis).st_size == 0:
+            shell('touch {output.bitrate}')
+            return
+        
+        df = (pd.read_csv(input.http_analysis,
+                         header=None,
+                         names=['tcp_stream',
+                                'src_ip',
+                                'src_port',
+                                'dst_ip',
+                                'dst_port',
+                                'time_relative',
+                                'request_uri'])
+              .dropna(how='any')
+              .assign(bitrate=lambda df: (df['request_uri']
+                                          .str
+                                          .extract('/bunny_(\d+)bps/.*')
+                                          .astype('float')))
+        )
+        
+        per_flow_median = (df
+                           .groupby(['src_ip','src_port',
+                                     'dst_ip','dst_port'])['bitrate']
+                           .mean().median())
+        median = df['bitrate'].median()
+        mean = df['bitrate'].mean()
+
+        bitrate = {'per_flow_median': per_flow_median,
+                   'median': median,
+                   'mean': mean}
+        with open(output.bitrate, 'w') as f:
+            json.dump(bitrate, f)
+        
+
 rule scp_results:
     input:
         exp_tarfile='data-raw/{exp_name}.tar.gz',
         goodput='data-processed/{exp_name}.goodput',
         queue='data-processed/queue-{exp_name}.h5',
-        tcpdump_analysis='data-processed/{exp_name}.tshark'
+        tcpdump_analysis='data-processed/{exp_name}.tshark',
+        bitrate='data-processed/{exp_name}.bitrate',
+        http='data-processed/{exp_name}.http'
     output:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
-       """
-       tar -czvf {output.compressed_results} {input.goodput} {input.exp_tarfile} {input.queue} {input.tcpdump_analysis} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
-       """
+        """
+        tar -czvf {output.compressed_results} {input.goodput} {input.exp_tarfile} {input.queue} {input.tcpdump_analysis} {input.bitrate} {input.http} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+        """
        
     
