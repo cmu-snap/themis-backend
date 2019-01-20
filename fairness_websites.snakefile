@@ -30,8 +30,8 @@ EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
 # specify final output of the pipeline
 rule all:
     input:
-         #all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
-         all_results=expand('data-processed/{exp_name}.bitrate',exp_name=EXP_NAMES)
+         all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
+         #all_results=expand('data-processed/{exp_name}.bitrate',exp_name=EXP_NAMES)
          
 rule load_raw_queue_data:
     input:
@@ -245,7 +245,7 @@ rule get_http_analysis:
         http_analysis='data-processed/{exp_name}.http'
     shell:
         """
-        tshark -2 -r {input.http_pcap} -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e frame.time_relative -e http.request.uri -E separator=, | grep bunny_ > {output.http_analysis}
+        tshark -2 -r {input.http_pcap} -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e frame.time_relative -e http.request.uri -E separator=, | grep bunny_ > {output.http_analysis} || touch {output.http_analysis}
         """
    
         
