@@ -955,6 +955,7 @@ def main(tests, websites,
                                         competing_ccalgs, [duration],
                                         ntwrk_conditions))
     logging.info('Found {} experiments'.format(len(exp_params)))
+    num_completed_experiments = 0
     for params in exp_params:
         try:
             test = params[0]
@@ -1068,6 +1069,8 @@ def parse_args():
         '--competing_ccalg','-a', choices=['cubic','bbr','reno'], dest='competing_ccalgs', action='append', required=True)
     parser.add_argument(
         '--duration', '-d', type=int, default=60)
+    parser.add_argument(
+        '--chrome', '-s', action='store_true', help='Run website traffic with headless chrome')
     args = parser.parse_args()
     return args
             
