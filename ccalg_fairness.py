@@ -115,7 +115,8 @@ def start_iperf_flows(experiment, stack):
         stack.enter_context(start_client())
         
 def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
-                          btlbw=10, queue_size=128, rtt=35, duration=60):
+                          btlbw=10, queue_size=128, rtt=35, duration=60,
+                          chrome=False):
     experiment_name = '{}bw-{}rtt-{}q-{}-{}{}-{}s'.format(btlbw, rtt,
                                                       queue_size, website,
                                                           num_competing, competing_ccalg, duration)
@@ -204,7 +205,11 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
             filename = os.path.basename(url)
             if filename.strip() == '':
                 logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)
+            if chrome:
+                start_flow_cmd = 'timeout {}s google-chrome --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required {}'.format(duration+5, url)
+            else:
+                start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)
+                
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -943,17 +948,19 @@ def run_experiment_1video(website, url, competing_ccalg,
 
 def main(tests, websites,
          nums_competing, competing_ccalgs,
-         duration, ntwrk_conditions=None):
+         duration, ntwrk_conditions=None, repeat=1,
+         chrome=False):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
     print('Found {} websites'.format(len(websites)))
     if ntwrk_conditions is None:
         ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
                             (10,35), (10,85), (10,130), (10,275),
-                            (15,35), (15,85), (15,130), (15,275)]    
+                            (15,35), (15,85), (15,130), (15,275)]
+    repetitions = list(range(repeat))
     exp_params = list(itertools.product(tests, websites, nums_competing,
                                         competing_ccalgs, [duration],
-                                        ntwrk_conditions))
+                                        ntwrk_conditions, repetitions))
     logging.info('Found {} experiments'.format(len(exp_params)))
     num_completed_experiments = 0
     for params in exp_params:
@@ -964,6 +971,7 @@ def main(tests, websites,
             competing_ccalg = params[3]
             duration = params[4]
             btlbw, rtt, queue_size = params[5]
+            repetition = params[6]
             
             num_completed_experiments += 1
             too_small_rtt = 0
@@ -989,7 +997,8 @@ def main(tests, websites,
                                              btlbw,
                                              queue_size,
                                              rtt,
-                                             duration)
+                                             duration,
+                                             chrome)
             elif test == 'apache':
                 proc = run_apache_experiments(competing_ccalg,
                                               btlbw,
@@ -1071,6 +1080,8 @@ def parse_args():
         '--duration', '-d', type=int, default=60)
     parser.add_argument(
         '--chrome', '-s', action='store_true', help='Run website traffic with headless chrome')
+    parser.add_argument(
+        '--repeat', '-r', type=int, default=1)
     args = parser.parse_args()
     return args
             
@@ -1080,4 +1091,4 @@ if __name__ == '__main__':
     fileConfig(log_file_path)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     args = parse_args()
-    main(args.tests, args.websites, ntwrk_conditions=args.ntwrk_conditions, nums_competing=args.nums_competing, competing_ccalgs=args.competing_ccalgs, duration=args.duration)
+    main(args.tests, args.websites, ntwrk_conditions=args.ntwrk_conditions, nums_competing=args.nums_competing, competing_ccalgs=args.competing_ccalgs, duration=args.duration, repeat=args.repeat, chrome=args.chrome)
