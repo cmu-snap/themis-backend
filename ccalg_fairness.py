@@ -903,7 +903,7 @@ def run_experiment_1video(website, url, competing_ccalg,
         flow_kind = 'chrome'
         flow['rtt'] = rtt - 3
     else:
-        flow_kind = 'video'
+        flow_kind = 'website'
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                             end_time=flow['end_time'], rtt=flow['rtt'],
                             server_port=server_port, client_port=client_port,
@@ -941,7 +941,7 @@ def run_experiment_1video(website, url, competing_ccalg,
             key_filename=exp.server.key_filename) as ssh_client:
         cctestbed.exec_command(
             ssh_client,
-            exp.client.ip_wan,
+            exp.server.ip_wan,
             'sudo pkill -9 tcpdump')
                         
     with ExitStack() as stack:
