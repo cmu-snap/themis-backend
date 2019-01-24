@@ -95,8 +95,6 @@ def start_iperf_flows(experiment, stack):
                             #'--set-mss 500 ' # default is 1448
                             #'--window 100K '
                             '--zerocopy '
-
-
                             '--json '
                             '--logfile {} ').format(experiment.server.ip_lan,
                                                     flow.server_port,
@@ -144,10 +142,15 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
             'end_time': duration,
             'rtt': rtt - website_rtt,
             'start_time': 0}
+    if chrome:
+        flow_kind = 'chrome'
+        flow['rtt'] = rtt-3 # assume CDN flow is talking to is REALLY close
+    else:
+        flow_kind = 'website'
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                             end_time=flow['end_time'], rtt=flow['rtt'],
                             server_port=server_port, client_port=client_port,
-                            client_log=None, server_log=None, kind='website',
+                            client_log=None, server_log=None, kind=flow_kind,
                             client=client)]
     for x in range(num_competing):
         server_port += 1
@@ -176,14 +179,14 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
             key_filename=exp.server.key_filename) as ssh_client:
         cctestbed.exec_command(
             ssh_client,
-            exp.client.ip_wan,
+            exp.server.ip_wan,
             'sudo pkill -9 tcpdump')
                         
     with ExitStack() as stack:
         # add DNAT rule
-        stack.enter_context(add_dnat_rule(exp, url_ip))
+        stack.enter_context(add_dnat_rule(exp, url_ip, chrome=chrome))
         # add route to URL
-        stack.enter_context(add_route(exp, url_ip))
+        stack.enter_context(add_route(exp, url_ip, chrome=chrome))
         # add dns entry
         stack.enter_context(add_dns_rule(exp, website, url_ip))
         exp._run_tcpdump('server', stack)
@@ -243,7 +246,8 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
 
 
 def run_experiment_1vapache(website, url, competing_ccalg, 
-                          btlbw=10, queue_size=128, rtt=35, duration=60):
+                            btlbw=10, queue_size=128, rtt=35, duration=60,
+                            chrome=False):
     # force one competing apache flow
     num_competing = 1
     experiment_name = '{}bw-{}rtt-{}q-{}-1apache-{}'.format(
@@ -272,10 +276,15 @@ def run_experiment_1vapache(website, url, competing_ccalg,
             'end_time': duration,
             'rtt': rtt - website_rtt,
             'start_time': 0}
+    if chrome:
+        flow_kind = 'chrome'
+        flow['rtt'] = rtt - 3
+    else:
+        flow_kind = 'website'
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                             end_time=flow['end_time'], rtt=flow['rtt'],
                             server_port=server_port, client_port=client_port,
-                            client_log=None, server_log=None, kind='website',
+                            client_log=None, server_log=None, kind=flow_kind,
                             client=client)]
     # competing are apache flows
     for x in range(num_competing):
@@ -314,9 +323,9 @@ def run_experiment_1vapache(website, url, competing_ccalg,
                         
     with ExitStack() as stack:
         # add DNAT rule
-        stack.enter_context(add_dnat_rule(exp, url_ip))
+        stack.enter_context(add_dnat_rule(exp, url_ip,chrome=chrome))
         # add route to URL
-        stack.enter_context(add_route(exp, url_ip))
+        stack.enter_context(add_route(exp, url_ip,chrome=chrome))
         # add dns entry
         stack.enter_context(add_dns_rule(exp, website, url_ip))
         exp._run_tcpdump('server', stack)
@@ -331,17 +340,25 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
         stack.enter_context(exp._run_rtt_monitor())
-        filename = os.path.basename(url)
-        if filename.strip() == '':
-            logging.warning('Could not get filename from URL')
-        start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)   
+        cleanup_cmd = None
+        if chrome:
+            start_flow_cmd = 'google-chrome --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required {}'.format(url)
+            pgrep_string = website
+        else:
+            start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)
+            filename = os.path.basename(url)
+            if filename.strip() == '':
+                logging.warning('Could not get filename from URL')
+            else:
+                cleanup_cmd = 'rm -f /tmp/{}*'.format(filename)
+            pgrep_string = url
         start_flow = cctestbed.RemoteCommand(
             start_flow_cmd,
             exp.server.ip_wan,
             username=exp.server.username,
             key_filename=exp.server.key_filename,
-            cleanup_cmd='rm -f /tmp/{}*'.format(filename),
-            pgrep_string=url)
+            cleanup_cmd=cleanup_cmd,
+            pgrep_string=pgrep_string)
         start_flow_pid = stack.enter_context(start_flow())
         # waiting time before starting apache flow
         time.sleep(10)
@@ -371,7 +388,8 @@ def run_experiment_1vapache(website, url, competing_ccalg,
     return proc
 
 def run_experiment_rtt(website, url, competing_ccalg, num_competing,
-                          btlbw=10, queue_size=128, rtt=35, duration=60):
+                          btlbw=10, queue_size=128, rtt=35, duration=60,
+                       chrome=False):
     experiment_name = '{}bw-{}rtt-{}q-{}-{}{}-diffrtt-{}s'.format(
         btlbw, rtt, queue_size, website,
         num_competing, competing_ccalg, duration)
@@ -399,10 +417,14 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
             'end_time': duration,
             'rtt': 1,
             'start_time': 0}
+    if chrome:
+        flow_kind = 'chrome'
+    else:
+        flow_kind = 'website'
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                             end_time=flow['end_time'], rtt=flow['rtt'],
                             server_port=server_port, client_port=client_port,
-                            client_log=None, server_log=None, kind='website',
+                            client_log=None, server_log=None, kind=flow_kind,
                             client=client)]
     for x in range(num_competing):
         server_port += 1
@@ -436,9 +458,9 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
                         
     with ExitStack() as stack:
         # add DNAT rule
-        stack.enter_context(add_dnat_rule(exp, url_ip))
+        stack.enter_context(add_dnat_rule(exp, url_ip, chrome=chrome))
         # add route to URL
-        stack.enter_context(add_route(exp, url_ip))
+        stack.enter_context(add_route(exp, url_ip, chrome=chrome))
         # add dns entry
         stack.enter_context(add_dns_rule(exp, website, url_ip))
         exp._run_tcpdump('server', stack)
@@ -457,10 +479,14 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            filename = os.path.basename(url)
-            if filename.strip() == '':
-                logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)
+
+            if chrome:
+                start_flow_cmd = 'timeout {}s google-chrome --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required {}'.format(duration+5, url)
+            else:
+                filename = os.path.basename(url)
+                if filename.strip() == '':
+                    logging.warning('Could not get filename from URL')
+                start_flow_cmd = 'timeout {}s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(duration+5, exp.server.ip_lan, url, filename)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -494,11 +520,18 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
 
 
 @contextmanager
-def add_dnat_rule(exp, url_ip):
+def add_dnat_rule(exp, url_ip, chrome=False):
     with cctestbed.get_ssh_client(exp.server_nat_ip,
                                   exp.server.username,
                                   exp.server.key_filename) as ssh_client:
-        dnat_rule_cmd = 'sudo iptables -t nat -A PREROUTING -i enp1s0f0 --source {} -j DNAT --to-destination {}'.format(url_ip, exp.server.ip_lan)
+        if chrome:
+            dnat_rule_cmd = 'sudo iptables -t nat -A POSTROUTING -o enp1s0f0 -j MASQUERADE'
+        else:
+            dnat_rule_cmd = 'sudo iptables -t nat -A POSTROUTING --source {} -o enp1s0f0 -j SNAT --to {} && sudo iptables -t nat -A PREROUTING -i enp1s0f0 --source {} -j DNAT --to-destination {}'.format(
+                HOST_SERVER.ip_lan,
+                HOST_CLIENT.ip_wan,
+                url_ip,
+                exp.server.ip_lan)
         cctestbed.exec_command(ssh_client, exp.server_nat_ip, dnat_rule_cmd)
     try:
         yield
@@ -507,18 +540,30 @@ def add_dnat_rule(exp, url_ip):
         with cctestbed.get_ssh_client(exp.server_nat_ip,
                                       exp.server.username,
                                       exp.server.key_filename) as ssh_client:
-            # TODO: remove hard coding of the ip addr here
-            dnat_delete_cmd = 'sudo iptables -t nat --delete PREROUTING 1'
-            cctestbed.exec_command(ssh_client, exp.server.ip_wan, dnat_delete_cmd) 
+            if chrome:
+                dnat_delete_cmd = 'sudo iptables -t nat --delete POSTROUTING 1'
+            else:
+                # TODO: remove hard coding of the ip addr here
+                dnat_delete_cmd = 'sudo iptables -t nat --delete PREROUTING 1 && sudo iptables -t nat --delete POSTROUTING 1'
+            cctestbed.exec_command(ssh_client,
+                                   exp.server.ip_wan,
+                                   dnat_delete_cmd) 
 
 @contextmanager
-def add_route(exp, url_ip, gateway_ip=None):
+def add_route(exp, url_ip, gateway_ip=None, chrome=False):
     with cctestbed.get_ssh_client(exp.server.ip_wan,
                                   exp.server.username,
                                   key_filename=exp.server.key_filename) as ssh_client:
-        if gateway_ip is None:
-            gateway_ip = exp.client.ip_lan
-        add_route_cmd = 'sudo route add {} gw {}'.format(url_ip, gateway_ip)
+        if chrome:
+            add_route_cmd = (
+                'sudo ip route add 128.0.0.0/8 via 128.104.222.1 dev enp1s0f0 && '
+                'sudo route del default && '
+                'sudo route add default gw {} '.format(exp.client.ip_lan))
+        else:
+            if gateway_ip is None:
+                gateway_ip = exp.client.ip_lan
+            add_route_cmd = 'sudo route add {} gw {}'.format(
+                url_ip, gateway_ip)
         cctestbed.exec_command(ssh_client, exp.server.ip_wan, add_route_cmd)
     try:
         yield
@@ -526,8 +571,16 @@ def add_route(exp, url_ip, gateway_ip=None):
         with cctestbed.get_ssh_client(exp.server.ip_wan,
                                       exp.server.username,
                                       key_filename=exp.server.key_filename) as ssh_client:
-            del_route_cmd = 'sudo route del {}'.format(url_ip)
-            cctestbed.exec_command(ssh_client, exp.server.ip_wan, del_route_cmd)
+            if chrome:
+                del_route_cmd = (
+                'sudo route del default && '
+                'sudo route add default gw 128.104.222.1 && '
+                'sudo route del -net 128.0.0.0/8 gw 128.104.222.1')
+            else:
+                del_route_cmd = 'sudo route del {}'.format(url_ip)             
+            cctestbed.exec_command(ssh_client,
+                                   exp.server.ip_wan,
+                                   del_route_cmd)
 
 @contextmanager
 def add_dns_rule(exp, website, url_ip):
@@ -579,7 +632,7 @@ def start_apache_flow(flow, experiment, stack):
         change_ccalg = 'echo {} | sudo tee /proc/sys/net/ipv4/tcp_congestion_control'.format(flow.ccalg)
         cctestbed.exec_command(ssh_client, flow.client.ip_wan, change_ccalg)
     #TODO: should change ccalg back to default after running flow
-
+    
     # delay flow start for start time plus 3 seconds
     web_download_cmd = 'wget --quiet --background --span-hosts --no-cache --delete-after --bind-address {} -P /tmp/ "http://{}:1234/www.nytimes.com"'.format(experiment.server.ip_lan, experiment.client.ip_lan)
     start_download = cctestbed.RemoteCommand(
@@ -816,10 +869,11 @@ def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
 
 
 def run_experiment_1video(website, url, competing_ccalg, 
-                          btlbw=10, queue_size=128, rtt=35, duration=60):
+                          btlbw=10, queue_size=128, rtt=35, duration=60,
+                          chrome=False):
     # force one competing video flow
     num_competing = 1
-    experiment_name = '{}bw-{}rtt-{}q-{}-1svideo-{}-{}s'.format(
+    experiment_name = '{}bw-{}rtt-{}q-{}-10svideo-{}-{}s'.format(
         btlbw, rtt, queue_size, website, competing_ccalg, duration)
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
@@ -845,10 +899,15 @@ def run_experiment_1video(website, url, competing_ccalg,
             'end_time': duration+20,
             'rtt': rtt - website_rtt,
             'start_time': 0}
+    if chrome:
+        flow_kind = 'chrome'
+        flow['rtt'] = rtt - 3
+    else:
+        flow_kind = 'video'
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                             end_time=flow['end_time'], rtt=flow['rtt'],
                             server_port=server_port, client_port=client_port,
-                            client_log=None, server_log=None, kind='website',
+                            client_log=None, server_log=None, kind=flow_kind,
                             client=client)]
     # competing are apache flows
     for x in range(num_competing):
@@ -887,9 +946,9 @@ def run_experiment_1video(website, url, competing_ccalg,
                         
     with ExitStack() as stack:
         # add DNAT rule
-        stack.enter_context(add_dnat_rule(exp, url_ip))
+        stack.enter_context(add_dnat_rule(exp, url_ip, chrome=chrome))
         # add route to URL
-        stack.enter_context(add_route(exp, url_ip))
+        stack.enter_context(add_route(exp, url_ip, chrome=chrome))
         # add dns entry
         stack.enter_context(add_dns_rule(exp, website, url_ip))
         exp._run_tcpdump('server', stack)
@@ -905,17 +964,25 @@ def run_experiment_1video(website, url, competing_ccalg,
         exp._show_bess_pipeline()
         stack.enter_context(exp._run_bess_monitor())
         stack.enter_context(exp._run_rtt_monitor())
-        filename = os.path.basename(url)
-        if filename.strip() == '':
-            logging.warning('Could not get filename from URL')
-        start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)   
+        cleanup_cmd = None
+        if chrome:
+            start_flow_cmd = 'google-chrome --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required {}'.format(url)
+            pgrep_string = website
+        else:
+            filename = os.path.basename(url)
+            if filename.strip() == '':
+                logging.warning('Could not get filename from URL')
+            else:
+                cleanup_cmd = 'rm -f /tmp/{}*'.format(filename)
+            start_flow_cmd = 'wget --quiet --background --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=1 --bind-address {}  -P /tmp/ "{}"'.format(exp.server.ip_lan, url)
+            pgrep_string = url
         start_flow = cctestbed.RemoteCommand(
             start_flow_cmd,
             exp.server.ip_wan,
             username=exp.server.username,
             key_filename=exp.server.key_filename,
-            cleanup_cmd='rm -f /tmp/{}*'.format(filename),
-            pgrep_string=url)
+            cleanup_cmd=cleanup_cmd,
+            pgrep_string=pgrep_string)
         start_flow_pid = stack.enter_context(start_flow())
         # waiting time before starting apache flow
         time.sleep(10)
@@ -999,6 +1066,16 @@ def main(tests, websites,
                                              rtt,
                                              duration,
                                              chrome)
+            elif test == 'iperf16-website':
+                proc = run_experiment_1vmany(website,
+                                             url,
+                                             competing_ccalg,
+                                             16,
+                                             btlbw,
+                                             queue_size,
+                                             rtt,
+                                             duration,
+                                             chrome)
             elif test == 'apache':
                 proc = run_apache_experiments(competing_ccalg,
                                               btlbw,
@@ -1012,7 +1089,8 @@ def main(tests, websites,
                                                btlbw=btlbw,
                                                rtt=rtt,
                                                queue_size=queue_size,
-                                               duration=duration)
+                                               duration=duration,
+                                               chrome=chrome)
             elif test == 'video':
                 proc = run_video_experiments(competing_ccalg,
                                              btlbw,
@@ -1026,7 +1104,8 @@ def main(tests, websites,
                                              btlbw=btlbw,
                                              rtt=rtt,
                                              queue_size=queue_size,
-                                             duration=duration)
+                                             duration=duration,
+                                             chrome=chrome)
             elif test == 'iperf-rtt':
                 proc = run_experiment_rtt(website,
                                           url,
@@ -1035,7 +1114,8 @@ def main(tests, websites,
                                           btlbw,
                                           queue_size,
                                           rtt,
-                                          duration)
+                                          duration,
+                                          chrome)
             else:
                 raise NotImplementedError
         
@@ -1065,7 +1145,7 @@ def parse_args():
         description='Run ccctestbed experiment to measure interaction between flows')
     parser.add_argument('--test, -t', choices=[
         'apache','iperf','video','apache-website','iperf-website',
-        'video-website', 'iperf-rtt'], action='append', dest='tests')
+        'video-website', 'iperf-rtt', 'iperf16-website'], action='append', dest='tests')
     parser.add_argument(
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')

@@ -59,11 +59,16 @@ else:
      server_in -> ip_match
      merge = Merge()
      merge -> client_out
-     # where apache and video experiments will go
+     # where iperf, apache and video experiments will go
      ip_match:len(experiment['flows']) -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+     # this only works for one website or chrome flow
      for idx, flow in enumerate(experiment['flows']):
           flow_delay = flow[3]
           flow_kind = flow[8]
           if flow_kind == 'website':
                ip_match.add(prefix=flow[9][2], prefix_len=32, gate=idx)
                ip_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+          elif flow_kind == 'chrome':
+               ip_match.add(prefix='0.0.0.0', prefix_len=0, gate=idx)
+               ip_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+	    

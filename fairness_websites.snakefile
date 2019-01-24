@@ -213,6 +213,7 @@ rule get_goodput:
         )
         
         flow_ports = {}
+        
         for idx, flow in enumerate(description['flows']):
             # reconstruct flow objects from json description
             flow_obj = Flow(*flow)
@@ -228,7 +229,12 @@ rule get_goodput:
                 flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
             elif flow_obj.kind == 'video':
                 flow_port = None
-
+            elif flow_obj.kind == 'chrome':
+                #website_ip = flow_obj.client.ip_wan
+                #print(df_goodput[df_goodput['src'] == website_ip])
+                #flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
+                flow_port = 0
+                
             assert(not flow_port in flow_ports)
             flow_ports[flow_port] = idx
             
