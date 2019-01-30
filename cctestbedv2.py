@@ -467,15 +467,16 @@ class Experiment:
                         self.rtt_measured = None
                     else:
                         raise e
+            yield
         except Exception as e:
             raise RuntimeError('Encountered error when trying to start BESS\n{}'.format(stderr))
         finally:
             # this try, finally might be overkill
-            try:
-                yield
-            finally:
-                if ping_source == 'client':
-                    stop_bess()
+            #try:
+            #    yield
+            #finally:
+            if ping_source == 'client':
+                stop_bess()
         # need to update description log with avg rtt
         self.write_description_log() 
                 
