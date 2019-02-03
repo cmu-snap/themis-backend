@@ -5,16 +5,23 @@ import json
 
 workdir: "/tmp"
          
-onsuccess:
-    pass
-    #shell('rm -f /tmp/data-tmp/*')
-    # check if results are invalid
-    #for result_file in glob.glob('/tmp/data-processed/*.results'):
-    #    with open(result_file) as f:
-    #        results = json.load(f)
-    #        print(result_file, results['predicted_label'], results['mark_invalid'], results['bw_measured'],
-    #              results['expected_bw'], results['num_pkts_lost'])
-                
+
+def get_metric_files(wildcards):
+    if 'video' in wildcards.exp_name:
+        return {'http': 'data-processed/{}.http'.format(wildcards.exp_name),
+                'description': 'data-processed/{}.json'.format(wildcards.exp_name),
+                'tshark': 'data-processed/{}.tshark'.format(wildcards.exp_name)}
+    else:
+        return {'tshark': 'data-processed/{}.tshark'.format(wildcards.exp_name),
+                'description': 'data-processed/{}.json'.format(wildcards.exp_name)}
+def get_metric_files_list(wildcards):
+    if 'video' in wildcards.exp_name:
+        return {'metric_files':['data-processed/{}.http'.format(wildcards.exp_name),
+                'data-processed/{}.tshark'.format(wildcards.exp_name)]}
+    else:
+        return {'metric_files':['data-processed/{}.tshark'.format(wildcards.exp_name)]}
+
+    
             
 BW_THRESHOLD=0.5
 PKT_LOSS_THRESHOLD=0
@@ -181,69 +188,136 @@ rule get_tcpdump_analysis:
         ports_filter = 'tcp.port eq {}'.format(' or tcp.port eq '.join(
             queue_seen_ports))
 
-        shell('tshark -2 -r {} -R "{}" -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.time_relative -e tcp.len -E separator=, > {}'.format(
+        shell('tshark -2 -r {} -R "{}" -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.time_relative -e tcp.len -e frame.time_relative -E separator=, -E occurrence=f > {}'.format(
                     input.tcpdump, ports_filter, output.tcpdump_analysis))
 
-        
-rule get_goodput:
+rule get_metric:
     input:
-        tcpdump_analysis='data-processed/{exp_name}.tshark',
-        description='data-raw/{exp_name}.json'
+        unpack(get_metric_files)
     output:
-        goodput='data-processed/{exp_name}.goodput',
+        metric='data-processed/{exp_name}.metric'
     run:
         import json
         import pandas as pd
         from cctestbedv2 import Flow, Host
-
+        
         with open(input.description) as f:
             description = json.load(f)
 
-        df_tshark = pd.read_csv(input.tcpdump_analysis,
-                                header=None,
-                                names=['stream','src','srcport',
-                                       'dst','dstport','time_relative','len'])
-        
-        df_goodput = (df_tshark
-                      .groupby('stream')
-                      .agg({'src':'first','srcport':'first','dst':'first',
-                            'dstport':'first','len':'sum','time_relative':'last'})
-                      .assign(goodput=lambda df: (df['len'] / df['time_relative']) * BYTES_TO_BITS * BITS_TO_MEGABITS)
-                      .rename({'time_relative':'fct'}, axis=1)
-        )
-        
-        flow_ports = {}
-        
+        flow_objs = {}
         for idx, flow in enumerate(description['flows']):
             # reconstruct flow objects from json description
             flow_obj = Flow(*flow)
             host_obj = Host(*flow_obj.client)
             flow_obj = flow_obj._replace(client=host_obj)
-            
-            if flow_obj.kind == 'website':
-                website_ip = flow_obj.client.ip_wan
-                flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
-            elif flow_obj.kind == 'iperf':
-                flow_port = flow_obj.client_port
-            elif flow_obj.kind == 'apache':
-                flow_port = df_goodput[df_goodput['dstport'] == 1234]['srcport'].iloc[0]
-            elif flow_obj.kind == 'video':
-                flow_port = None
-            elif flow_obj.kind == 'chrome':
-                #website_ip = flow_obj.client.ip_wan
-                #print(df_goodput[df_goodput['src'] == website_ip])
-                #flow_port = df_goodput[df_goodput['dst'] == website_ip]['srcport'].iloc[0]
-                flow_port = 0
-                
-            assert(not flow_port in flow_ports)
-            flow_ports[flow_port] = idx
-            
-        num_flow = pd.Series(flow_ports)
-        num_flow.name = 'num_flow'
-        df_goodput = df_goodput.set_index('srcport').join(num_flow)
-        df_goodput.to_csv(output.goodput)
-        
+            flow_objs[idx] = flow_obj
 
+        
+        def is_test_data(df):
+            return df['src'].isin(['192.0.0.2','192.0.0.4']) & df['dst'].isin(['192.0.0.2','192.0.0.4'])
+
+        df_tshark = pd.read_csv(input.tshark,
+                                header=None,
+                                names=['stream','src','srcport',
+                                       'dst','dstport','time_relative',
+                                       'len','time'])
+    
+        df_testing = df_tshark.where(lambda df: is_test_data(df)).dropna(how='all')
+        df_not_testing = df_tshark.where(lambda df: ~is_test_data(df)).dropna(how='all')
+        assert(not df_testing.empty)
+        assert(not df_not_testing.empty)
+         
+        df_testing_start = df_testing.sort_values('time').iloc[0]['time']
+        df_not_testing_start = df_not_testing.sort_values('time').iloc[0]['time']
+        df_testing_end = df_testing.sort_values('time').iloc[-1]['time']
+        df_not_testing_end = df_not_testing.sort_values('time').iloc[-1]['time']
+        
+        start_time = max(df_testing_start, df_not_testing_start)
+        end_time = min(df_not_testing_end, df_testing_end)
+        runtime = end_time - start_time
+
+        
+        # make sure both flows are running
+
+        df_testing_adjusted = df_testing.where(lambda df: df['time'] >= start_time).dropna(how='all').where(lambda df: df['time'] < end_time).dropna(how='all')
+        df_not_testing_adjusted = df_not_testing.where(lambda df: df['time'] >= start_time).dropna(how='all').where(lambda df: df['time'] < end_time).dropna(how='all')
+            
+        assert(not df_testing_adjusted.empty)
+        assert(not df_not_testing_adjusted.empty)
+
+        
+        df_testing_bytes = df_testing_adjusted['len'].sum()
+        df_not_testing_bytes = df_not_testing_adjusted['len'].sum()
+
+        
+        results = {'runtime':runtime,
+                   'start_time':start_time,
+                   'end_time':end_time,
+                   'service_bytes':df_not_testing_bytes,
+                   'other_bytes':df_testing_bytes}
+                   
+        if (flow_objs[1].kind == 'video'):
+            df_http = (pd.read_csv(input.http,
+                                 header=None,
+                                 names=['tcp_stream',
+                                        'src_ip',
+                                        'src_port',
+                                        'dst_ip',
+                                        'dst_port',
+                                        'time_relative',
+                                        'request_uri'])
+                      .dropna(how='any')
+                      .assign(bitrate=lambda df: (df['request_uri']
+                                                  .str
+                                                  .extract('/bunny_(\d+)bps/.*')
+                                                  .astype('float')))
+            )
+
+            df_http = df_http.set_index('time_relative').loc[start_time:end_time]
+            
+            # get frames received before other flow finishes
+            results['metric'] = df_http['bitrate'].mean()
+            results['test'] = 'video'
+        elif (flow_objs[1].kind == 'apache'):
+            assert(df_testing_bytes == df_testing['len'].sum())
+            results['metric'] = runtime
+            results['test'] = 'apache'
+        else:
+            if (flow_objs[1].kind == 'iperf') & (len(flow_objs)==17):
+                # need to find time first iperf flow stops and make that
+                # the end time
+                end_time = df_testing_adjusted.where(lambda df: df['srcport'].isin(range(5202,5217))).groupby('srcport')['time_relative'].max().min()
+                runtime = end_time - start_time
+                df_testing_adjusted = df_testing.where(lambda df: df['time'] >= start_time).dropna(how='all').where(lambda df: df['time'] < end_time).dropna(how='all')
+                df_not_testing_adjusted = df_not_testing.where(lambda df: df['time'] >= start_time).dropna(how='all').where(lambda df: df['time'] < end_time).dropna(how='all')
+
+                assert(not df_testing_adjusted.empty)
+                assert(not df_not_testing_adjusted.empty)
+
+                df_testing_bytes = df_testing_adjusted['len'].sum()
+                df_not_testing_bytes = df_not_testing_adjusted['len'].sum()
+                results = {'runtime':runtime,
+                           'start_time':start_time,
+                           'end_time':end_time,
+                           'service_bytes':df_not_testing_bytes,
+                           'other_bytes':df_testing_bytes,
+                           'test': 'iperf16'}
+
+                results['metric'] = df_testing_bytes / runtime
+                
+            else:
+                results['metric'] = df_testing_bytes / runtime
+
+                
+                if 'diffrtt' in wildcards.exp_name:
+                    results['test'] = 'diffrtt'
+                else:
+                    results['test'] = 'iperf1'        
+            
+        with open(output.metric,'w') as f:
+            json.dump(results, f)
+
+            
 rule get_http_analysis:
     input:
         http_pcap='data-raw/http-{exp_name}.pcap'
@@ -301,17 +375,18 @@ rule get_avg_bitrate:
 
 rule scp_results:
     input:
+        unpack(get_metric_files_list),
         exp_tarfile='data-raw/{exp_name}.tar.gz',
-        goodput='data-processed/{exp_name}.goodput',
+        metric='data-processed/{exp_name}.metric',
         queue='data-processed/queue-{exp_name}.h5',
-        tcpdump_analysis='data-processed/{exp_name}.tshark',
-        bitrate='data-processed/{exp_name}.bitrate',
-        http='data-processed/{exp_name}.http'
+        #tcpdump_analysis='data-processed/{exp_name}.tshark',
+        #bitrate='data-processed/{exp_name}.bitrate',
+        #http='data-processed/{exp_name}.http'
     output:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
         """
-        tar -czvf {output.compressed_results} {input.goodput} {input.exp_tarfile} {input.queue} {input.tcpdump_analysis} {input.bitrate} {input.http} && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+        tar -czvf {output.compressed_results} {input.metric} {input.exp_tarfile} {input.queue} $(ls data-processed/{wildcards.exp_name}.http) data-processed/{wildcards.exp_name}.tshark  --strip-components=1 && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
         """
        
     

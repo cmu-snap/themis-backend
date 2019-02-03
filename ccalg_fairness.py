@@ -1039,7 +1039,7 @@ def main(tests, websites,
             duration = params[4]
             btlbw, rtt, queue_size = params[5]
             repetition = params[6]
-            
+
             num_completed_experiments += 1
             too_small_rtt = 0
             print('Running experiment {}/{} params={}'.format(
@@ -1048,7 +1048,7 @@ def main(tests, websites,
             if rtt <= too_small_rtt:
                 print('Skipping experiment RTT too small')
                 continue
-        
+
             if test == 'iperf':
                 proc = run_iperf_experiments(competing_ccalg,
                                              btlbw,
@@ -1118,12 +1118,13 @@ def main(tests, websites,
                                           chrome)
             else:
                 raise NotImplementedError
-        
+
             # spaghetti code to skip websites that don't work for given rtt
             if proc == -1:
                 too_small_rtt = max(too_small_rtt, rtt)
             elif proc is not None:
                 completed_experiment_procs.append(proc)
+            time.sleep(60)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
@@ -1131,7 +1132,7 @@ def main(tests, websites,
             print('Error running experiment for website: {}'.format(website))
             print(e)
             print(traceback.print_exc())
-
+                
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()

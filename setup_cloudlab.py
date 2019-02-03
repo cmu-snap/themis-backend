@@ -266,6 +266,14 @@ def setup_webserver(host_client):
             'sudo apt-get install -f' # install missing dependencies
             'rm google-chrome-stable_current_amd64.deb']
     """
+
+def add_disk_space_apache():
+    cmds = [
+        'sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt',
+        'sudo mkdir /mnt/html',
+        'sudo chown -R rware:dna-PG0 /mnt/html',
+        'cp -R /var/www/html/* /mnt/html',
+        'rm -r /var/www/*']
     
 def main():
     host_server, host_client = get_host_info()
