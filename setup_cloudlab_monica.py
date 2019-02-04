@@ -6,6 +6,7 @@ import pwd
 import pickle
 
 from cctestbedv2 import Host, get_interface_pci, connect_dpdk
+from config import *
 
 
 USER = os.environ['USER']
@@ -274,18 +275,18 @@ def setup_data_analysis():
         "sudo pip3.6 install matplotlib",
         "sudo pip3.6 install sklearn",
         "sudo pip3.6 install fastdtw",
-        "sudo mkdir /tmp/data-raw",
-        "sudo mkdir /tmp/data-processed,"
-        "sudo mv /tmp/*.tar.gz /tmp/data-raw/",
+        #"sudo mkdir /tmp/data-raw",
+        "sudo mkdir /tmp/data-processed",
+        #"sudo mv /tmp/*.tar.gz /tmp/data-raw/",
         "sudo chown -R {}:dna-PG0 /tmp/data-processed".format(USER),
-        "sudo chown -R {}rware:dna-PG0 /tmp/data-raw".format(USER)]
+        "sudo chown -R {}:dna-PG0 /tmp/data-raw".format(USER)]
     for cmd in cmds:
         proc = subprocess.run(cmd, shell=True)
         assert(proc.returncode == 0)
 
 
 def main():
-    host_server, host_client = get_host_info()
+    host_server, host_client = HOST_SERVER, HOST_CLIENT
     increase_win_sizes()
     turn_off_tso(host_server, host_client)
     add_route(host_server, host_client)
@@ -294,7 +295,7 @@ def main():
     load_all_ccalgs()
     export_environs(host_server, host_client)
     add_disk_space()
-    connect_bess(host_server, host_client)
+    #connect_bess(host_server, host_client)
     setup_data_analysis()
     #setup_webserver(host_client)
     
