@@ -170,7 +170,7 @@ def add_disk_space():
            '&& sudo cp -R /tmp/* /mnt/tmp '
            '&& sudo  rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp '
-           '&& sudo chown -R rware:dna-PG0 /tmp/*')
+           '&& sudo chown -R {}:dna-PG0 /tmp/*'.format(USER))
     proc = subprocess.run(cmd, shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
@@ -181,7 +181,7 @@ def add_disk_space():
            "&& sudo cp -R /tmp/* /mnt/tmp "
            "&& sudo rm -r /tmp "
            "&& sudo ln -s /mnt/tmp /tmp "
-           "&& sudo chown -R rware:dna-PG0 /tmp/*")
+           "&& sudo chown -R {}:dna-PG0 /tmp/*".format(USER))
     proc = subprocess.run("ssh -o StrictHostKeyChecking=no cctestbed-server '{}'".format(
         cmd), shell=True)
     if proc.returncode != 0:
@@ -274,8 +274,31 @@ def add_disk_space_apache():
         'sudo chown -R rware:dna-PG0 /mnt/html',
         'cp -R /var/www/html/* /mnt/html',
         'rm -r /var/www/*']
+
+def setup_data_analysis():
+    cmds = [
+        "sudo pip3.6 install snakemake",
+        "sudo pip3.6 install tables",
+        "sudo pip3.6 install matplotlib",
+        "sudo pip3.6 install sklearn",
+        "sudo pip3.6 install fastdtw",
+        "sudo mkdir /tmp/data-raw",
+        "sudo mkdir /tmp/data-processed",
+        #"sudo mv /tmp/*.tar.gz /tmp/data-raw/",
+        "sudo chown -R {}:dna-PG0 /tmp/data-processed".format(USER),
+        "sudo chown -R {}:dna-PG0 /tmp/data-raw".format(USER)]
+    for cmd in cmds:
+        proc = subprocess.run(cmd, shell=True)
+        assert(proc.returncode == 0)
+    # this may not work if there is no data in this folder so don't check return code
+    proc = subprocess.run('sudo mv /tmp/*.tar.gz /tmp/data-raw/', shell=True)
+
     
 def main():
+    # check if identity file exists & works
+    if not os.path.isfile(IDENTITY_FILE):
+        print('Could not find identify file: {}. Please add it to this machine to run cloudlab setup'.format(IDENTITY_FILE))
+        exit(1)
     host_server, host_client = get_host_info()
     increase_win_sizes()
     turn_off_tso(host_server, host_client)
@@ -287,6 +310,7 @@ def main():
     add_disk_space()
     connect_bess(host_server, host_client)
     setup_webserver(host_client)
+    setup_data_analysis()
     
 if __name__ == '__main__':
     main()
