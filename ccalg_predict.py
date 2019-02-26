@@ -269,16 +269,15 @@ def main(websites, ntwrk_conditions=None, force=False):
     print('Found {} websites'.format(len(websites)))
     num_completed_websites = 0
     if ntwrk_conditions is None:
-        ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
-                            (10,35), (10,85), (10,130), (10,275),
-                            (15,35), (15,85), (15,130), (15,275)]
+        ntwrk_conditions = [(5,35,64), (5,85,64), (5,130,64), (5,275,64),
+                            (10,35,64), (10,85,64), (10,130,64), (10,275,64),
+                            (15,35,64), (15,85,64), (15,130,64), (15,275,64)]
         
     for website, url in websites:
         try:
             num_completed_experiments = 1
             too_small_rtts = []
-            for btlbw, rtt in ntwrk_conditions:
-                queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
+            for btlbw, rtt, queue_size in ntwrk_conditions:
                 print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
                     num_completed_experiments,website,btlbw,queue_size,rtt))
                 num_completed_experiments += 1
@@ -318,7 +317,7 @@ def parse_args():
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')
     parser.add_argument(
-        '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
+        '--network, -n', nargs=3, action='append', metavar=('BTLBW','RTT','QSIZE'), dest='ntwrk_conditions', default=None, type=int,
         help='Network conditions for download from website.')
     parser.add_argument('--force', '-f', action='store_true',
                         help='Force experiments that were already run to run again')
