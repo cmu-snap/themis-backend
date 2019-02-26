@@ -18,6 +18,7 @@ enable_hugepages() {
     sudo sysctl vm.nr_hugepages=1024
     echo 1024 | sudo tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
     echo 1024 | sudo tee /sys/devices/system/node/node1/hugepages/hugepages-2048kB/nr_hugepages
+    sudo systcl -p
 }
 
 # might have to run this twice to get it to work

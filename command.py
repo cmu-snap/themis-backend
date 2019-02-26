@@ -14,7 +14,7 @@ class RemoteCommand:
     """Command to run on a remote machine in the background"""
     def __init__(self, cmd, ip_addr, username,
                  stdout='/dev/null', stdin='/dev/null', stderr='/dev/null', logs=[],
-                 cleanup_cmd=None, sudo=False, key_filename=None):
+                 cleanup_cmd=None, sudo=False, key_filename=None, pgrep_string=None):
         self.cmd = cmd.strip()
         self.ip_addr = ip_addr
         self.stdout = stdout
@@ -26,21 +26,40 @@ class RemoteCommand:
         self.username = username
         self.key_filename = key_filename
         self.exit_stack = ExitStack()
+        self.pgrep_string = pgrep_string
+        self.pid = None
         
     def _get_ssh_client(self):
         return get_ssh_client(self.ip_addr, self.username, self.key_filename)
 
     def _get_ssh_channel(self, ssh_client):
         return ssh_client.get_transport().open_session()
-
+        
+    def _is_running(self):
+        with ExitStack() as stack:
+            ssh_client = stack.enter_context(self._get_ssh_client())
+            _, stdout, _ = ssh_client.exec_command('ps -p "{}"'.format(self.pid))
+            stack.callback(stdout.close)
+            exit_code = stdout.channel.recv_exit_status()
+        return exit_code == 0
+        
+        
+    def _wait(self):
+        while self._is_running():
+            time.sleep(1)
+            
     def _get_pid(self, cmd):
         with ExitStack() as stack:
             ssh_client = stack.enter_context(self._get_ssh_client())
             logging.info('Running cmd ({}): {}'.format(self.ip_addr, cmd))
-            _, stdout, _ = ssh_client.exec_command('pgrep -f "^{}"'.format(self.cmd))
+            if self.pgrep_string is None:
+                self.pgrep_string = '^'+self.cmd
+            logging.info('Looking up pid: pgrep -nf "{}"'.format(self.pgrep_string))
+            _, stdout, _ = ssh_client.exec_command('pgrep -nf "{}"'.format(self.pgrep_string))
             stack.callback(stdout.close)
             pid = stdout.readline().strip()
             logging.info('PID={}'.format(pid))
+        self.pid = pid
         return pid
 
     def _cleanup_cmd(self, pid):
@@ -108,9 +127,16 @@ class RemoteCommand:
                 cmd = self.cmd
             with closing(cmd_ssh_channel.makefile_stderr()) as cmd_stderr:
                 cmd_ssh_channel.exec_command('{} > {} 2> {} < {} &'.format(cmd,
-                                                                        self.stdout,
+                                                                           self.stdout,
                                                                            self.stderr,
                                                                            self.stdin))
+                # check if immediately got nonzero exit status
+                if cmd_ssh_channel.exit_status_ready():
+                    if cmd_ssh_channel.recv_exit_status() != 0:
+                        raise RuntimeError(
+                            'Got a non-zero exit status running cmd: {}.\n{}'.format(
+                                self.cmd, cmd_stderr.read()))
+                
                 # get PID
                 pid = self._get_pid(cmd)
                 if pid=='':
@@ -125,13 +151,7 @@ class RemoteCommand:
                             self.cmd, cmd_stderr.read()))
                         raise RuntimeError(
                             'Could not get PID after running cmd: {}'.format(self.cmd))
-                # check if immediately got nonzero exit status
-                if cmd_ssh_channel.exit_status_ready():
-                    if cmd_ssh_channel.recv_exit_status() != 0:
-                        raise RuntimeError(
-                            'Got a non-zero exit status running cmd: {}.\n{}'.format(
-                                self.cmd, cmd_stderr.read()))
-            pid = int(pid)            
+            pid = int(pid)
             self.exit_stack.callback(self._cleanup_cmd, pid)
             yield pid
         finally:
@@ -144,13 +164,15 @@ class RemoteCommand:
     def __repr__(self):
         return 'RemoteCommand({})'.format(self.__str__())
 
-def run_local_command(cmd, shell=False, timeout=None):
+def run_local_command(cmd, shell=False, timeout=None, check=False):
     """Run local command return stdout"""
     logging.info('Running cmd: {}'.format(cmd))
     if shell:
-        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, timeout=timeout)
+        proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, timeout=timeout,
+                              check=check)
     else:
-        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE, timeout=timeout)
+        proc = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE,
+                              timeout=timeout, check=check)
     return proc.stdout.decode('utf-8')
 
 @contextmanager

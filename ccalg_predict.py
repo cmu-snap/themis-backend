@@ -14,6 +14,7 @@ import os
 import yaml
 import datetime
 import argparse
+import json
 
 QUEUE_SIZE_TABLE = {
     35: {5:16, 10:32, 15:64},
@@ -22,7 +23,7 @@ QUEUE_SIZE_TABLE = {
     275: {5:128, 10:256, 15:512}}
 
 def is_completed_experiment(experiment_name):
-    num_completed = glob.glob('/tmp/{}-*.tar.gz'.format(experiment_name))
+    num_completed = glob.glob('/tmp/data-tmp/{}-*.tar.gz'.format(experiment_name))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
@@ -31,7 +32,7 @@ def is_completed_experiment(experiment_name):
 
 def ran_experiment_today(experiment_name):
     today = datetime.datetime.now().isoformat()[:10].replace('-','')
-    num_completed = glob.glob('/tmp/{}-{}*.tar.gz'.format(experiment_name, today))
+    num_completed = glob.glob('/tmp/data-tmp/{}-{}*.tar.gz'.format(experiment_name, today))
     experiment_done = len(num_completed) > 0
     if experiment_done:
         logging.warning(
@@ -52,9 +53,6 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
     if not force and is_completed_experiment(experiment_name):
         return
-    else:
-        if ran_experiment_today(experiment_name):
-            return
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
@@ -80,9 +78,10 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             'rtt': rtt - website_rtt,
             'start_time': 0}
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
-                      end_time=flow['end_time'], rtt=flow['rtt'],
-                      server_port=server_port, client_port=client_port,
-                      client_log=None, server_log=None)]
+                            end_time=flow['end_time'], rtt=flow['rtt'],
+                            server_port=server_port, client_port=client_port,
+                            client_log=None, server_log=None, kind='website',
+                            client=client)]
     
     exp = cctestbed.Experiment(name=experiment_name,
                      btlbw=btlbw,
@@ -129,7 +128,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             filename = os.path.basename(url)
             if filename.strip() == '':
                 logging.warning('Could not get filename from URL')
-            start_flow_cmd = 'timeout 65s wget --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ {} || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
+            start_flow_cmd = 'timeout 65s wget --no-check-certificate --no-cache --delete-after --connect-timeout=10 --tries=3 --bind-address {}  -P /tmp/ "{}" || rm -f /tmp/{}.tmp*'.format(exp.server.ip_lan, url, filename)
             # won't return until flow is done
             flow_start_time = time.time()
             _, stdout, _ = cctestbed.exec_command(ssh_client, exp.server.ip_wan, start_flow_cmd)
@@ -139,6 +138,17 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
         print(cctestbed.run_local_command(cmd))
+
+        logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
+        with open(exp.logs['website_log'], 'w') as f:
+            website_info = {}
+            website_info['website'] = website
+            website_info['url'] = url
+            website_info['website_rtt'] = website_rtt
+            website_info['url_ip'] = url_ip
+            website_info['flow_runtime'] = flow_end_time - flow_start_time 
+            json.dump(website_info, f)
+
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
                 print('Timeout. Flow longer than 65s.')
@@ -146,8 +156,14 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
             else:
                 logging.error(stdout.read())
                 raise RuntimeError('Error running flow.')
+
     proc = exp._compress_logs_url()
     return proc
+
+
+#TODO
+def log_experiment(**kwargs):
+    raise NotImplementedError
 
 @contextmanager
 def add_dnat_rule(exp, url_ip):
@@ -276,19 +292,19 @@ def main(websites, ntwrk_conditions=None, force=False):
     for website, url in websites:
         try:
             num_completed_experiments = 1
+
             too_small_rtts = []
             for btlbw, rtt, queue_size in ntwrk_conditions:
                 print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
                     num_completed_experiments,website,btlbw,queue_size,rtt))
                 num_completed_experiments += 1
-                if rtt in too_small_rtts:
+                if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
-                    num_completed_experiments += 1
-                    break
+                    continue
                 proc = run_experiment(website, url, btlbw, queue_size, rtt, force=force)
                 # spaghetti code to skip websites that don't work for given rtt
                 if proc == -1:
-                    too_small_rtts.append(rtt)
+                    too_small_rtt = max(too_small_rtt, rtt)
                 elif proc is not None:
                     completed_experiment_procs.append(proc)
         except Exception as e:
@@ -306,8 +322,8 @@ def main(websites, ntwrk_conditions=None, force=False):
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
         proc.wait()
         if proc.returncode != 0:
-            logging.warning('Error running cmd PID={}'.format(proc.pid))
-    
+            logging.warning('Error cleaning up experiment PID={}'.format(proc.pid))
+        
             
 def parse_args():
     """Parse commandline arguments"""

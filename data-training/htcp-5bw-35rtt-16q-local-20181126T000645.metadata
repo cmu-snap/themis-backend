@@ -1,0 +1,1 @@
+{"rtt": 35, "btlbw": 5, "queue_size": 16, "rtt_measured": 35.205, "exp_name": "htcp-5bw-35rtt-16q-local-20181126T000645", "delay_added": 35, "rtt_initial": 0.2049999999999983, "true_label": "htcp", "rtt_mean": null, "rtt_std": null, "bw_measured": 4.06308382, "pkts_dropped_queue": 56, "pkts_lost_tcpdump": 56, "pkts_dequeued": 24353, "num_pkts_lost": 0, "observed_bw_diff": 0.8}

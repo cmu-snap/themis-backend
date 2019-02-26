@@ -22,12 +22,15 @@ import ccalg_predict
 import traceback
 import argparse
 
+import rtt_exps
+
 from logging.config import fileConfig
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.ini')
 fileConfig(log_file_path)    
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 # CCALGS = ['cubic','reno','bbr']
-CCALGS = ['bic', 'cdg', 'dctcp', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
+CCALGS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'lp', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
 
 def get_all_regions():
     """Get all EC2 regions"""
@@ -261,7 +264,7 @@ def install_kernel_modules(ec2, instance, ec2_username='ubuntu'):
         'cd /opt/cctestbed/tcp_bbr_measure && sudo insmod tcp_probe_ray.ko',
         'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done',
         'sudo rmmod tcp_probe',
-        'echo net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah | sudo tee -a /etc/sysctl.conf',
+        "echo 'net.ipv4.tcp_allowed_congestion_control=cubic reno bic bbr cdg dctcp highspeed htcp hybla illinois lp nv scalable vegas veno westwood yeah' | sudo tee -a /etc/sysctl.conf",
         'sudo sysctl -p',
         'sudo ethtool -K eth0 tx off sg off tso off'
     ]
@@ -310,8 +313,9 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     if not force and ccalg_predict.is_completed_experiment(experiment_name):
         return
     else:
-        if ccalg_predict.ran_experiment_today(experiment_name):
-            return
+        pass
+        #if ccalg_predict.ran_experiment_today(experiment_name):
+        #    return
     logging.info('Creating experiment for instance: {}-{}'.format(region, ccalg))
     instance_rtt = int(float(get_ping_rtt(instance.public_ip_address)))
     logging.info('Got instance RTT: {}'.format(instance_rtt))
@@ -344,7 +348,8 @@ def run_ec2_experiment(ec2, instance, ccalg, btlbw, rtt,
     flows = [cctestbed.Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                       end_time=flow['end_time'], rtt=flow['rtt'],
                       server_port=server_port, client_port=client_port,
-                      client_log=None, server_log=None)]
+                            client_log=None, server_log=None, kind='iperf',
+                            client=client)]
     
     exp = cctestbed.Experiment(name=experiment_name,
                                btlbw=btlbw,
@@ -390,7 +395,7 @@ def get_region_image(region):
     assert(len(aws_images) == 1)
     return aws_images[0]            
     
-def get_taro_experiments(networks=None, force=True):    
+def get_taro_experiments(networks=None, force=True, loss=None, ccalgs=CCALGS):    
     if networks is None:
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
@@ -408,7 +413,8 @@ def get_taro_experiments(networks=None, force=True):
                 end_time=60,
                 exp_name_suffix='local',
                 queue_sizes=[queue_size],
-                ccalgs=CCALGS)
+                ccalgs=ccalgs,
+                loss=loss)
             config_filename = 'experiments-ccalg-predict-{}bw-{}rtt-{}q-{}.yaml'.format(
                 btlbw,
                 rtt,
@@ -422,8 +428,8 @@ def get_taro_experiments(networks=None, force=True):
     return experiments
 
     
-def run_local_exps(networks, force):
-    experiments = get_taro_experiments(networks, force)
+def run_local_exps(networks, force, loss, ccalgs):
+    experiments = get_taro_experiments(networks, force, loss, ccalgs)
     completed_experiment_procs = []
     logging.info('Going to run {} experiments.'.format(len(experiments)))
     num_experiments = len(experiments.values())
@@ -440,13 +446,11 @@ def run_local_exps(networks, force):
         if proc.returncode != 0:
             logging.warning('Error running cmd PID={}'.format(proc.pid))
 
-def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks=None, force=False):
+def run_aws_exps(force_create_instance=False, regions=None, networks=None, ccalgs=None, force=False):
     #regions = ['ap-south-1', 'eu-west-1']
-    skip_regions = ['ap-south-1'] #['us-east-1']
+    skip_regions = [] #['ap-south-1','eu-west-3','eu-west-1','eu-west-2','ap-northeast-2','ap-northeast-1']
     if regions is None:
         regions=get_all_regions()
-    #else:
-    #    regions = ['us-east-1'] #get_all_regions()
     
     #regions = [
     #    'ap-northeast-1', 'ap-northeast-2', 'sa-east-1','ap-southeast-1','ap-southeast-2',
@@ -457,10 +461,14 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
         ntwrk_conditions = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
                             (10,35,32), (10,85,128), (10,130,128), (10,275,256),
                             (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
-
     else:
         ntwrk_conditions = networks
-    
+
+    if ccalgs is None:
+        ccalgs = CCALGS
+
+    num_exps = len(regions) * len(ntwrk_conditions) * len(ccalgs)
+        
     logging.info('Found {} regions: {}'.format(len(regions), regions))
     # TODO: wait for all created images to be created
     created_images = []
@@ -469,9 +477,12 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
         if region in skip_regions:
             logging.warning('Skipping region {}'.format(region))
             continue
-        instance = get_instance(region)
+        if not force_create_instance:
+            instance = get_instance(region)
+        else:
+            instance = None
+        ec2_region = get_ec2(region)
         if (instance is None) or (force_create_instance):
-            ec2_region = get_ec2(region)
             if get_key_name(ec2_region) is None:
                 logging.warning('Creating key pair for region {}'.format(region))
                 create_key_pair(ec2_region, region)        
@@ -486,8 +497,10 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
                 instance.wait_until_running()
                 instance.load()
                 if image is None:
-                    logging.info('Setting up cctestbed on instance')
-                    setup_ec2(ec2_region, instance, git_secret, ec2_username='ubuntu')
+                    #logging.info('Setting up cctestbed on instance')
+                    #setup_ec2(ec2_region, instance, git_secret, ec2_username='ubuntu')
+                    logging.error('Image not setup for this region')
+                    raise ValueError('Image not setup for this region')
             except Exception as e:
                 instance.stop()
                 raise e
@@ -499,13 +512,13 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
             num_completed_exps = 0
             too_small_rtt = 0
             for btlbw, rtt, queue_size in ntwrk_conditions:
-                for ccalg in CCALGS:
+                for ccalg in ccalgs:
                     num_completed_exps += 1
                     if rtt <= too_small_rtt:
                         print('Skipping experiment RTT too small')
-                        num_completed_exps += (len(CCALGS) - 1)
+                        num_completed_exps += (len(CCALGS)-1)
                         break
-                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, len(ntwrk_conditions) * len(CCALGS), region, ccalg, btlbw, rtt, queue_size))
+                    print('Running experiment {}/{} region={}, ccalg={}, btlbw={}, rtt={}, queue_size={}'.format(num_completed_exps, num_exps, region, ccalg, btlbw, rtt, queue_size))
                     proc = run_ec2_experiment(ec2_region, instance, ccalg, btlbw, rtt,
                                               queue_size, region, force=force)
                     if proc == -1:
@@ -546,23 +559,39 @@ def run_aws_exps(git_secret, force_create_instance=False, regions=None, networks
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run controlled iperf3 experiment')
-    parser.add_argument('--regions','-r', required=False, nargs='+', default=None,
+    parser.add_argument('--regions','-r',
+                        required=False, nargs='+', default=get_all_regions(),
                         help='AWS regions to perform experiment. Default is all 15 AWS regions')
-    parser.add_argument('--network', '-n', nargs=3, action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'), default=None,
-                        dest='networks', type=int,
+    parser.add_argument('--network', '-n', nargs=3,
+                        action='append', metavar=('BTLBW','RTT', 'QUEUE_SIZE'),
+                        dest='networks', type=int, required=False,
+                        default=[],
                         help='Network conditions to use for experiments')
-    parser.add_argument('--force','-f', action='store_true', help='Force experiments tthat were already run to run again')
+    parser.add_argument('--ccalgs', '-c',
+                        nargs='+',
+                        default=CCALGS,
+                        help='Congestion control algs')
+    parser.add_argument('--force','-f', action='store_true',
+                        help='Force experiments that were already run to run again')
+    parser.add_argument('--loss','-l', nargs='+', required=False, type=float, default=None)
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse_args()
+    if args.networks == []:
+        args.networks = [(5,35,16), (5,85,64), (5,130,64), (5,275,128),
+                        (10,35,32), (10,85,128), (10,130,128), (10,275,256),
+                         (15,35,64), (15,85,128), (15,130,256), (15,275,512)]
+        
     if 'local' in args.regions:
-        run_local_exps(args.networks, args.force)
+        #args.networks = rtt_exps.ntwrk_conditions['bess-3']
+        run_local_exps(args.networks, args.force, args.loss, args.ccalgs)
     else:
-        git_secret = getpass.getpass('Github secret: ')
-        run_aws_exps(git_secret, True, regions=args.regions, networks=args.networks, force=args.force)
+        #git_secret = getpass.getpass('Github secret: ')
+        run_aws_exps(force_create_instance=True,
+                     regions=args.regions,
+                     networks=args.networks,
+                     ccalgs=args.ccalgs,
+                     force=args.force)
 
-    
-
-    

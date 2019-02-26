@@ -199,14 +199,14 @@ void Queue::ProcessBatch(Context *, bess::PacketBatch *batch) {
       uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
             
       // output flow stats:
-      // enqueued, timestamp, src port, seq num, datalen, queue size, dropped, queued, batch size
+      // enqueued, timestamp, dst port, seq num, datalen, queue size, dropped, queued, batch size
       if ( i >= queued ) {   // packet is dropped ctx.current_ns()
-	dump_enq_ << "0," << now_ns << "," <<  tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",1," << queued << "," << batch->cnt() << "\n";
+	dump_enq_ << "0," << now_ns << "," <<  tcp->dst_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",1," << queued << "," << batch->cnt() << "\n";
       }
       else {  // packet isn't dropped
 	// update per flow stats
-	flow_stats_[tcp->src_port]++;
-	dump_enq_ << "0," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << queued << "," << batch->cnt() << "\n";
+	flow_stats_[tcp->dst_port]++;
+	dump_enq_ << "0," << now_ns << "," << tcp->dst_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << queued << "," << batch->cnt() << "\n";
       }	
     }
   }
@@ -255,10 +255,10 @@ struct task_result Queue::RunTask(Context *ctx, bess::PacketBatch *batch,
       int ip_bytes = ip->header_length << 2;
       Tcp *tcp = reinterpret_cast<Tcp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
       uint32_t datalen = ip->length.value() - (tcp->offset * 4) - (ip->header_length * 4);
-      flow_stats_[tcp->src_port]--;
+      flow_stats_[tcp->dst_port]--;
       num_pkts_ = num_pkts_ + 1;
       
-      dump_deq_ << "1," << now_ns << "," << tcp->src_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << cnt << "," << batch->cnt() << "\n";
+      dump_deq_ << "1," << now_ns << "," << tcp->dst_port << "," << tcp->seq_num << "," << datalen << "," << qsize << ",0," << cnt << "," << batch->cnt() << "\n";
     
       // output flow stats for every 10 packets dequeued or when we see a FIN packet
 

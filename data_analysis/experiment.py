@@ -449,10 +449,13 @@ def untarfile(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True, 
         yield f
     finally:
         # close file and delete when exiting context manager
-        f.close()
-        if delete_file:
-            print('Deleting file {}'.format(file_localpath))
-            os.remove(file_localpath)
+        try:
+            f.close()
+            if delete_file:
+                print('Deleting file {}'.format(file_localpath))
+                os.remove(file_localpath)
+        except Exception as e:
+            pass
 
 @contextmanager
 def untarfile_extract(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_file=True, postprocess_cmd=None):
@@ -487,7 +490,8 @@ def untarfile_extract(tar_filename, filename, untar_dir=DATAPATH_RAW, delete_fil
 
 def load_experiments(experiment_name_patterns, remote=True, force_local=False,
                         remote_username=REMOTE_USERNAME, remote_ip=REMOTE_IP_ADDR,
-                        load_queue=False, clean=False):
+                        load_queue=False, clean=False, parallel=True,
+                        min_num_files=0, min_date=None, remove_duplicates=True):
     """Load all experiments into experiment analyzers
     experiment_name_pattern : list of str
         Should be a pattern that will be called
@@ -503,6 +507,14 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
     clean: bool
         If True, delete all local files matching this exp_name_pattern
         before downloading again.
+    parallel: bool
+        If True, run download for experiments in parallel
+    min_num_files: int
+        If greater than 0, then expected to get atleast this number of files
+    min_date: string
+        Only return experiments with equal to or large than the expected date
+    remove_duplicates: bool
+        Remove experiments with the same name, keeping the most recent one
     """
     assert(type(experiment_name_patterns) is list)
     tarfile_remotepaths = []
@@ -514,11 +526,17 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
     if remote:
         print('Searching for experiments on remote machine: {}'.format(remote_ip))
         with get_ssh_client(ip_addr=remote_ip, username=remote_username) as ssh_client:
+            '''
             for experiment_name_pattern in experiment_name_patterns:
                 _, stdout, _ = ssh_client.exec_command(
                     'ls -1 /tmp/{}.tar.gz'.format(experiment_name_pattern))
                 tarfile_remotepaths += [filename.strip()
                                         for filename in stdout.readlines()]
+            '''
+            cmd = 'ls -1 ' + ' '.join(['/tmp/{}.tar.gz']*len(experiment_name_patterns)).format(*experiment_name_patterns)
+            print(cmd)
+            _, stdout, _ = ssh_client.exec_command(cmd)
+            tarfile_remotepaths += [filename.strip() for filename in stdout.readlines()]
         print('Found {} experiment(s) on remote machine: {}'.format(
             len(tarfile_remotepaths), tarfile_remotepaths))
     else:
@@ -541,16 +559,46 @@ def load_experiments(experiment_name_patterns, remote=True, force_local=False,
         else:
             print('Found 0 experiment(s) on local machines.')
 
+    if min_date is not None:
+        # copy file so we iterate over list and modify it
+        remotepaths = tarfile_remotepaths[:]
+        num_wrong_date = 0
+        for remotepath in remotepaths:
+            date = os.path.basename(remotepath).split('-')[-1]
+            if date < min_date:
+                num_wrong_date += 1
+                tarfile_remotepaths.remove(remotepath)
+        if num_wrong_date > 0:
+            print('Found {} experiment(s) with date smaller than {}.'.format(num_wrong_date, min_date))
+
+    if remove_duplicates:
+        # keep only most recent experiments with the same name
+        tmp = pd.DataFrame(tarfile_remotepaths)
+        num_duplicates = len(tmp)
+        tarfile_remotepaths = tmp.loc[tmp[0].sort_values().apply(lambda x: '-'.join(x.split('-')[:-1])).drop_duplicates(keep='last').index][0].tolist()
+        num_duplicates = num_duplicates - len(tarfile_remotepaths)
+        if num_duplicates > 0:
+            print('Found {} experiment(s) with duplicate prefixes.'.format(num_duplicates))
+
+
+    if min_num_files > 0:
+        if len(tarfile_remotepaths) < min_num_files:
+            print('Wanted min number of {} experiment(s), but only found {}.'.format(min_num_files, len(tarfile_remotepaths)))
+            tarfile_remotepaths = []
+
     #experiments = {}
     num_proc = 10
     num_tarfiles = len(tarfile_remotepaths)
     num_tarfiles_per_process = int(num_tarfiles / num_proc) + 1
-    with mp.Pool(num_proc) as pool:
-        analyzers = pool.starmap(get_experiment, zip(tarfile_remotepaths,
-                                                    it.repeat(remote_ip, num_tarfiles),
-                                                    it.repeat(remote_username, num_tarfiles),
-                                                    it.repeat(load_queue, num_tarfiles)),
-                                                    chunksize=num_tarfiles_per_process)
+    if parallel and num_tarfiles > 1:
+            with mp.Pool(num_proc) as pool:
+                analyzers = pool.starmap(get_experiment, zip(tarfile_remotepaths,
+                                                            it.repeat(remote_ip, num_tarfiles),
+                                                            it.repeat(remote_username, num_tarfiles),
+                                                            it.repeat(load_queue, num_tarfiles)),
+                                                            chunksize=num_tarfiles_per_process)
+    else:
+        analyzers = [get_experiment(tarfile_remotepath, remote_ip, remote_username, load_queue) for tarfile_remotepath in tarfile_remotepaths]
     experiment_analyzers = ExperimentAnalyzers()
     for analyzer in analyzers:
         experiment_analyzers['{}-{}'.format(analyzer.experiment.name,
