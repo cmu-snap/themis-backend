@@ -741,6 +741,92 @@ def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
     return proc
 
 
+def run_bbr_cubic_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
+    experiment_name = '{}bw-{}rtt-{}q-2cubic-2bbr'.format(ccalg, btlbw, rtt, queue_size)
+    client = HOST_CLIENT
+    server = HOST_SERVER
+    server_port = 5201
+    client_port = 5555
+
+    flow = {'end_time': duration,
+            'rtt': rtt,
+            'start_time': 0}
+    flows = []
+    server_port += 1
+    client_port += 1
+    flows.append(cctestbed.Flow(ccalg='cubic',
+                                start_time=flow['start_time'],
+                                end_time=flow['end_time'], rtt=rtt,
+                                server_port=server_port, client_port=client_port,
+                                client_log=None, server_log=None, kind='iperf',
+                                client=HOST_CLIENT))
+    server_port += 1
+    client_port += 1
+    flows.append(cctestbed.Flow(ccalg='cubic',
+                                start_time=flow['start_time'],
+                                end_time=flow['end_time'], rtt=rtt,
+                                server_port=server_port, client_port=client_port,
+                                client_log=None, server_log=None, kind='iperf',
+                                client=HOST_CLIENT))
+    server_port += 1
+    client_port += 1
+    flows.append(cctestbed.Flow(ccalg='bbr',
+                                start_time=flow['start_time'],
+                                end_time=flow['end_time'], rtt=rtt,
+                                server_port=server_port, client_port=client_port,
+                                client_log=None, server_log=None, kind='iperf',
+                                client=HOST_CLIENT))
+
+    server_port += 1
+    client_port += 1
+    flows.append(cctestbed.Flow(ccalg='bbr',
+                                start_time=flow['start_time'],
+                                end_time=flow['end_time'], rtt=rtt,
+                                server_port=server_port, client_port=client_port,
+                                client_log=None, server_log=None, kind='iperf',
+                                client=HOST_CLIENT))
+
+    exp = cctestbed.Experiment(name=experiment_name,
+                               btlbw=btlbw,
+                               queue_size=queue_size,
+                               flows=flows,
+                               server=server,
+                               client=client,
+                               config_filename='None',
+                               server_nat_ip=None)
+
+    logging.info('Running experiment: {}'.format(exp.name))
+
+    logging.info('Making sure tcpdump is cleaned up ')
+    with cctestbed.get_ssh_client(
+            exp.server.ip_wan,
+            username=exp.server.username,
+            key_filename=exp.server.key_filename) as ssh_client:
+        cctestbed.exec_command(
+            ssh_client,
+            exp.server.ip_wan,
+            'sudo pkill -9 tcpdump')
+
+    with ExitStack() as stack:
+        exp._run_tcpdump('server', stack)
+        cctestbed.stop_bess()
+        stack.enter_context(exp._run_bess(ping_source='client',
+                                          skip_ping=False,
+                                          bess_config_name='active-middlebox-pmd-fairness'))
+        # give bess time to start
+        time.sleep(5)
+        exp._show_bess_pipeline()
+        stack.enter_context(exp._run_bess_monitor())
+        start_iperf_flows(exp, stack)
+        time.sleep(duration+5)
+        exp._show_bess_pipeline()
+        cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
+        print(cctestbed.run_local_command(cmd))
+
+    proc = exp._compress_logs_url()
+    return proc
+
+
 def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
     experiment_name = '{}-{}bw-{}rtt-{}q-apache'.format(ccalg, btlbw, rtt, queue_size)
     client = HOST_CLIENT
@@ -1116,6 +1202,13 @@ def main(tests, websites,
                                           rtt,
                                           duration,
                                           chrome)
+            elif test == 'bbr-cubic':
+                proc = run_bbr_cubic_experiments(competing_ccalg,
+                                                 btlbw,
+                                                 rtt,
+                                                 queue_size,
+                                                 duration,
+                                                 num_competing)                
             else:
                 raise NotImplementedError
 
@@ -1141,12 +1234,12 @@ def main(tests, websites,
         
             
 def parse_args():
-    """Pbarse commandline arguments"""
+    """Parse commandline arguments"""
     parser = argparse.ArgumentParser(
         description='Run ccctestbed experiment to measure interaction between flows')
     parser.add_argument('--test, -t', choices=[
         'apache','iperf','video','apache-website','iperf-website',
-        'video-website', 'iperf-rtt', 'iperf16-website'], action='append', dest='tests')
+        'video-website', 'iperf-rtt', 'iperf16-website', 'bbr-cubic'], action='append', dest='tests')
     parser.add_argument(
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')

@@ -37,8 +37,8 @@ EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
 # specify final output of the pipeline
 rule all:
     input:
-         all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
-         #all_results=expand('data-processed/{exp_name}.bitrate',exp_name=EXP_NAMES)
+         #all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
+         all_results=expand('data-processed/{exp_name}.metric',exp_name=EXP_NAMES)
          
 rule load_raw_queue_data:
     input:
