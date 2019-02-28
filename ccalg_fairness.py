@@ -242,7 +242,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
                 raise RuntimeError('Error running flow.')
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 
 def run_experiment_1vapache(website, url, competing_ccalg, 
@@ -385,7 +385,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
             json.dump(website_info, f)
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 def run_experiment_rtt(website, url, competing_ccalg, num_competing,
                           btlbw=10, queue_size=128, rtt=35, duration=60,
@@ -516,7 +516,7 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
                 raise RuntimeError('Error running flow.')
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 
 @contextmanager
@@ -824,7 +824,7 @@ def run_bbr_cubic_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows
         print(cctestbed.run_local_command(cmd))
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 
 def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
@@ -886,7 +886,7 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
         print(cctestbed.run_local_command(cmd))
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
     experiment_name = '{}-{}bw-{}rtt-{}q-video-{}s'.format(
@@ -951,7 +951,7 @@ def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
         print(cctestbed.run_local_command(cmd))
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 
 def run_experiment_1video(website, url, competing_ccalg, 
@@ -1095,7 +1095,7 @@ def run_experiment_1video(website, url, competing_ccalg,
             json.dump(website_info, f)
 
     proc = exp._compress_logs_url()
-    return proc
+    return (proc, exp.tar_filename, experiment_name)
 
 
 
@@ -1143,15 +1143,15 @@ def main(tests, websites,
                                              duration,
                                              num_competing)
             elif test == 'iperf-website':
-                proc = run_experiment_1vmany(website,
-                                             url,
-                                             competing_ccalg,
-                                             num_competing,
-                                             btlbw,
-                                             queue_size,
-                                             rtt,
-                                             duration,
-                                             chrome)
+                (proc, tar_name, exp_name) = run_experiment_1vmany(website,
+                                                                   url,
+                                                                   competing_ccalg,
+                                                                   num_competing,
+                                                                   btlbw,
+                                                                   queue_size,
+                                                                   rtt,
+                                                                   duration,
+                                                                   chrome)
             elif test == 'iperf16-website':
                 proc = run_experiment_1vmany(website,
                                              url,
@@ -1216,6 +1216,7 @@ def main(tests, websites,
             if proc == -1:
                 too_small_rtt = max(too_small_rtt, rtt)
             elif proc is not None:
+                print('Experiment tar_name={} exp_name={}'.format(tar_name, exp_name))
                 completed_experiment_procs.append(proc)
             time.sleep(60)
         except Exception as e:
