@@ -10,7 +10,7 @@ def index(request):
 
 @django_rq.job
 def run_experiment(inputs):
-    job = get_current_job()
+    #job = get_current_job()
     returncode = run_ccalg_fairness(inputs)
     print('RETURN CODE {}'.format(returncode))
     #print('Successfully ran experiment! tar={} name={}'.format(tar, name))

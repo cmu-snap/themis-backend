@@ -1,16 +1,11 @@
 import shlex, subprocess
 import re
 import json
-import sys
-
-sys.path.append('/opt/cctestbed')
-
-from ccalg_fairness import main
 
 # Call ccalg_fairness.py with the given arguments and return the experiment
 # tar filename and unique experiment name
 def run_ccalg_fairness(inputs):
-    cmd = 'python3.6 /opt/cctestbed/ccalg_fairness.py --website {} {} --network {} {} {} --test {} --competing_ccalg --num_competing 1'
+    cmd = 'python3.6 /opt/cctestbed/ccalg_fairness.py --website {} {} --network {} {} {} --test {} --competing_ccalg {} --num_competing 1'
     args = shlex.split(cmd.format(
         inputs['website'],
         inputs['filename'],
@@ -20,13 +15,13 @@ def run_ccalg_fairness(inputs):
         inputs['test'],
         inputs['competing_ccalg']))
     process = subprocess.run(args, stdout=subprocess.PIPE)
-    return process.returncode
-    
-    """
     # Turn stdout bytes into string
     output = process.stdout.decode('utf-8') 
-
-    # TODO: Check error code to see if failed
+    print('OUTPUT')
+    print(output)
+    return process.returncode
+    """
+    # TODO: Check output for error statement to see if failed
     regex_tar = r"tar_name=(.+) "
     regex_name = r"exp_name=(.+)\n"
     tar = ''
@@ -41,3 +36,13 @@ def run_ccalg_fairness(inputs):
 
     return (tar, name)
     """
+#run_ccalg_fairness({
+#    'website': 'ssa.gov',
+#    'filename': 'https://www.ssa.gov/pubs/audio/EN-05-10035.mp3',
+#    'btlbw': 10,
+#    'rtt': 75,
+#    'queue_size': 512,
+#    'test': 'iperf-website',
+#    'competing_ccalg': 'cubic'})
+
+    
