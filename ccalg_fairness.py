@@ -1136,12 +1136,12 @@ def main(tests, websites,
                 continue
 
             if test == 'iperf':
-                proc = run_iperf_experiments(competing_ccalg,
-                                             btlbw,
-                                             rtt,
-                                             queue_size,
-                                             duration,
-                                             num_competing)
+                (proc, tar_name, exp_name)  = run_iperf_experiments(competing_ccalg,
+                                                                    btlbw,
+                                                                    rtt,
+                                                                    queue_size,
+                                                                    duration,
+                                                                    num_competing)
             elif test == 'iperf-website':
                 (proc, tar_name, exp_name) = run_experiment_1vmany(website,
                                                                    url,
@@ -1153,62 +1153,62 @@ def main(tests, websites,
                                                                    duration,
                                                                    chrome)
             elif test == 'iperf16-website':
-                proc = run_experiment_1vmany(website,
-                                             url,
-                                             competing_ccalg,
-                                             16,
-                                             btlbw,
-                                             queue_size,
-                                             rtt,
-                                             duration,
-                                             chrome)
+                (proc, tar_name, exp_name)  = run_experiment_1vmany(website,
+                                                                    url,
+                                                                    competing_ccalg,
+                                                                    16,
+                                                                    btlbw,
+                                                                    queue_size,
+                                                                    rtt,
+                                                                    duration,
+                                                                    chrome)
             elif test == 'apache':
-                proc = run_apache_experiments(competing_ccalg,
-                                              btlbw,
-                                              rtt,
-                                              queue_size,
-                                              duration)
+                (proc, tar_name, exp_name) = run_apache_experiments(competing_ccalg,
+                                                                    btlbw,
+                                                                    rtt,
+                                                                    queue_size,
+                                                                    duration)
             elif test == 'apache-website':
-                proc = run_experiment_1vapache(website=website,
-                                               url=url,
-                                               competing_ccalg=competing_ccalg,
-                                               btlbw=btlbw,
-                                               rtt=rtt,
-                                               queue_size=queue_size,
-                                               duration=duration,
-                                               chrome=chrome)
+                (proc, tar_name, exp_name) = run_experiment_1vapache(website=website,
+                                                                    url=url,
+                                                                    competing_ccalg=competing_ccalg,
+                                                                    btlbw=btlbw,
+                                                                    rtt=rtt,
+                                                                    queue_size=queue_size,
+                                                                    duration=duration,
+                                                                    chrome=chrome)
             elif test == 'video':
-                proc = run_video_experiments(competing_ccalg,
-                                             btlbw,
-                                             rtt,
-                                             queue_size,
-                                             duration)
+                (proc, tar_name, exp_name)  = run_video_experiments(competing_ccalg,
+                                                                    btlbw,
+                                                                    rtt,
+                                                                    queue_size,
+                                                                    duration)
             elif test == 'video-website':
-                proc = run_experiment_1video(website=website,
-                                             url=url,
-                                             competing_ccalg=competing_ccalg,
-                                             btlbw=btlbw,
-                                             rtt=rtt,
-                                             queue_size=queue_size,
-                                             duration=duration,
-                                             chrome=chrome)
+                (proc, tar_name, exp_name)  = run_experiment_1video(website=website,
+                                                                    url=url,
+                                                                    competing_ccalg=competing_ccalg,
+                                                                    btlbw=btlbw,
+                                                                    rtt=rtt,
+                                                                    queue_size=queue_size,
+                                                                    duration=duration,
+                                                                    chrome=chrome)
             elif test == 'iperf-rtt':
-                proc = run_experiment_rtt(website,
-                                          url,
-                                          competing_ccalg,
-                                          num_competing,
-                                          btlbw,
-                                          queue_size,
-                                          rtt,
-                                          duration,
-                                          chrome)
+                (proc, tar_name, exp_name)  = run_experiment_rtt(website,
+                                                                 url,
+                                                                 competing_ccalg,
+                                                                 num_competing,
+                                                                 btlbw,
+                                                                 queue_size,
+                                                                 rtt,
+                                                                 duration,
+                                                                 chrome)
             elif test == 'bbr-cubic':
-                proc = run_bbr_cubic_experiments(competing_ccalg,
-                                                 btlbw,
-                                                 rtt,
-                                                 queue_size,
-                                                 duration,
-                                                 num_competing)                
+                (proc, tar_name, exp_name)  = run_bbr_cubic_experiments(competing_ccalg,
+                                                                        btlbw,
+                                                                        rtt,
+                                                                        queue_size,
+                                                                        duration,
+                                                                        num_competing)                
             else:
                 raise NotImplementedError
 

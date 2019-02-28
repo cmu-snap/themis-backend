@@ -1,5 +1,7 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from ccamonitor.forms import *
+from ccamonitor.ccalg_agent import *
+from rq import get_current_job
 import django_rq
 
 def index(request):
@@ -8,7 +10,10 @@ def index(request):
 
 @django_rq.job
 def run_experiment(inputs):
-    print('Running experiment={}'.format(inputs))
+    job = get_current_job()
+    returncode = run_ccalg_fairness(inputs)
+    print('RETURN CODE {}'.format(returncode))
+    #print('Successfully ran experiment! tar={} name={}'.format(tar, name))
 
 def queue_experiment(request):
     form = ExperimentForm(request.POST)
@@ -22,7 +27,8 @@ def queue_experiment(request):
         queue_size = form.cleaned_data['queue_size']
         
         if None in [btlbw, rtt, queue_size]:
-            ntwrk_conditions = [(10, 75, 32), (10, 75, 64), (10, 75, 512)]
+            ntwrk_conditions = [(10, 75, 32)]
+            #ntwrk_conditions = [(10, 75, 32), (10, 75, 64), (10, 75, 512)]
         else:
             ntwrk_conditions = [(btlbw, rtt, queue_size)]
 
@@ -42,8 +48,8 @@ def queue_experiment(request):
                         'competing_ccalg': ccalg
                     }
                     job = django_rq.enqueue(run_experiment, inputs)
-                    print('Job id = {}'.format(job.key))
+                    # TODO: use job.get_id() to create instance of job model
 
-    return render(request, 'ccamonitor/queue.html', context)
+    return redirect('index')
 
 
