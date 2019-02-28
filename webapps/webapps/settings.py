@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'ccamonitor',
+    'django_rq',
 ]
 
 MIDDLEWARE = [
@@ -77,6 +79,24 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    }
+}
+
+
+RQ_QUEUES = {
+    'default': {
+	'HOST': 'localhost',
+	'PORT': 6379,
+	'DB': 0,
+	'DEFAULT_TIMEOUT': 360,
+    },
+    'high': {
+	'DEFAULT_TIMEOUT': 5000
+    },
+    'low': {
+	'HOST': 'localhost',
+	'PORT': 6379,
+	'DB': 0,
     }
 }
 
