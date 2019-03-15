@@ -21,17 +21,11 @@ def run_ccalg_fairness(inputs):
     # Turn stdout bytes into string
     output = process.stdout.decode('utf-8') 
     regex_tar = r"tar_name=(.+) "
-    regex_name = r"exp_name=(.+)\n"
     tar = ''
-    name = ''
     if re.search(regex_tar, output):
         match = re.search(regex_tar, output)
         tar = match.group(1)
 
-    if re.search(regex_name, output):
-        match = re.search(regex_name, output)
-        name = match.group(1)
-
-    return (tar, name)
+    return tar[0:len(tar)-7]
 
     

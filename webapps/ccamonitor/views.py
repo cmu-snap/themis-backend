@@ -15,9 +15,10 @@ def run_experiment(inputs):
     exp.status = 'R'
     exp.save()
     try:
-        (tar, exp_name) = run_ccalg_fairness(inputs)
+        exp_name = run_ccalg_fairness(inputs)
         exp.status = 'C'
-        print('Successfully ran experiment! tar={} name={}'.format(tar, name))
+        exp.exp_name = exp_name
+        print('Successfully ran experiment! exp_name={}'.format(exp_name))
     except Exception as e:
         print('Experiment failed.')
         exp.status = 'F'
@@ -71,5 +72,10 @@ def queue_experiment(request):
                 exp.save()
 
     return redirect('index')
+
+def list_experiments(request):
+    experiments = Experiment.objects.all()
+    return render(request, 'ccamonitor/list_experiments.html', {'experiments': experiments})
+
 
 

@@ -386,7 +386,7 @@ rule scp_results:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
         """
-        tar -czvf {output.compressed_results} {input.metric} {input.exp_tarfile} {input.queue} $(ls data-processed/{wildcards.exp_name}.http) data-processed/{wildcards.exp_name}.tshark  --strip-components=1 && scp -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem {output.compressed_results} ranysha@128.2.208.104:/opt/cctestbed/data-websites/ && rm data-tmp/*{wildcards.exp_name}*
+        tar -czvf {output.compressed_results} {input.metric} {input.exp_tarfile} {input.queue} $(ls data-processed/{wildcards.exp_name}.http) data-processed/{wildcards.exp_name}.tshark  --strip-components=1 && rm data-tmp/*{wildcards.exp_name}*
         """
        
     

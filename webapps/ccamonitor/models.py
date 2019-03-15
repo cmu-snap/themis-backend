@@ -26,9 +26,11 @@ class Experiment(models.Model):
     btlbw = models.PositiveIntegerField(default=10, blank=True)
     rtt = models.PositiveIntegerField(default=75, blank=True)
     queue_size = models.IntegerField(blank=True)
-    test = models.CharField(default='I', choices=TESTS, max_length=10)
-    competing_ccalg = models.CharField(blank=True, choices=CCALGS, max_length=20)
+    test = models.CharField(default='I', choices=TESTS, max_length=3)
+    competing_ccalg = models.CharField(blank=True, choices=CCALGS, max_length=1)
     
-    status = models.CharField(default='Q', choices=STATUSES, max_length=10)
+    status = models.CharField(default='Q', choices=STATUSES, max_length=1)
     job_id = models.CharField(null=True, max_length=100)
+    request_date = models.DateTimeField(auto_now_add=True)
+    exp_name = models.CharField(null=True, max_length=200)
 

@@ -1,0 +1,37 @@
+{% extends "ccamonitor/navbar.html" %}
+{% load staticfiles %}
+{% block page-content %}
+<div class="mx-3">
+    <h4>Experiments</h4>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">Date Requested</th>
+                <th scope="col">Status</th>
+                <th scope="col">Website</th>
+                <th scope="col">Filename</th>
+                <th scope="col">BTLBW</th>
+                <th scope="col">RTT</th>
+                <th scope="col">Queue size</th>
+                <th scope="col">Test</th>
+                <th scope="col">Competing ccalg</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for exp in experiments %}
+            <tr>
+                <td>{{exp.request_date}}</td>
+                <td>{{exp.get_status_display}}</td>
+                <td>{{exp.website}}</td>
+                <td>{{exp.filename}}</td>
+                <td>{{exp.btlbw}}</td>
+                <td>{{exp.rtt}}</td>
+                <td>{{exp.queue_size}}</td>
+                <td>{{exp.get_test_display}}</td>
+                <td>{{exp.get_competing_ccalg_display}}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
