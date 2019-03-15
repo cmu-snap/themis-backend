@@ -174,3 +174,4 @@ data-training/*.h5
 **/migrations
 redis-stable/
 dump.rdb
+config.ini
