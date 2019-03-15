@@ -1,10 +1,27 @@
 from django import forms
+from ccamonitor.models import Experiment
+import re
 
-class ExperimentForm(forms.Form):
-    website = forms.CharField(label='Website')
-    filename = forms.URLField(label='File URL')
-    btlbw = forms.IntegerField(label='BTLBW', required=False, min_value=0)
-    rtt = forms.IntegerField(label='RTT', required=False, min_value=0)
-    queue_size = forms.IntegerField(label='Queue size', required=False, min_value=0)
-    #test = forms.CharField(label='Test', required=False)
-    #competing_ccalg = forms.CharField(label='Competing ccalg', required=False)
+class ExperimentForm(forms.ModelForm):
+    class Meta:
+        model = Experiment
+        fields = [
+            'website',
+            'filename',
+            'btlbw',
+            'rtt',
+            'queue_size',
+            'test',
+            'competing_ccalg',
+        ]
+
+    # Strip http:// or https:// from website
+    def clean_website(self):
+        data = self.cleaned_data['website']
+        p = re.compile('^https?://')
+        m = p.match(data)
+        if m:
+            data = data[m.end():]
+        return data
+
+

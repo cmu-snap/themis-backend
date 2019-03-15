@@ -1226,6 +1226,7 @@ def main(tests, websites,
             print('Error running experiment for website: {}'.format(website))
             print(e)
             print(traceback.print_exc())
+            exit(1)
                 
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))

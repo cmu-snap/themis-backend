@@ -168,3 +168,9 @@ modules.order
 data-training/*.tar.gz
 data-training/*.json
 data-training/*.h5
+
+# ignore django migrations and redis
+*.swp
+**/migrations
+redis-stable/
+dump.rdb

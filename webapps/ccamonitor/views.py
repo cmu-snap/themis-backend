@@ -10,12 +10,21 @@ def index(request):
 
 @django_rq.job
 def run_experiment(inputs):
-    #job = get_current_job()
-    returncode = run_ccalg_fairness(inputs)
-    print('RETURN CODE {}'.format(returncode))
-    #print('Successfully ran experiment! tar={} name={}'.format(tar, name))
+    job = get_current_job()
+    exp = Experiment.objects.get(job_id=job.get_id())
+    exp.status = 'R'
+    exp.save()
+    try:
+        (tar, exp_name) = run_ccalg_fairness(inputs)
+        exp.status = 'C'
+        print('Successfully ran experiment! tar={} name={}'.format(tar, name))
+    except Exception as e:
+        print('Experiment failed.')
+        exp.status = 'F'
+    exp.save()
 
 def queue_experiment(request):
+    QUEUE_SIZES = [32, 64, 512]
     form = ExperimentForm(request.POST)
     context = {'form': ExperimentForm()}
 
@@ -25,30 +34,41 @@ def queue_experiment(request):
         btlbw = form.cleaned_data['btlbw']
         rtt = form.cleaned_data['rtt']
         queue_size = form.cleaned_data['queue_size']
-        
-        if None in [btlbw, rtt, queue_size]:
-            ntwrk_conditions = [(10, 75, 32)]
-            #ntwrk_conditions = [(10, 75, 32), (10, 75, 64), (10, 75, 512)]
-        else:
-            ntwrk_conditions = [(btlbw, rtt, queue_size)]
+        test = form.cleaned_data['test']
+        competing_ccalg = form.cleaned_data['competing_ccalg']
 
-        tests = ['iperf-website']
-        competing_ccalgs = ['cubic']
+        ntwrk_conditions = [(btlbw, rtt, queue_size)]
+        # If queue_size unspecified, run once for each size in QUEUE_SIZES
+        if queue_size is None:
+            ntwrk_conditions = [(btlbw, rtt, size) for size in QUEUE_SIZES]
 
-        for (btlbw, rtt, queue_size) in ntwrk_conditions:
-            for test in tests:
-                for ccalg in competing_ccalgs:
-                    inputs = {
-                        'website': website,
-                        'filename': filename,
-                        'btlbw': btlbw,
-                        'rtt': rtt,
-                        'queue_size': queue_size,
-                        'test': test,
-                        'competing_ccalg': ccalg
-                    }
-                    job = django_rq.enqueue(run_experiment, inputs)
-                    # TODO: use job.get_id() to create instance of job model
+        ccalgs = [competing_ccalg]
+        if competing_ccalg == '':
+            ccalgs = ['C', 'B', 'R']
+
+        for (btlbw, rtt, size) in ntwrk_conditions:
+            for ccalg in ccalgs:
+                exp = Experiment.objects.create(
+                        website=website,
+                        filename=filename,
+                        btlbw=btlbw,
+                        rtt=rtt,
+                        queue_size=size,
+                        test=test,
+                        competing_ccalg=ccalg
+                        )
+                inputs = {
+                    'website': website,
+                    'filename': filename,
+                    'btlbw': btlbw,
+                    'rtt': rtt,
+                    'queue_size': size,
+                    'test': exp.get_test_display(),
+                    'competing_ccalg': exp.get_competing_ccalg_display(),
+                }
+                job = django_rq.enqueue(run_experiment, inputs)
+                exp.job_id = job.get_id()
+                exp.save()
 
     return redirect('index')
 
