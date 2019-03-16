@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.postgres.fields import JSONField
 
 # Create your models here.
 class Experiment(models.Model):
@@ -16,15 +17,16 @@ class Experiment(models.Model):
 
     STATUSES = (
         ('C', 'completed'),
+        ('M', 'failed to get metrics'),
         ('Q', 'queued'),
         ('R', 'running'),
         ('F', 'failed'),
     )
 
     website = models.CharField(max_length=2083)
-    filename = models.URLField()
-    btlbw = models.PositiveIntegerField(default=10, blank=True)
-    rtt = models.PositiveIntegerField(default=75, blank=True)
+    file_url = models.URLField()
+    btlbw = models.PositiveIntegerField(blank=True)
+    rtt = models.PositiveIntegerField(blank=True)
     queue_size = models.IntegerField(blank=True)
     test = models.CharField(default='I', choices=TESTS, max_length=3)
     competing_ccalg = models.CharField(blank=True, choices=CCALGS, max_length=1)
@@ -33,4 +35,5 @@ class Experiment(models.Model):
     job_id = models.CharField(null=True, max_length=100)
     request_date = models.DateTimeField(auto_now_add=True)
     exp_name = models.CharField(null=True, max_length=200)
+    metrics = JSONField(null=True)
 

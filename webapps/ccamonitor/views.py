@@ -3,6 +3,7 @@ from ccamonitor.forms import *
 from ccamonitor.ccalg_agent import *
 from rq import get_current_job
 import django_rq
+import json
 
 def index(request):
     context = {'form': ExperimentForm()}
@@ -16,11 +17,17 @@ def run_experiment(inputs):
     exp.save()
     try:
         exp_name = run_ccalg_fairness(inputs)
-        exp.status = 'C'
         exp.exp_name = exp_name
-        print('Successfully ran experiment! exp_name={}'.format(exp_name))
+        if run_fairness_snakefile(exp_name) == 0:
+            exp.status = 'C'
+            try:
+                with open('/tmp/data-processed/{}.metric'.format(exp_name)) as json_file:
+                    exp.metrics = json.load(json_file)
+            except EnvironmentError:
+                exp.status = 'M'
+        else:
+            exp.status = 'M'
     except Exception as e:
-        print('Experiment failed.')
         exp.status = 'F'
     exp.save()
 
@@ -31,9 +38,14 @@ def queue_experiment(request):
 
     if form.is_valid():
         website = form.cleaned_data['website']
-        filename = form.cleaned_data['filename']
+        file_url = form.cleaned_data['file_url']
         btlbw = form.cleaned_data['btlbw']
+        if btlbw is None:
+            btlbw = 10
         rtt = form.cleaned_data['rtt']
+        if rtt is None:
+            rtt = 75
+
         queue_size = form.cleaned_data['queue_size']
         test = form.cleaned_data['test']
         competing_ccalg = form.cleaned_data['competing_ccalg']
@@ -45,13 +57,13 @@ def queue_experiment(request):
 
         ccalgs = [competing_ccalg]
         if competing_ccalg == '':
-            ccalgs = ['C', 'B', 'R']
+            ccalgs = ['C', 'B']
 
         for (btlbw, rtt, size) in ntwrk_conditions:
             for ccalg in ccalgs:
                 exp = Experiment.objects.create(
                         website=website,
-                        filename=filename,
+                        file_url=file_url,
                         btlbw=btlbw,
                         rtt=rtt,
                         queue_size=size,
@@ -60,7 +72,7 @@ def queue_experiment(request):
                         )
                 inputs = {
                     'website': website,
-                    'filename': filename,
+                    'file_url': file_url,
                     'btlbw': btlbw,
                     'rtt': rtt,
                     'queue_size': size,
@@ -74,7 +86,7 @@ def queue_experiment(request):
     return redirect('index')
 
 def list_experiments(request):
-    experiments = Experiment.objects.all()
+    experiments = Experiment.objects.all().order_by('-request_date')
     return render(request, 'ccamonitor/list_experiments.html', {'experiments': experiments})
 
 

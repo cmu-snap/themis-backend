@@ -1,14 +1,12 @@
 import shlex, subprocess
 import re
-import json
 
-# Call ccalg_fairness.py with the given arguments and return the experiment
-# tar filename and unique experiment name
+# Call ccalg_fairness.py with the given arguments and return experiment name
 def run_ccalg_fairness(inputs):
     cmd = 'python3.6 /opt/cctestbed/ccalg_fairness.py --website {} {} --network {} {} {} --test {} --competing_ccalg {} --num_competing 1'
     args = shlex.split(cmd.format(
         inputs['website'],
-        inputs['filename'],
+        inputs['file_url'],
         inputs['btlbw'],
         inputs['rtt'],
         inputs['queue_size'],
@@ -20,12 +18,17 @@ def run_ccalg_fairness(inputs):
     
     # Turn stdout bytes into string
     output = process.stdout.decode('utf-8') 
-    regex_tar = r"tar_name=(.+) "
-    tar = ''
-    if re.search(regex_tar, output):
-        match = re.search(regex_tar, output)
-        tar = match.group(1)
+    regex_name = r"exp_name=(.+)\n"
+    exp_name = ''
+    if re.search(regex_name, output):
+        match = re.search(regex_name, output)
+        exp_name = match.group(1)
 
-    return tar[0:len(tar)-7]
+    return exp_name
 
+def run_fairness_snakefile(exp_name):
+    cmd = 'snakemake --config exp_name={} -s /opt/cctestbed/fairness_websites.snakefile'
+    args = shlex.split(cmd.format(exp_name))
+    process = subprocess.run(args, stdout=subprocess.PIPE)
+    return process.returncode
     

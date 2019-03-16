@@ -2,12 +2,25 @@ from django import forms
 from ccamonitor.models import Experiment
 import re
 
-class ExperimentForm(forms.ModelForm):
+class BaseModelForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super(BaseModelForm, self).__init__(*args, **kwargs)
+        # Add common css classes to all widgets
+        for field in iter(self.fields):
+            # Get current classes from Meta
+            classes = self.fields[field].widget.attrs.get("class")
+            if classes is not None:
+                classes += " form-control"
+            else:
+                classes = "form-control"
+            self.fields[field].widget.attrs.update({'class': classes})
+
+class ExperimentForm(BaseModelForm):
     class Meta:
         model = Experiment
         fields = [
             'website',
-            'filename',
+            'file_url',
             'btlbw',
             'rtt',
             'queue_size',

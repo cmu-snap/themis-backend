@@ -32,7 +32,10 @@ NTWRK_CONDITIONS = [(5,35,16), (5,85,64), (5,130,64), (5,275,128), (10,35,32), (
 CCAS = ['cubic','reno','bbr', 'bic', 'cdg', 'highspeed', 'htcp', 'hybla', 'illinois', 'nv', 'scalable', 'vegas', 'veno', 'westwood', 'yeah']
         
 #EXP_NAMES, = glob_wildcards('data-raw/{exp_name}.tar.gz')
-EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')           
+EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
+# specify specific experiment
+if 'exp_name' in config:
+    EXP_NAMES = [config['exp_name']]
     
 # specify final output of the pipeline
 rule all:

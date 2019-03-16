@@ -1,4 +1,5 @@
 {% extends "ccamonitor/navbar.html" %}
+{% load tz %}
 {% load staticfiles %}
 {% block page-content %}
 <div class="mx-3">
@@ -6,24 +7,24 @@
     <table class="table">
         <thead>
             <tr>
-                <th scope="col">Date Requested</th>
+                <th scope="col">Date Submitted</th>
                 <th scope="col">Status</th>
                 <th scope="col">Website</th>
-                <th scope="col">Filename</th>
+                <th scope="col">File URL</th>
                 <th scope="col">BTLBW</th>
                 <th scope="col">RTT</th>
                 <th scope="col">Queue size</th>
                 <th scope="col">Test</th>
-                <th scope="col">Competing ccalg</th>
+                <th scope="col">Competing CCA</th>
             </tr>
         </thead>
         <tbody>
             {% for exp in experiments %}
             <tr>
-                <td>{{exp.request_date}}</td>
+                <td>{{exp.request_date|localtime}}</td>
                 <td>{{exp.get_status_display}}</td>
                 <td>{{exp.website}}</td>
-                <td>{{exp.filename}}</td>
+                <td>{{exp.file_url}}</td>
                 <td>{{exp.btlbw}}</td>
                 <td>{{exp.rtt}}</td>
                 <td>{{exp.queue_size}}</td>
