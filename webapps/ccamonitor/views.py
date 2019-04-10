@@ -12,7 +12,7 @@ def index(request):
 
 @django_rq.job
 def run_experiment(inputs):
-    job = Experiment.objects.get(job_id=get_current_job().get_id())
+    job = Job.objects.get(job_id=get_current_job().get_id())
     job.status = 'R'
     job.save()
     try:
@@ -29,8 +29,7 @@ def run_experiment(inputs):
 
 def queue_experiment(request):
     QUEUE_SIZES = [32, 64, 512]
-    #TESTS = ['I', 'I16', 'A']
-    TESTS = ['I']
+    TESTS = ['I', 'I16', 'A']
     form = ExperimentForm(request.POST)
     context = {'form': ExperimentForm()}
 
