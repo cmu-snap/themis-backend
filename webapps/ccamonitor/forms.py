@@ -23,8 +23,6 @@ class ExperimentForm(BaseModelForm):
             'file_url',
             'btlbw',
             'rtt',
-            'queue_size',
-            'test',
             'competing_ccalg',
         ]
 

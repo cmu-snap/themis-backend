@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect
 from ccamonitor.forms import *
+from ccamonitor.models import *
 from ccamonitor.ccalg_agent import *
 from rq import get_current_job
 import django_rq
@@ -11,28 +12,25 @@ def index(request):
 
 @django_rq.job
 def run_experiment(inputs):
-    job = get_current_job()
-    exp = Experiment.objects.get(job_id=job.get_id())
-    exp.status = 'R'
-    exp.save()
+    job = Experiment.objects.get(job_id=get_current_job().get_id())
+    job.status = 'R'
+    job.save()
     try:
         exp_name = run_ccalg_fairness(inputs)
-        exp.exp_name = exp_name
+        job.exp_name = exp_name
         if run_fairness_snakefile(exp_name) == 0:
-            exp.status = 'C'
-            try:
-                with open('/tmp/data-processed/{}.metric'.format(exp_name)) as json_file:
-                    exp.metrics = json.load(json_file)
-            except EnvironmentError:
-                exp.status = 'M'
+            job.status = 'C'
+            job.metrics = '/tmp/data-processed/{}.metric'.format(exp_name)
         else:
-            exp.status = 'M'
+            job.status = 'M'
     except Exception as e:
-        exp.status = 'F'
-    exp.save()
+        job.status = 'F'
+    job.save()
 
 def queue_experiment(request):
     QUEUE_SIZES = [32, 64, 512]
+    #TESTS = ['I', 'I16', 'A']
+    TESTS = ['I']
     form = ExperimentForm(request.POST)
     context = {'form': ExperimentForm()}
 
@@ -46,48 +44,49 @@ def queue_experiment(request):
         if rtt is None:
             rtt = 75
 
-        queue_size = form.cleaned_data['queue_size']
-        test = form.cleaned_data['test']
         competing_ccalg = form.cleaned_data['competing_ccalg']
 
-        ntwrk_conditions = [(btlbw, rtt, queue_size)]
-        # If queue_size unspecified, run once for each size in QUEUE_SIZES
-        if queue_size is None:
-            ntwrk_conditions = [(btlbw, rtt, size) for size in QUEUE_SIZES]
+        exp = Experiment.objects.create(
+                website=website,
+                file_url=file_url,
+                btlbw=btlbw,
+                rtt=rtt,
+                competing_ccalg=competing_ccalg)
+        exp.save()
 
-        ccalgs = [competing_ccalg]
+        ntwrk_conditions = [(btlbw, rtt, size) for size in QUEUE_SIZES]
         if competing_ccalg == '':
-            ccalgs = ['C', 'B']
+            ccalgs = ['cubic', 'bbr']
+        else:
+            ccalgs = [exp.get_competing_ccalg_display()]
 
         for (btlbw, rtt, size) in ntwrk_conditions:
             for ccalg in ccalgs:
-                exp = Experiment.objects.create(
-                        website=website,
-                        file_url=file_url,
-                        btlbw=btlbw,
-                        rtt=rtt,
-                        queue_size=size,
-                        test=test,
-                        competing_ccalg=ccalg
-                        )
-                inputs = {
-                    'website': website,
-                    'file_url': file_url,
-                    'btlbw': btlbw,
-                    'rtt': rtt,
-                    'queue_size': size,
-                    'test': exp.get_test_display(),
-                    'competing_ccalg': exp.get_competing_ccalg_display(),
-                }
-                job = django_rq.enqueue(run_experiment, inputs)
-                exp.job_id = job.get_id()
-                exp.save()
+                for test in TESTS:
+                    job = Job.objects.create(
+                            experiment=exp,
+                            queue_size=size,
+                            test=test,
+                            competing_ccalg=ccalg)
+                    job.save()
+                    inputs = {
+                        'website': website,
+                        'file_url': file_url,
+                        'btlbw': btlbw,
+                        'rtt': rtt,
+                        'queue_size': size,
+                        'test': job.get_test_display(),
+                        'competing_ccalg': ccalg,
+                    }
+                    rq_job = django_rq.enqueue(run_experiment, inputs)
+                    job.job_id = rq_job.get_id()
+                    job.save()
 
     return redirect('index')
 
-def list_experiments(request):
-    experiments = Experiment.objects.all().order_by('-request_date')
-    return render(request, 'ccamonitor/list_experiments.html', {'experiments': experiments})
+def list_jobs(request):
+    jobs = Job.objects.all().order_by('-request_date')
+    return render(request, 'ccamonitor/list_jobs.html', {'jobs': jobs})
 
 
 

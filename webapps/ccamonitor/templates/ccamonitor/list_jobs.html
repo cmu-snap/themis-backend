@@ -3,7 +3,7 @@
 {% load staticfiles %}
 {% block page-content %}
 <div class="mx-3">
-    <h4>Experiments</h4>
+    <h4>Jobs</h4>
     <table class="table">
         <thead>
             <tr>
@@ -19,17 +19,17 @@
             </tr>
         </thead>
         <tbody>
-            {% for exp in experiments %}
+            {% for job in jobs %}
             <tr>
-                <td>{{exp.request_date|localtime}}</td>
-                <td>{{exp.get_status_display}}</td>
-                <td>{{exp.website}}</td>
-                <td>{{exp.file_url}}</td>
-                <td>{{exp.btlbw}}</td>
-                <td>{{exp.rtt}}</td>
-                <td>{{exp.queue_size}}</td>
-                <td>{{exp.get_test_display}}</td>
-                <td>{{exp.get_competing_ccalg_display}}</td>
+                <td>{{job.request_date|localtime}}</td>
+                <td>{{job.get_status_display}}</td>
+                <td>{{job.experiment.website}}</td>
+                <td>{{job.experiment.file_url}}</td>
+                <td>{{job.experiment.btlbw}}</td>
+                <td>{{job.experiment.rtt}}</td>
+                <td>{{job.queue_size}}</td>
+                <td>{{job.get_test_display}}</td>
+                <td>{{job.competing_ccalg}}</td>
             </tr>
             {% endfor %}
         </tbody>
