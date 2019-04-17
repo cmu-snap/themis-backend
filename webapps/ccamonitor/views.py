@@ -18,12 +18,17 @@ def run_experiment(inputs):
     try:
         exp_name = run_ccalg_fairness(inputs)
         job.exp_name = exp_name
-        if run_fairness_snakefile(exp_name) == 0:
-            job.status = 'C'
-            job.metrics = '/tmp/data-websites/{}.metric'.format(exp_name)
-        else:
+        try:
+            if run_fairness_snakefile(exp_name) == 0:
+                job.status = 'C'
+                job.metrics = '/tmp/data-websites/{}.metric'.format(exp_name)
+            else:
+                job.status = 'M'
+        except Exception as e:
+            print('SNAKEFILE EXCEPTION {}'.format(e))
             job.status = 'M'
     except Exception as e:
+        print('FAIRNESS EXCEPTION {}'.format(e))
         job.status = 'F'
     job.save()
 
