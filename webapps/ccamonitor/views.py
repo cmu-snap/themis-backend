@@ -20,7 +20,7 @@ def run_experiment(inputs):
         job.exp_name = exp_name
         if run_fairness_snakefile(exp_name) == 0:
             job.status = 'C'
-            job.metrics = '/tmp/data-processed/{}.metric'.format(exp_name)
+            job.metrics = '/tmp/data-websites/{}.metric'.format(exp_name)
         else:
             job.status = 'M'
     except Exception as e:
