@@ -5,21 +5,24 @@ import json
 
 workdir: "/tmp"
          
+METRIC_DIR = 'data-processed'
+if 'metric_dir' in config:
+    METRIC_DIR = config['metric_dir']
 
 def get_metric_files(wildcards):
     if 'video' in wildcards.exp_name:
-        return {'http': 'data-processed/{}.http'.format(wildcards.exp_name),
-                'description': 'data-processed/{}.json'.format(wildcards.exp_name),
-                'tshark': 'data-processed/{}.tshark'.format(wildcards.exp_name)}
+        return {'http': '{}/{}.http'.format(METRIC_DIR, wildcards.exp_name),
+                'description': '{}/{}.json'.format(METRIC_DIR, wildcards.exp_name),
+                'tshark': '{}/{}.tshark'.format(METRIC_DIR, wildcards.exp_name)}
     else:
-        return {'tshark': 'data-processed/{}.tshark'.format(wildcards.exp_name),
-                'description': 'data-processed/{}.json'.format(wildcards.exp_name)}
+        return {'tshark': '{}/{}.tshark'.format(METRIC_DIR, wildcards.exp_name),
+                'description': '{}/{}.json'.format(METRIC_DIR, wildcards.exp_name)}
 def get_metric_files_list(wildcards):
     if 'video' in wildcards.exp_name:
-        return {'metric_files':['data-processed/{}.http'.format(wildcards.exp_name),
-                'data-processed/{}.tshark'.format(wildcards.exp_name)]}
+        return {'metric_files':['{}/{}.http'.format(METRIC_DIR, wildcards.exp_name),
+                '{}/{}.tshark'.format(METRIC_DIR, wildcards.exp_name)]}
     else:
-        return {'metric_files':['data-processed/{}.tshark'.format(wildcards.exp_name)]}
+        return {'metric_files':['{}/{}.tshark'.format(METRIC_DIR, wildcards.exp_name)]}
 
     
             
@@ -65,10 +68,10 @@ rule load_exp_description:
     params:
         exp_description='{exp_name}.json'
     output:
-        'data-processed/{exp_name}.json'
+        '{METRIC_DIR}/{exp_name}.json'
     shell:
         """
-        tar -C data-processed/ -xzvf {input.exp_tarfile} {params.exp_description}
+        tar -C {METRIC_DIR}/ -xzvf {input.exp_tarfile} {params.exp_description}
         """
 
 rule load_exp_tcpdump:
@@ -111,7 +114,7 @@ rule store_queue_hdf:
     input:
         raw_queue_data='data-raw/queue-{exp_name}.txt'
     output:
-        hdf_queue='data-processed/queue-{exp_name}.h5'
+        hdf_queue='{METRIC_DIR}/queue-{exp_name}.h5'
     run:
         import pandas as pd
         import numpy as np
@@ -178,9 +181,9 @@ rule store_queue_hdf:
 rule get_tcpdump_analysis:
     input:
         tcpdump='data-raw/server-tcpdump-{exp_name}.pcap',
-        queue='data-processed/queue-{exp_name}.h5'
+        queue='{METRIC_DIR}/queue-{exp_name}.h5'
     output:
-        tcpdump_analysis='data-processed/{exp_name}.tshark'
+        tcpdump_analysis='{METRIC_DIR}/{exp_name}.tshark'
     run:
         import pandas as pd
         
@@ -198,7 +201,7 @@ rule get_metric:
     input:
         unpack(get_metric_files)
     output:
-        metric='data-processed/{exp_name}.metric'
+        metric='{METRIC_DIR}/{exp_name}.metric'
     run:
         import json
         import pandas as pd
@@ -325,7 +328,7 @@ rule get_http_analysis:
     input:
         http_pcap='data-raw/http-{exp_name}.pcap'
     output:
-        http_analysis='data-processed/{exp_name}.http'
+        http_analysis='{METRIC_DIR}/{exp_name}.http'
     shell:
         """
         tshark -2 -r {input.http_pcap} -T fields -e tcp.stream -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e frame.time_relative -e http.request.uri -E separator=, | grep bunny_ > {output.http_analysis} || touch {output.http_analysis}
@@ -334,9 +337,9 @@ rule get_http_analysis:
         
 rule get_avg_bitrate:
     input:
-        http_analysis='data-processed/{exp_name}.http'
+        http_analysis='{METRIC_DIR}/{exp_name}.http'
     output:
-        bitrate='data-processed/{exp_name}.bitrate'
+        bitrate='{METRIC_DIR}/{exp_name}.bitrate'
     run:
         import pandas as pd
         import os
@@ -380,8 +383,8 @@ rule scp_results:
     input:
         unpack(get_metric_files_list),
         exp_tarfile='data-raw/{exp_name}.tar.gz',
-        metric='data-processed/{exp_name}.metric',
-        queue='data-processed/queue-{exp_name}.h5',
+        metric=expand('{metric_dir}/{{exp_name}}.metric', metric_dir=METRIC_DIR),
+        queue=expand('{metric_dir}/queue-{{exp_name}}.h5', metric_dir=METRIC_DIR),
         #tcpdump_analysis='data-processed/{exp_name}.tshark',
         #bitrate='data-processed/{exp_name}.bitrate',
         #http='data-processed/{exp_name}.http'
@@ -389,7 +392,7 @@ rule scp_results:
         compressed_results='{exp_name}.fairness.tar.gz'
     shell:
         """
-        tar -czvf {output.compressed_results} {input.metric} {input.exp_tarfile} {input.queue} $(ls data-processed/{wildcards.exp_name}.http) data-processed/{wildcards.exp_name}.tshark  --strip-components=1 && rm data-tmp/*{wildcards.exp_name}*
+        tar -czvf {output.compressed_results} {input.metric} {input.exp_tarfile} {input.queue} $(ls {METRIC_DIR}/{wildcards.exp_name}.http) {METRIC_DIR}/{wildcards.exp_name}.tshark  --strip-components=1 && rm data-tmp/*{wildcards.exp_name}*
         """
        
     

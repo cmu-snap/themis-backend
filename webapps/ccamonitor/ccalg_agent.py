@@ -3,7 +3,7 @@ import re
 
 # Call ccalg_fairness.py with the given arguments and return experiment name
 def run_ccalg_fairness(inputs):
-    cmd = 'python3.6 /opt/cctestbed/ccalg_fairness.py --website {} {} --network {} {} {} --test {} --competing_ccalg {} --num_competing 1'
+    cmd = 'python3.6 /opt/cctestbed/ccalg_fairness.py --website {} {} --network {} {} {} --test {} --competing_ccalg {} --num_competing 1 --duration 240'
     args = shlex.split(cmd.format(
         inputs['website'],
         inputs['file_url'],
@@ -27,7 +27,7 @@ def run_ccalg_fairness(inputs):
     return exp_name
 
 def run_fairness_snakefile(exp_name):
-    cmd = 'snakemake --config exp_name={} -s /opt/cctestbed/fairness_websites.snakefile'
+    cmd = 'snakemake --config exp_name={} metric_dir="data-websites" -s /opt/cctestbed/fairness_websites.snakefile'
     args = shlex.split(cmd.format(exp_name))
     process = subprocess.run(args, stdout=subprocess.PIPE)
     return process.returncode
