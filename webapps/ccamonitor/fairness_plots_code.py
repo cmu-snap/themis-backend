@@ -5,24 +5,31 @@ import subprocess, glob, json, os
 
 COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-df_tests = pd.read_csv('fairness_test_description.csv') 
+df_tests = pd.read_csv('/opt/cctestbed/webapps/ccamonitor/fairness_test_description.csv') 
 
-def make_plot(website, cca):
-    results = get_fairness_results(website)
-    df_to_plot = (pd
-     .DataFrame(results)
-     .drop_duplicates()
-     .assign(fairness=lambda x: x.apply(
-         lambda df: (df['metric'] / df['baseline']) * (1/df['expected_baseline']) if df['test']!='webpage' else (df['baseline'] / df['metric']) * (1/df['expected_baseline']), axis=1))
-     .groupby(['cca','queue_bdp','test'])['fairness']
-     .median()
-     .unstack(0)
-     .reset_index()
-     .assign(test=lambda x: x.apply(lambda df:'{}\n{:g} BDP'.format(df['test'],df['queue_bdp']), axis=1))
-    ).set_index('test').sort_index(ascending=True)[['bbr','cubic','reno']]
+def make_plot(website, ccalgs, exp_id):
+    results = get_fairness_results(website, exp_id)
+    paths = []
 
-    ax = plot_fairness(df_to_plot[cca].sort_index(), '')
-    ax.figure.savefig('/opt/cctestbed/graphics/{}-vs{}-sigcomm-2019.png'.format(website,cca), bbox_inches='tight')
+    for cca in ccalgs:
+        df_to_plot = (pd
+                .DataFrame(results)
+                .drop_duplicates()
+                .assign(fairness=lambda x: x.apply(
+                    lambda df: (df['metric'] / df['baseline']) * (1/df['expected_baseline']) if df['test']!='webpage' else (df['baseline'] / df['metric']) * (1/df['expected_baseline']), axis=1))
+                .groupby(['cca','queue_bdp','test'])['fairness']
+                .median()
+                .unstack(0)
+                .reset_index()
+                .assign(test=lambda x: x.apply(lambda df:'{}\n{:g} BDP'.format(df['test'],df['queue_bdp']), axis=1))
+                ).set_index('test').sort_index(ascending=True)[['bbr','cubic','reno']]
+        
+        ax = plot_fairness(df_to_plot[cca].sort_index(), '')
+        path = 'graphics/{}-vs{}-{}.png'.format(website,cca,exp_id)
+        ax.figure.savefig('/opt/cctestbed/webapps/' + path, bbox_inches='tight')
+        paths.append(path)
+
+    return paths
 
 def plot_fairness(df, title, **kwargs):
     from math import pi
@@ -74,11 +81,11 @@ def plot_fairness(df, title, **kwargs):
     return ax
 
 
-def get_fairness_results(website_name):
+def get_fairness_results(website_name, exp_id):
     all_testing_results = []
     for _, test in df_tests.iterrows():
         baseline_exp_pattern = '/tmp/data-websites/'+test['baseline_name_pattern']+'.fairness.tar.gz'
-        test_exp_pattern = '/tmp/data-websites/'+test['test_name_pattern'].format(website_name)+'.metric'
+        test_exp_pattern = '/tmp/data-websites/{}/'.format(exp_id) + test['test_name_pattern'].format(website_name)+'.metric'
         baseline_exp_filenames = glob.glob(baseline_exp_pattern)
         test_exp_filenames = glob.glob(test_exp_pattern)
         num_testing = len(test_exp_filenames)
@@ -162,5 +169,3 @@ def get_fairness_results(website_name):
                 testing_results['test'] = 'webpage'
             all_testing_results.append(testing_results)
     return all_testing_results
-
-make_plot('ssa.gov', 'bbr')

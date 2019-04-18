@@ -99,12 +99,16 @@ RQ_QUEUES = {
 	'DEFAULT_TIMEOUT': 600,
     },
     'high': {
-	'DEFAULT_TIMEOUT': 5000
+        'HOST': 'localhost',
+        'PORT': 6379,
+        'DB': 0,
+	'DEFAULT_TIMEOUT': 600,
     },
     'low': {
 	'HOST': 'localhost',
 	'PORT': 6379,
 	'DB': 0,
+        'DEFAULT_TIMEOUT': 360,
     }
 }
 

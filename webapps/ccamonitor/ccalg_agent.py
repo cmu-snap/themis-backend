@@ -1,5 +1,5 @@
 import shlex, subprocess
-import re
+import re, os
 
 # Call ccalg_fairness.py with the given arguments and return experiment name
 def run_ccalg_fairness(inputs):
@@ -26,9 +26,11 @@ def run_ccalg_fairness(inputs):
 
     return exp_name
 
-def run_fairness_snakefile(exp_name):
-    cmd = 'snakemake --config exp_name={} metric_dir="data-websites" -s /opt/cctestbed/fairness_websites.snakefile'
-    args = shlex.split(cmd.format(exp_name))
+def run_fairness_snakefile(exp_name, exp_id):
+    if not os.path.isdir('/tmp/data-websites/{}'.format(exp_id)):
+        os.mkdir('/tmp/data-websites/{}'.format(exp_id))
+    cmd = 'snakemake --config exp_name={} metric_dir="data-websites/{}" -s /opt/cctestbed/fairness_websites.snakefile'
+    args = shlex.split(cmd.format(exp_name, exp_id))
     process = subprocess.run(args, stdout=subprocess.PIPE)
     return process.returncode
     

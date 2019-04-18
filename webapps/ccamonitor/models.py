@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.postgres.fields import JSONField
+import uuid
 
 class Experiment(models.Model):
     CCALGS = (
@@ -13,6 +14,12 @@ class Experiment(models.Model):
     rtt = models.PositiveIntegerField(blank=True)
     competing_ccalg = models.CharField(blank=True, choices=CCALGS, max_length=1)
     request_date = models.DateTimeField(auto_now_add=True)
+    finished_jobs = models.IntegerField(default=0)
+    exp_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
+class Graph(models.Model):
+    exp = models.ForeignKey(Experiment, on_delete=models.CASCADE)
+    graph = models.FileField(upload_to='graphics')
 
 class Job(models.Model):
     TESTS = (
@@ -23,19 +30,22 @@ class Job(models.Model):
 
     STATUSES = (
         ('C', 'completed'),
-        ('M', 'failed to get metrics'),
-        ('Q', 'queued'),
-        ('R', 'running'),
-        ('F', 'failed'),
+        ('M', 'getting metrics'),
+        ('D', 'downloading'),
+        ('QD', 'queued for download'),
+        ('QM', 'queued for metrics'),
+        ('FM', 'failed to get metrics'),
+        ('FD', 'failed fairness download'),
     )
-    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE)
+    exp = models.ForeignKey(Experiment, on_delete=models.CASCADE)
     queue_size = models.PositiveIntegerField()
     test = models.CharField(default='I', choices=TESTS, max_length=3)
     competing_ccalg = models.CharField(max_length=5)
     
-    status = models.CharField(default='Q', choices=STATUSES, max_length=1)
+    status = models.CharField(default='QD', choices=STATUSES, max_length=2)
     job_id = models.CharField(null=True, max_length=100)
     request_date = models.DateTimeField(auto_now_add=True)
     exp_name = models.CharField(null=True, max_length=200)
     metrics = JSONField(null=True)
+    num_tries = models.IntegerField(default=0)
 
