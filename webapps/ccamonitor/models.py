@@ -37,5 +37,5 @@ class Job(models.Model):
     job_id = models.CharField(null=True, max_length=100)
     request_date = models.DateTimeField(auto_now_add=True)
     exp_name = models.CharField(null=True, max_length=200)
-    metrics = models.CharField(null=True, max_length=300)
+    metrics = JSONField(null=True)
 

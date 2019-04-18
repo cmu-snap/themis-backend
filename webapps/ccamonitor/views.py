@@ -21,7 +21,8 @@ def run_experiment(inputs):
         try:
             if run_fairness_snakefile(exp_name) == 0:
                 job.status = 'C'
-                job.metrics = '/tmp/data-websites/{}.metric'.format(exp_name)
+                with open('/tmp/data-websites/{}.metric'.format(exp_name)) as json_file:
+                    job.metrics = json.load(json_file)
             else:
                 job.status = 'M'
         except Exception as e:
@@ -60,7 +61,7 @@ def queue_experiment(request):
 
         ntwrk_conditions = [(btlbw, rtt, size) for size in QUEUE_SIZES]
         if competing_ccalg == '':
-            ccalgs = ['cubic', 'bbr']
+            ccalgs = ['cubic', 'bbr', 'reno']
         else:
             ccalgs = [exp.get_competing_ccalg_display()]
 

@@ -1,20 +1,16 @@
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+import subprocess, glob, json, os
 
 COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 df_tests = pd.read_csv('fairness_test_description.csv') 
 
-def make_youtube_plot():
-    youtube_results = get_fairness_results('youtube.com')
-    
-    website_name = 'youtube.com'
-    cca = 'bbr'
+def make_plot(website, cca):
+    results = get_fairness_results(website)
     df_to_plot = (pd
-     .DataFrame(fairness_test_results[website_name])
+     .DataFrame(results)
      .drop_duplicates()
      .assign(fairness=lambda x: x.apply(
          lambda df: (df['metric'] / df['baseline']) * (1/df['expected_baseline']) if df['test']!='webpage' else (df['baseline'] / df['metric']) * (1/df['expected_baseline']), axis=1))
@@ -26,7 +22,7 @@ def make_youtube_plot():
     ).set_index('test').sort_index(ascending=True)[['bbr','cubic','reno']]
 
     ax = plot_fairness(df_to_plot[cca].sort_index(), '')
-    ax.figure.savefig('/opt/cctestbed/graphics/{}-vs{}-sigcomm-2019.png'.format(website_name,cca), bbox_inches='tight')
+    ax.figure.savefig('/opt/cctestbed/graphics/{}-vs{}-sigcomm-2019.png'.format(website,cca), bbox_inches='tight')
 
 def plot_fairness(df, title, **kwargs):
     from math import pi
@@ -81,15 +77,14 @@ def plot_fairness(df, title, **kwargs):
 def get_fairness_results(website_name):
     all_testing_results = []
     for _, test in df_tests.iterrows():
-        baseline_exp_pattern = 'data-websites/'+test['baseline_name_pattern']+'.fairness.tar.gz'
-        test_exp_pattern = 'data-websites/'+test['test_name_pattern'].format(website_name)+'.metric'
+        baseline_exp_pattern = '/tmp/data-websites/'+test['baseline_name_pattern']+'.fairness.tar.gz'
+        test_exp_pattern = '/tmp/data-websites/'+test['test_name_pattern'].format(website_name)+'.metric'
         baseline_exp_filenames = glob.glob(baseline_exp_pattern)
         test_exp_filenames = glob.glob(test_exp_pattern)
         num_testing = len(test_exp_filenames)
         num_baseline = len(baseline_exp_filenames)
         if num_testing > num_baseline:
             test_exp_filenames = sorted(test_exp_filenames)[-3:]
-        #if num_testing < num_baseline:
         print(num_testing, num_baseline, test['test_name'])
 
         for testing_filename, baseline_filename in zip(test_exp_filenames, baseline_exp_filenames):
@@ -100,7 +95,7 @@ def get_fairness_results(website_name):
             if testing_results['test'] == 'video':
                 http = baseline_filename[:-len('.features.tar.gz')] + '.http'
                 if not os.path.isfile(http):
-                    subprocess.run('tar -C data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(http)), 
+                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(http)), 
                                    check=True, shell=True)
                     assert(os.path.isfile(http))
 
@@ -132,7 +127,7 @@ def get_fairness_results(website_name):
             elif testing_results['test'] == 'apache':
                 tshark = baseline_filename[:-len('.features.tar.gz')] + '.tshark'
                 if not os.path.isfile(tshark):
-                    subprocess.run('tar -C data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
+                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
                                    check=True, shell=True)
                     assert(os.path.isfile(tshark))
                 df_tshark = pd.read_csv(tshark,
@@ -148,7 +143,7 @@ def get_fairness_results(website_name):
             elif (testing_results['test'] == 'iperf1') | (testing_results['test'] == 'iperf16'):
                 tshark = baseline_filename[:-len('.features.tar.gz')] + '.tshark'
                 if not os.path.isfile(tshark):
-                    subprocess.run('tar -C data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
+                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
                                    check=True, shell=True)
                     assert(os.path.isfile(tshark))
                 df_tshark = pd.read_csv(tshark,
@@ -167,3 +162,5 @@ def get_fairness_results(website_name):
                 testing_results['test'] = 'webpage'
             all_testing_results.append(testing_results)
     return all_testing_results
+
+make_plot('ssa.gov', 'bbr')
