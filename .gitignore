@@ -175,3 +175,4 @@ data-training/*.h5
 redis-stable/
 dump.rdb
 config.ini
+media/

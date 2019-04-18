@@ -14,14 +14,14 @@
     </div>
 </section>
 
-<div class="row">
+<div class="row px-3">
     {% for graph in graphs %}
         {% if graph.graph %}
         <div class="col-md-4">
-            <div class="card mb-4">
-                <img src="{{ graph.graph.url }}" class="img-responsive">
+            <div class="card pt-2">
+                <img src="{{ graph.graph.url }}" class="mx-auto img-responsive card-img-top">
                 <div class="card-body">
-                    <div class="card-title text-center">{{graph.exp.website}} vs {{graph.competing_ccalg}}</div>
+                    <h5 class="card-title text-center">{{graph.exp.website}} vs {{graph.competing_ccalg}}</h5>
                 </div>
             </div>
         </div>

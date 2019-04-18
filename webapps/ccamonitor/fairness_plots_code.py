@@ -25,8 +25,8 @@ def make_plot(website, ccalgs, exp_id):
                 ).set_index('test').sort_index(ascending=True)[['bbr','cubic','reno']]
         
         ax = plot_fairness(df_to_plot[cca].sort_index(), '')
-        path = 'graphics/{}-vs{}-{}.png'.format(website,cca,exp_id)
-        ax.figure.savefig('/opt/cctestbed/webapps/' + path, bbox_inches='tight')
+        path = 'graphs/{}-vs{}-{}.png'.format(website,cca,exp_id)
+        ax.figure.savefig('/opt/cctestbed/webapps/media/' + path, bbox_inches='tight')
         paths.append(path)
 
     return paths

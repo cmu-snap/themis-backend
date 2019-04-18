@@ -19,4 +19,6 @@ body {
     flex-direction: column;
 }
 
-
+.card-img-top {
+    max-width: 300px;
+}
