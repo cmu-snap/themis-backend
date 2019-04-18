@@ -10,8 +10,8 @@ import json, uuid
 MAX_TRIES = 3
 
 def index(request):
-    context = {'form': ExperimentForm()}
-    return render(request, 'ccamonitor/queue.html', context)
+    context = {'graphs': Graph.objects.all()}
+    return render(request, 'ccamonitor/home.html', context)
 
 def check_experiment(job, exp, status):
     job.status = status
@@ -81,10 +81,10 @@ def get_metrics(exp_name):
 
 @django_rq.job('low')
 def create_graph(inputs):
-    paths = make_plot(inputs['website'], ccalg, str(inputs['exp_id']))
+    paths = make_plot(inputs['website'], inputs['ccalgs'], str(inputs['exp_id']))
     exp = Experiment.objects.get(exp_id=inputs['exp_id'])
-    for path in paths:
-        graph = Graph.objects.create(exp=exp)
+    for (path, ccalg) in zip(paths, inputs['ccalgs']):
+        graph = Graph.objects.create(exp=exp, competing_ccalg=ccalg)
         graph.graph.name = path
         graph.save()
 
@@ -142,7 +142,7 @@ def queue_experiment(request):
                     job.job_id = rq_job.get_id()
                     job.save()
 
-    return redirect('index')
+    return render(request, 'ccamonitor/queue.html', context)
 
 def list_jobs(request):
     jobs = Job.objects.all().order_by('-request_date')

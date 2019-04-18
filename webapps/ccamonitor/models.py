@@ -20,6 +20,8 @@ class Experiment(models.Model):
 class Graph(models.Model):
     exp = models.ForeignKey(Experiment, on_delete=models.CASCADE)
     graph = models.FileField(upload_to='graphics')
+    competing_ccalg = models.CharField(max_length=5)
+
 
 class Job(models.Model):
     TESTS = (
