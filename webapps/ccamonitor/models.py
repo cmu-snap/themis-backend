@@ -1,18 +1,13 @@
 from django.db import models
-from django.contrib.postgres.fields import JSONField
+from django.contrib.postgres.fields import JSONField, ArrayField
 import uuid
 
 class Experiment(models.Model):
-    CCALGS = (
-        ('C', 'cubic'),
-        ('B', 'bbr'),
-        ('R', 'reno'),
-    )
     website = models.CharField(max_length=2083)
     file_url = models.URLField()
     btlbw = models.PositiveIntegerField(blank=True)
     rtt = models.PositiveIntegerField(blank=True)
-    competing_ccalg = models.CharField(blank=True, choices=CCALGS, max_length=1)
+    ccalgs = ArrayField(models.CharField(max_length=5), size=3, blank=False)
     request_date = models.DateTimeField(auto_now_add=True)
     finished_jobs = models.IntegerField(default=0)
     exp_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)

@@ -3,6 +3,11 @@
 {% block page-content %}
 <div class="horizontal-center py-md-4">
     <h3 class="mb-3">Submit Experiment</h3>
+    {% if form.ccalgs.errors %}
+    <div class="alert alert-danger" role="alert">
+        Please select at least one competing CCA.
+    </div>
+    {% endif %}
     <form action="{% url 'queue-experiment' %}" method="post">
         <div class="form-row">
             <div class="form-group col">
@@ -26,11 +31,12 @@
                 <small class="form-text text-muted">Defaults to 75.</small>
             </div>
             <div class="form-group col">
-                <label for="id_competing_ccalg">Competing CCA</label>
-                {{form.competing_ccalg}}
-                <small class="form-text text-muted">
-                    If left blank, experiment will run with each of cubic and bbr.
-                </small>
+                <label for="id_ccalgs">Competing CCAs</label>
+                {% for ccalg in form.ccalgs %}
+                <div class="form-check">
+                    {{ccalg}}
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% csrf_token %}

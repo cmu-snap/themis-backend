@@ -21,16 +21,12 @@ def check_experiment(job, exp, status):
             
     # All jobs associated with this experiment have finished
     if exp.finished_jobs == exp.job_set.all().count():
-        if exp.competing_ccalg == '':
-            ccalgs = ['cubic', 'bbr', 'reno']
-        else:
-            ccalgs = [exp.get_competing_ccalg_display()]
-            queue = django_rq.get_queue('low')
-            queue.enqueue(create_graph, {
-                'website': exp.website,
-                'ccalgs': ccalgs,
-                'exp_id': exp.exp_id,
-                })
+        queue = django_rq.get_queue('low')
+        queue.enqueue(create_graph, {
+            'website': exp.website,
+            'ccalgs': exp.ccalgs,
+            'exp_id': exp.exp_id,
+        })
 
 def retry_job(job, status, func, inputs):
     if job.num_tries < MAX_TRIES:
@@ -94,6 +90,9 @@ def queue_experiment(request):
     form = ExperimentForm(request.POST)
     context = {'form': ExperimentForm()}
 
+    if request.method == 'GET':
+        return render(request, 'ccamonitor/queue.html', context)
+
     if form.is_valid():
         website = form.cleaned_data['website']
         file_url = form.cleaned_data['file_url']
@@ -103,23 +102,17 @@ def queue_experiment(request):
         rtt = form.cleaned_data['rtt']
         if rtt is None:
             rtt = 75
-
-        competing_ccalg = form.cleaned_data['competing_ccalg']
-
+            
+        ccalgs = form.cleaned_data['ccalgs']
         exp = Experiment.objects.create(
                 website=website,
                 file_url=file_url,
                 btlbw=btlbw,
                 rtt=rtt,
-                competing_ccalg=competing_ccalg)
+                ccalgs=ccalgs)
         exp.save()
 
         ntwrk_conditions = [(btlbw, rtt, size) for size in QUEUE_SIZES]
-        if competing_ccalg == '':
-            ccalgs = ['cubic', 'bbr', 'reno']
-        else:
-            ccalgs = [exp.get_competing_ccalg_display()]
-
         for (btlbw, rtt, size) in ntwrk_conditions:
             for ccalg in ccalgs:
                 for test in TESTS:
@@ -141,8 +134,10 @@ def queue_experiment(request):
                     rq_job = django_rq.enqueue(run_experiment, inputs)
                     job.job_id = rq_job.get_id()
                     job.save()
+    else:
+        return render(request, 'ccamonitor/queue.html', {'form': form})
 
-    return render(request, 'ccamonitor/queue.html', context)
+    return render(request, 'ccamonitor/submitted.html', {})
 
 def list_jobs(request):
     jobs = Job.objects.all().order_by('-request_date')

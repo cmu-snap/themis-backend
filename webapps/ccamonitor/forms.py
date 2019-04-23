@@ -8,12 +8,14 @@ class BaseModelForm(forms.ModelForm):
         # Add common css classes to all widgets
         for field in iter(self.fields):
             # Get current classes from Meta
-            classes = self.fields[field].widget.attrs.get("class")
-            if classes is not None:
-                classes += " form-control"
-            else:
-                classes = "form-control"
-            self.fields[field].widget.attrs.update({'class': classes})
+            widget = self.fields[field].widget
+            classes = widget.attrs.get("class")
+            if widget.input_type != 'checkbox':
+                if classes is None:
+                    classes = "form-control"
+                else:
+                    classes += " form-control"
+                self.fields[field].widget.attrs.update({'class': classes})
 
 class ExperimentForm(BaseModelForm):
     class Meta:
@@ -23,8 +25,18 @@ class ExperimentForm(BaseModelForm):
             'file_url',
             'btlbw',
             'rtt',
-            'competing_ccalg',
         ]
+
+    CCALGS = (
+        ('cubic', 'cubic'),
+        ('bbr', 'bbr'),
+        ('reno', 'reno'),
+    )
+
+    ccalgs = forms.MultipleChoiceField(
+            required=True,
+            widget=forms.CheckboxSelectMultiple,
+            choices=CCALGS)
 
     # Strip http:// or https:// from website
     def clean_website(self):
@@ -34,5 +46,4 @@ class ExperimentForm(BaseModelForm):
         if m:
             data = data[m.end():]
         return data
-
 
