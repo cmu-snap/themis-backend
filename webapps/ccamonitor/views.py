@@ -21,17 +21,18 @@ def check_experiment(job, exp, status):
             
     # All jobs associated with this experiment have finished
     if exp.finished_jobs == exp.job_set.all().count():
-        queue = django_rq.get_queue('low')
+        queue = django_rq.get_queue('high')
         queue.enqueue(create_graph, {
             'website': exp.website,
             'ccalgs': exp.ccalgs,
             'exp_id': exp.exp_id,
         })
 
-def retry_job(job, status, func, inputs):
+def retry_job(job, status, func, inputs, qname):
     if job.num_tries < MAX_TRIES:
         job.status = 'Q' + status
-        rq_job = django_rq.enqueue(func, inputs)
+        queue = django_rq.get_queue(qname)
+        rq_job = queue.enqueue(func, inputs)
         job.job_id = rq_job.get_id()
         job.save()
     else:
@@ -54,7 +55,7 @@ def run_experiment(inputs):
         queue.enqueue(get_metrics, exp_name)
     except Exception as e:
         print('FAIRNESS EXCEPTION {}'.format(e))
-        retry_job(job, 'D', run_experiment, inputs)
+        retry_job(job, 'D', run_experiment, inputs, 'default')
 
 @django_rq.job('high')
 def get_metrics(exp_name):
@@ -73,9 +74,9 @@ def get_metrics(exp_name):
             check_experiment(job, job.exp, 'FM')
     except Exception as e:
         print('SNAKEFILE EXCEPTION {}'.format(e))
-        retry_job(job, 'M', get_metrics, exp_name)
+        retry_job(job, 'M', get_metrics, exp_name, 'high')
 
-@django_rq.job('low')
+@django_rq.job('high')
 def create_graph(inputs):
     paths = make_plot(inputs['website'], inputs['ccalgs'], str(inputs['exp_id']))
     exp = Experiment.objects.get(exp_id=inputs['exp_id'])
@@ -86,7 +87,7 @@ def create_graph(inputs):
 
 def queue_experiment(request):
     QUEUE_SIZES = [32, 64, 512]
-    TESTS = ['I', 'I16', 'A']
+    TESTS = ['I', 'I16', 'A', 'V']
     form = ExperimentForm(request.POST)
     context = {'form': ExperimentForm()}
 

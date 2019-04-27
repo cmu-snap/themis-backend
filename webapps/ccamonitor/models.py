@@ -23,6 +23,7 @@ class Job(models.Model):
         ('I', 'iperf-website'),
         ('I16', 'iperf16-website'),
         ('A', 'apache-website'),
+        ('V', 'video'),
     )
 
     STATUSES = (

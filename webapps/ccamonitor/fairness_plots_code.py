@@ -22,7 +22,7 @@ def make_plot(website, ccalgs, exp_id):
                 .unstack(0)
                 .reset_index()
                 .assign(test=lambda x: x.apply(lambda df:'{}\n{:g} BDP'.format(df['test'],df['queue_bdp']), axis=1))
-                ).set_index('test').sort_index(ascending=True)[['bbr','cubic','reno']]
+                ).set_index('test').sort_index(ascending=True)[ccalgs]
         
         ax = plot_fairness(df_to_plot[cca].sort_index(), '')
         path = 'graphs/{}-vs{}-{}.png'.format(website,cca,exp_id)
