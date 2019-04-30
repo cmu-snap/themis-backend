@@ -253,23 +253,17 @@ def setup_webserver(host_client):
     assert(proc.returncode == 0)
 
 
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo mkdir /mnt/video && sudo chown -R {}:dna-PG0 /mnt/video"'.format(USER)
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
-    # this command takes like an hour! wget parallel?
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /mnt/video && wget -r ftp://ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/"'
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "ln -s /mnt/video/ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/* /var/www/html"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
     # install chrome on the server
     server_cmds = ['sudo apt-get update',
+            'sudo apt-get -f -y install',
             'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
             'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
             'sudo dpkg -i google-chrome*.deb',
-            'sudo apt-get install -f' # install missing dependencies
+            'sudo apt-get -f install', # install missing dependencies
             'rm google-chrome-stable_current_amd64.deb']
     for cmd in server_cmds:
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
