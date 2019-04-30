@@ -6,11 +6,14 @@ import pwd
 import pickle
 
 from cctestbedv2 import Host, get_interface_pci, connect_dpdk
+from config import *
 
 
 USER = os.environ['USER']
 # assume specific format for identity file
 IDENTITY_FILE = '/users/{}/.ssh/{}_cloudlab.pem'.format(USER, USER)
+HOST_SERVER = ''
+HOST_CLIENT = ''
     
 def get_host_info():
     bess_hostname = subprocess.run('hostname', stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
@@ -76,6 +79,9 @@ def get_host_info():
         shell=True, stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
     host_server['ifname_remote'] = server_ifname_remote
     host_client['ifname_remote'] = client_ifname_remote
+    with open('host.txt', 'w') as host_file:
+        host_file.write(str(host_server))
+        host_file.write(str(host_client))
     host_server = Host(**host_server)
     host_client = Host(**host_client)
     
@@ -170,7 +176,7 @@ def add_disk_space():
            '&& sudo cp -R /tmp/* /mnt/tmp '
            '&& sudo  rm -r /tmp '
            '&& sudo ln -s /mnt/tmp /tmp '
-           '&& sudo chown -R {}:dna-PG0 /tmp/*'.format(USER))
+           '&& sudo chown -R rware:dna-PG0 /tmp/*')
     proc = subprocess.run(cmd, shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
@@ -181,16 +187,12 @@ def add_disk_space():
            "&& sudo cp -R /tmp/* /mnt/tmp "
            "&& sudo rm -r /tmp "
            "&& sudo ln -s /mnt/tmp /tmp "
-           "&& sudo chown -R {}:dna-PG0 /tmp/*".format(USER))
+           "&& sudo chown -R rware:dna-PG0 /tmp/*")
     proc = subprocess.run("ssh -o StrictHostKeyChecking=no cctestbed-server '{}'".format(
         cmd), shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
 
-def setup_links():
-    proc = subprocess.run("./setup-links.sh", shell=True)
-    assert(proc.returncode == 0)
-        
 def load_all_ccalgs():
     cmd = "ssh -o StrictHostKeyChecking=no cctestbed-server 'for f in /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_*; do sudo modprobe $(basename $f .ko); done'"
     proc = subprocess.run(cmd, shell=True)
@@ -234,7 +236,7 @@ def increase_win_sizes():
         assert(proc.returncode == 0)
 
 def setup_webserver(host_client):
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo apt-get install -y apache2"'
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo apt-get update && sudo apt-get install -y apache2"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo service apache2 stop"'
@@ -243,10 +245,22 @@ def setup_webserver(host_client):
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && sudo wget --no-check-certificate --adjust-extension --span-hosts --convert-links --backup-converted --page-requisites www.nytimes.com"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "echo Listen {}:1234 | sudo tee -a /etc/apache2/apache2.conf"'.format(host_client.ip_lan)
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "echo Listen {}:1234 | sudo tee -a /etc/apache2/apache2.con"f'.format(host_client.ip_lan)
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo service apache2 start"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+
+
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo mkdir /mnt/video && sudo chown -R {}:dna-PG0 /mnt/video"'.format(USER)
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    # this command takes like an hour! wget parallel?
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /mnt/video && wget -r ftp://ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/"'
+    proc = subprocess.run(cmd, shell=True)
+    assert(proc.returncode == 0)
+    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "ln -s /mnt/video/ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/* /var/www/html"'
     proc = subprocess.run(cmd, shell=True)
     assert(proc.returncode == 0)
 
@@ -255,40 +269,12 @@ def setup_webserver(host_client):
             'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
             'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
             'sudo dpkg -i google-chrome*.deb',
-            'sudo apt-get install -yf' # install missing dependencies
+            'sudo apt-get install -f' # install missing dependencies
             'rm google-chrome-stable_current_amd64.deb']
     for cmd in server_cmds:
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
+        assert(proc.returncode == 0)
 
-
-    """
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo chown -R rware:dna-PG0 /var/www"'
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
-    # this command takes like an hour! wget parallel?
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && wget -r ftp://ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/"'
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
-    cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "cd /var/www/html && mv ftp-itec.uni-klu.ac.at/pub/datasets/DASHDataset2014/BigBuckBunny/10sec/* ."'
-    proc = subprocess.run(cmd, shell=True)
-    assert(proc.returncode == 0)
-
-    # install chrome on the server
-    cmds = ['sudo apt-get update',
-            'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
-            'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
-            'sudo dpkg -i google-chrome*.deb',
-            'sudo apt-get install -f' # install missing dependencies
-            'rm google-chrome-stable_current_amd64.deb']
-    """
-
-def add_disk_space_apache():
-    cmds = [
-        'sudo /usr/local/etc/emulab/mkextrafs.pl -f -r sdb -s 1 /mnt',
-        'sudo mkdir /mnt/html',
-        'sudo chown -R rware:dna-PG0 /mnt/html',
-        'cp -R /var/www/html/* /mnt/html',
-        'rm -r /var/www/*']
 
 def setup_data_analysis():
     cmds = [
@@ -300,7 +286,6 @@ def setup_data_analysis():
         "sudo mkdir /tmp/data-raw",
         "sudo mkdir /tmp/data-processed",
         "sudo mkdir /tmp/data-websites",
-        #"sudo mv /tmp/*.tar.gz /tmp/data-raw/",
         "sudo chown -R {}:dna-PG0 /tmp/data-websites".format(USER),
         "sudo chown -R {}:dna-PG0 /tmp/data-processed".format(USER),
         "sudo chown -R {}:dna-PG0 /tmp/data-raw".format(USER)]
@@ -308,14 +293,30 @@ def setup_data_analysis():
         proc = subprocess.run(cmd, shell=True)
         assert(proc.returncode == 0)
 
-        
-    
-def main():
-    # check if identity file exists & works
-    if not os.path.isfile(IDENTITY_FILE):
-        print('Could not find identify file: {}. Please add it to this machine to run cloudlab setup'.format(IDENTITY_FILE))
-        exit(1)
+def setup_links():
+    proc = subprocess.run("./setup-links.sh", shell=True)
+    assert(proc.returncode == 0)
 
+def install_packages():
+    cmds = [
+        "cp .vimrc ~/",
+	"git config --global user.name 'Megan Yu'",
+	"git config --global user.email 'mtyu227@gmail.com'",
+        "sudo rm /tmp/cctestbed-experiments.log",
+	"pip install --user django django-rq channels",
+	"wget http://download.redis.io/redis-stable.tar.gz",
+	"tar xvzf redis-stable.tar.gz",
+	"cd redis-stable && make && sudo make install",
+        "sudo apt-get update",
+	"sudo apt-get install -y postgresql postgresql-contrib python3-psycopg2 libpq-dev",
+        "pip install --user psycopg2",
+        "pip3 install --user channels_redis",
+        ]
+    for cmd in cmds:
+        proc = subprocess.run(cmd, shell=True)
+        assert(proc.returncode == 0)
+
+def main():
     host_server, host_client = get_host_info()
     increase_win_sizes()
     turn_off_tso(host_server, host_client)
@@ -326,9 +327,10 @@ def main():
     export_environs(host_server, host_client)
     add_disk_space()
     connect_bess(host_server, host_client)
-    setup_webserver(host_client)
     setup_data_analysis()
+    setup_webserver(host_client)
     setup_links()
+    install_packages()
     
 if __name__ == '__main__':
     main()
