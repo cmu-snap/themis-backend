@@ -259,15 +259,15 @@ def setup_webserver(host_client):
 
     # install chrome on the server
     server_cmds = ['sudo apt-get update',
-            'sudo apt-get -f -y install',
             'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
             'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
             'sudo dpkg -i google-chrome*.deb',
-            'sudo apt-get -f install', # install missing dependencies
+            'sudo apt-get install -f', # install missing dependencies
             'rm google-chrome-stable_current_amd64.deb']
     for cmd in server_cmds:
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
-        assert(proc.returncode == 0)
+        if 'dpkg' not in cmd:
+            assert(proc.returncode == 0)
 
 
 def setup_data_analysis():
