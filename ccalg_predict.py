@@ -52,7 +52,7 @@ def run_rtt_monitor(url_ip):
 def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     experiment_name = '{}bw-{}rtt-{}q-{}'.format(btlbw, rtt, queue_size, website)
     if not force and is_completed_experiment(experiment_name):
-        return
+        return (None, '')
     logging.info('Creating experiment for website: {}'.format(website))
     url_ip = get_website_ip(url)
     logging.info('Got website IP: {}'.format(url_ip))
@@ -62,7 +62,7 @@ def run_experiment(website, url, btlbw=10, queue_size=128, rtt=35, force=False):
     if website_rtt >= rtt:
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
-        return -1
+        return (-1, '')
 
     client = HOST_CLIENT_TEMPLATE
     client['ip_wan'] = url_ip
@@ -285,18 +285,18 @@ def main(websites, ntwrk_conditions=None, force=False):
     print('Found {} websites'.format(len(websites)))
     num_completed_websites = 0
     if ntwrk_conditions is None:
-        ntwrk_conditions = [(5,35,64), (5,85,64), (5,130,64), (5,275,64),
-                            (10,35,64), (10,85,64), (10,130,64), (10,275,64),
-                            (15,35,64), (15,85,64), (15,130,64), (15,275,64)]
+        ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
+                            (10,35), (10,85), (10,130), (10,275),
+                            (15,35), (15,85), (15,130), (15,275)]
         
     for website, url in websites:
         try:
             num_completed_experiments = 1
-
-            too_small_rtt = 0 
-            for btlbw, rtt, queue_size in ntwrk_conditions:
-                print('Running experiment {}/12 website={}, btlbw={}, queue_size={}, rtt={}.'.format(
-                    num_completed_experiments,website,btlbw,queue_size,rtt))
+            too_small_rtt = 0
+            for btlbw, rtt in ntwrk_conditions:
+                queue_size = QUEUE_SIZE_TABLE[rtt][btlbw]                    
+                print('Running experiment {}/{} website={}, btlbw={}, queue_size={}, rtt={}.'.format(
+                    num_completed_experiments,len(websites)*len(ntwrk_conditions), website,btlbw,queue_size,rtt))
                 num_completed_experiments += 1
                 if rtt <= too_small_rtt:
                     print('Skipping experiment RTT too small')
@@ -334,7 +334,7 @@ def parse_args():
         '--website, -w', nargs=2, action='append', required='True', metavar=('WEBSITE', 'FILE_URL'), dest='websites',
         help='Url of file to download from website. File should be sufficently big to enable classification.')
     parser.add_argument(
-        '--network, -n', nargs=3, action='append', metavar=('BTLBW','RTT','QSIZE'), dest='ntwrk_conditions', default=None, type=int,
+        '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
         help='Network conditions for download from website.')
     parser.add_argument('--force', '-f', action='store_true',
                         help='Force experiments that were already run to run again')

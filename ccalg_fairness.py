@@ -127,7 +127,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
     if website_rtt >= rtt:
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
-        return -1
+        return (-1, '')
 
     client = HOST_CLIENT_TEMPLATE
     client['ip_wan'] = url_ip
@@ -261,7 +261,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
     if website_rtt >= rtt:
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
-        return -1
+        return (-1, '')
 
     client = HOST_CLIENT_TEMPLATE
     client['ip_wan'] = url_ip
@@ -402,7 +402,7 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
     if website_rtt >= rtt:
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
-        return -1
+        return (-1, '')
 
     client = HOST_CLIENT_TEMPLATE
     client['ip_wan'] = url_ip
@@ -970,7 +970,7 @@ def run_experiment_1video(website, url, competing_ccalg,
     if website_rtt >= rtt:
         logging.warning('Skipping experiment with website RTT {} >= {}'.format(
             website_rtt, rtt))
-        return -1
+        return (-1, '')
 
     client = HOST_CLIENT_TEMPLATE
     client['ip_wan'] = url_ip
