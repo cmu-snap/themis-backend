@@ -41,9 +41,7 @@ def get_local_exps(wildcards):
     # made this regex specific to webite experiments
     ntwrk_conditions = re.match('(\d+bw-\d+rtt-\d+q).*',
                                 wildcards.exp_name).groups()[0]
-    print('local exps')
     experiments = LOCAL_EXPS_DICT[ntwrk_conditions]
-    print(experiments)
     return experiments
 
 def get_local_exps_features(wildcards):
@@ -58,12 +56,9 @@ def get_local_exps_metadata(wildcards):
 
 # decidde which subset of local experiments we actually need to compute dtw for this exp
 def get_dtws(wildcards):
-    print('hi')
     experiments = get_local_exps(wildcards)
-    print(experiments)
     dtws=expand('data-processed/{testing_exp_name}:{training_exp_name}.dtw',
                 testing_exp_name=wildcards.exp_name, training_exp_name=experiments)
-    print(dtws)
     return dtws
     
 # specify final output of the pipeline
