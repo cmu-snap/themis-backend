@@ -260,6 +260,8 @@ def setup_webserver(host_client):
     for cmd in server_cmds:
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
 
+    # add link for video data
+    proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client "ln -fs /mnt/video/* /var/www/html/"', shell=True)
 
     """
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo chown -R rware:dna-PG0 /var/www"'
