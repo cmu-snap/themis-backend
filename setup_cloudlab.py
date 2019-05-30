@@ -263,6 +263,9 @@ def setup_webserver(host_client):
     # add link for video data
     proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client "ln -fs /mnt/video/* /var/www/html/"', shell=True)
 
+    # add index.html and javascript
+    proc = subprocess.run('scp -o StrictHostKeyChecking=no /opt/cctestbed/www/* cctestbed-client:/var/www/html/"', shell=True)
+    
     """
     cmd = 'ssh -o StrictHostKeyChecking=no cctestbed-client "sudo chown -R rware:dna-PG0 /var/www"'
     proc = subprocess.run(cmd, shell=True)
