@@ -193,7 +193,7 @@ def cubic_bbr_config(server, client, btlbw, rtt, queue_size, end_time):
 
 def cubic_bbr_bdp_config(server, client, end_time):
     config = {}
-    config['server'] = server
+    config['server'] = HOST_SERVER._as_dict()
     config['client'] = client
     config['experiments'] = {}
 
@@ -230,7 +230,6 @@ def cubic_bbr_bdp_config(server, client, end_time):
                 experiment['flows'] = cubic_flows + bbr_flows
                 config['experiments'][experiment_name] = experiment
     return config
-                         
 
 def bbr_config(server, client, end_time, bdp=32):
     config = {}
@@ -267,13 +266,36 @@ def bbr_config(server, client, end_time, bdp=32):
                                 'rtt': rtt} for _ in range(num_bbr_flows)]
         config['experiments'][experiment_name] = experiment        
     return config
-        
+
+
+# note the queue size must be a power of 2
+def cloudlab_config(cca, end_time, queue_size=1024, btlbw=10, rtt=40):
+    config = {}
+    config['server'] = dict(HOST_SERVER._asdict())
+    config['client'] = dict(HOST_CLIENT._asdict())
+    config['experiments'] = {}
+    
+    num_flows = [1]
+    # cca alone experiments
+    for num_cca_flows in num_flows:
+        experiment_name = '{}{}-{}bw-{}rtt-{}q'.format(cca, num_cca_flows, btlbw, rtt, queue_size)
+        experiment = {'btlbw': btlbw,
+                      'queue_size': queue_size}
+        experiment['flows'] = [{'ccalg': cca,
+                                'start_time': 0,
+                                'end_time': end_time,
+                                'rtt': rtt} for _ in range(num_cca_flows)]
+        config['experiments'][experiment_name] = experiment        
+    return config
+
 
 def main(argv):
     args = parse_args(argv)
     print(args)
     server = hosts[args.server]
     client = hosts[args.client]
+    if args.experiment_type == 'cloudlab':
+        config = cloudlab_config(cca=args.cca, end_time=args.end_time, queue_size=args.queue_size, btlbw=args.btlbw, rtt=args.rtt)
     if args.experiment_type == 'cubic-bbr':
         config = cubic_bbr_config(server, client, btlbw=args.btlbw,
                                   rtt=args.rtt, queue_size=args.queue_size,
@@ -301,7 +323,8 @@ def parse_args(argv):
                                                     'cubic-bbr-bdp',
                                                     'bbr',
                                                     'all-ccalgs',
-                                                    'ccalg-predict'],
+                                                    'ccalg-predict',
+                                                    'cloudlab'],
                         help='kind of experiment')
     parser.add_argument('filename',
                         help='filename for the generated config file')
@@ -310,11 +333,13 @@ def parse_args(argv):
                         help='client host')
     parser.add_argument('server', choices=['potato','server'],
                         help='server host')
+    parser.add_argument('--cca', required=False,
+                        help='congestion control algorithm')
     parser.add_argument('--bdp', type = int, required=False,
                         help='bandwidth delay product')
-    parser.add_argument('--btlbw', type=int, required=False, help='bottleneck bandwidth in mbps')
-    parser.add_argument('--rtt', type=int, required=False, help='round trip time for all flows in ms')
-    parser.add_argument('--queue_size', required=False, type=int,
+    parser.add_argument('--btlbw', type=int, required=False, help='bottleneck bandwidth in mbps', default=10)
+    parser.add_argument('--rtt', default=40, type=int, required=False, help='round trip time for all flows in ms')
+    parser.add_argument('--queue_size', default=1024, required=False, type=int,
                         help='size of bottleneck queue in packets')
     parser.add_argument('--exp_name_suffix', required=False, help='experiment name suffix')
     parser.add_argument('end_time', type=int, help='length of experiment in seconds')
@@ -322,6 +347,6 @@ def parse_args(argv):
     return args
     
 if __name__ == '__main__':
-    #argv = sys.argv[1:]
-    #main(argv)
-    pass
+    argv = sys.argv[1:]
+    main(argv)
+    #pass
