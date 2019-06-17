@@ -17,9 +17,9 @@ import itertools as it
 import numpy as np
 import datetime as dt
 
-CODEPATH = '/home/ranysha/cctestbed'
-DATAPATH_RAW = '/home/ranysha/cctestbed/data-raw'
-DATAPATH_PROCESSED = '/home/ranysha/cctestbed/data-processed'
+CODEPATH = '/opt/cctestbed'
+DATAPATH_RAW = '/opt/cctestbed/data-hotnets'
+DATAPATH_PROCESSED = '/opt/cctestbed/data-hotnets'
 BYTES_TO_BITS = 8
 BITS_TO_MEGABITS = 1.0 / 1000000.0
 REMOTE_IP_ADDR = '128.2.208.131'
@@ -32,8 +32,8 @@ class Experiment:
             if key == 'flows':
                 for flow in value:
                     # convert log paths to paths in tarfile
-                    flow[-1] = os.path.basename(flow[-1])
-                    flow[-2] = os.path.basename(flow[-2])
+                    flow[-1] = os.path.basename(flow[6])
+                    flow[-2] = os.path.basename(flow[7])
                 setattr(self, key, [Flow(*flow) for flow in value])
             elif key == 'server' or key == 'client':
                 setattr(self, key, Host(*value))
