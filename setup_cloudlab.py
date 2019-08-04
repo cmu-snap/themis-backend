@@ -228,9 +228,9 @@ def increase_win_sizes():
     'sudo sysctl -p'
     ]
     for cmd in cmds:
-        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
+        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server "{}"'.format(cmd), shell=True)
         assert(proc.returncode == 0)
-        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client {}'.format(cmd), shell=True)
+        proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-client "{}"'.format(cmd), shell=True)
         assert(proc.returncode == 0)
 
 def setup_webserver(host_client):
