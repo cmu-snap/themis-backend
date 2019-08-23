@@ -186,6 +186,10 @@ def add_disk_space():
         cmd), shell=True)
     if proc.returncode != 0:
         print('WARNING: Assuming disk space already added')
+    proc = subprocess.run("ssh -o StrictHostKeyChecking=no cctestbed-client '{}'".format(
+        cmd), shell=True)
+    if proc.returncode != 0:
+        print('WARNING: Assuming disk space already added')
 
 def setup_links():
     proc = subprocess.run("./setup-links.sh", shell=True)
