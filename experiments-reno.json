@@ -1,0 +1,92 @@
+{
+    "reno-8q" : {
+	"btlbw" : "10",
+	"queue_size" : "8",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-16q" : {
+	"btlbw" : "10",
+	"queue_size" : "16",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-32q" : {
+	"btlbw" : "10",
+	"queue_size" : "32",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-64q" : {
+	"btlbw" : "10",
+	"queue_size" : "64",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-128q" : {
+	"btlbw" : "10",
+	"queue_size" : "128",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-256q" : {
+	"btlbw" : "10",
+	"queue_size" : "256",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-512q" : {
+	"btlbw" : "10",
+	"queue_size" : "512",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-1024q" : {
+	"btlbw" : "10",
+	"queue_size" : "1024",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-2048q" : {
+	"btlbw" : "10",
+	"queue_size" : "2048",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "reno-4096q" : {
+	"btlbw" : "10",
+	"queue_size" : "4096",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    }
+}

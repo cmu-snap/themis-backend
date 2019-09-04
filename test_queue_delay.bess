@@ -1,0 +1,58 @@
+import time
+
+"""
+m = Measure()
+Source() -> Timestamp() -> QueueDelay(delay=50) -> m -> Sink()
+
+
+
+while True:
+    print(m.get_summary().latency.avg_ns)
+    time.sleep(2)
+"""
+
+m=Measure()
+#Source() -> Timestamp() -> QueueDelay(delay=50) -> m -> Sink()
+
+Source() -> Timestamp() -> QueueDelay(delay=50) ->  m -> Sink()
+
+# taken from opt/bess/bessctl/conf/port/latency.bess
+
+start_time = time.time()
+last_time = start_time
+
+bess.resume_all()
+
+print('{} RTT (us)                             '.format(' ' * 41), end='')
+print('   jitter (us)')
+print('{}    avg    min    50%    99%      max '.format(' ' * 41), end='')
+print('      avg    min    50%    99%      max')
+
+while True:
+    time.sleep(1)
+
+    # get_summary() doesn't require workers to be stopped
+    ret = m.get_summary(clear=True,  # reset stats every interval
+                        latency_percentiles=[55, 99],
+                        jitter_percentiles=[55, 99])
+
+    diff_ts = ret.timestamp - last_time
+    diff_pkts = ret.packets / diff_ts
+    diff_bits = ret.bits / diff_ts
+    last_time = ret.timestamp
+
+    print('%12.6f: %5.3f Mpps, %8.3f Mbps, ' \
+          '%7.3f %6.1f %6.1f %6.1f %8.1f   %7.3f %6.1f %6.1f %6.1f %8.1f' %
+          (ret.timestamp - start_time,
+           diff_pkts / 1e6,
+           diff_bits / 1e6,
+           ret.latency.avg_ns / 1e3,
+           ret.latency.min_ns / 1e3,
+           ret.latency.percentile_values_ns[0] / 1e3,
+           ret.latency.percentile_values_ns[1] / 1e3,
+           ret.latency.max_ns / 1e3,
+           ret.jitter.avg_ns / 1e3,
+           ret.jitter.min_ns / 1e3,
+           ret.jitter.percentile_values_ns[0] / 1e3,
+           ret.jitter.percentile_values_ns[1] / 1e3,
+           ret.jitter.max_ns / 1e3))

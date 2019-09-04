@@ -1,0 +1,74 @@
+import json
+import os
+
+# get variables i need from experiment json file
+exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
+with open(exp_description) as f:
+     experiment = json.load(f)
+pci_server = experiment['server'][-3]
+pci_client = experiment['client'][-3]
+queue_size = int(experiment['queue_size'])
+btlbw = int(experiment['btlbw'])
+flow_delay = experiment['flows'][0][3]
+
+loss_rate = 0
+if 'loss_rate' in experiment:
+    if experiment['loss_rate'] is not None:
+        loss_rate = float(experiment['loss_rate'])
+    
+print('exp_description =', exp_description)
+print('pci_server =', pci_server)
+print('pci_client =', pci_client)
+print('queue_size =', queue_size)
+print('btlbw =', btlbw)	
+print('loss_rate = ', loss_rate)
+
+client = PMDPort(pci=pci_client) #pci_client)
+server = PMDPort(pci=pci_server)#pci_server)
+
+# check if environment variables to say how to use Queue
+server_in = PortInc(port=server.name)
+client_in = PortInc(port=client.name)
+server_out = PortOut(port=server.name)
+client_out = PortOut(port=client.name)
+
+btl_queue = Queue(size=queue_size)
+btl_queue.set_burst(burst=1)
+bess.add_tc('bit_limit',	
+	policy='rate_limit',
+	resource='bit',
+	limit={'bit': 1000000*btlbw}) # how many mbits, default is 1
+btl_queue.attach_task(parent='bit_limit')
+
+
+if len(experiment['flows']) == 1:
+     server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out
+     if loss_rate > 0:
+          drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
+          client_in -> drop_pkts -> btl_queue -> server_out
+     else:
+          client_in -> btl_queue -> server_out
+else:
+     # assume apache and video flows have the same delay
+     flow_delay = experiment['flows'][1][3]
+     client_in -> btl_queue -> server_out
+     ip_match = IPLookup()
+     ip_match.add(prefix='192.0.0.0', prefix_len=24, gate=len(experiment['flows']))
+     #port_match = PortMatch()
+     #ip_match:len(experiment['flows']) -> port_match
+     server_in -> ip_match
+     merge = Merge()
+     merge -> client_out
+     # where iperf, apache and video experiments will go
+     ip_match:len(experiment['flows']) -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+     # this only works for one website or chrome flow
+     for idx, flow in enumerate(experiment['flows']):
+          flow_delay = flow[3]
+          flow_kind = flow[8]
+          if flow_kind == 'website':
+               ip_match.add(prefix=flow[9][2], prefix_len=32, gate=idx)
+               ip_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+          elif flow_kind == 'chrome':
+               ip_match.add(prefix='0.0.0.0', prefix_len=0, gate=idx)
+               ip_match:idx -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> merge
+	    

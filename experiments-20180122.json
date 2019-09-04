@@ -1,0 +1,18 @@
+{
+    "reno-bbr" : {
+	"btlbw" : "10",
+	"queue_size" : "32",
+	"flows" : [{
+	    "ccalg" : "reno",
+	    "duration" : "30",
+	    "rtt": "40"
+	},
+		   {
+	    "ccalg" : "cubic",
+	    "duration" : "30",
+	    "rtt": "30"
+	}
+		  ]
+	
+    }
+}

@@ -1,0 +1,30 @@
+{% extends "ccamonitor/base.html" %}
+{% load staticfiles %}
+{% block content %}
+<nav class="navbar navbar-expand-md navbar-dark bg-dark">
+    <a class="navbar-brand" href="/">CCA Monitor</a>
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarContent">
+        <ul class="navbar-nav mr-auto">
+            <li class="nav-item">
+                <a class="nav-link" href="/">Home</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#">About</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'queue-experiment' %}">Submit Experiment</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'list-jobs' %}">Jobs</a>
+            </li>
+        </ul>
+    </div>
+</nav>
+{% block page-content %}
+{% endblock %}
+{% endblock %}
+

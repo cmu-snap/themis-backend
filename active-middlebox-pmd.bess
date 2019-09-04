@@ -1,0 +1,47 @@
+import json
+import os
+
+# get variables i need from experiment json file
+exp_description = $CCTESTBED_EXPERIMENT_DESCRIPTION
+with open(exp_description) as f:
+     experiment = json.load(f)
+pci_server = experiment['server'][-3]
+pci_client = experiment['client'][-3]
+queue_size = int(experiment['queue_size'])
+btlbw = int(experiment['btlbw'])
+flow_delay = experiment['flows'][0][3]
+loss_rate = 0
+if 'loss_rate' in experiment:
+    if experiment['loss_rate'] is not None:
+        loss_rate = float(experiment['loss_rate'])
+    
+print('exp_description =', exp_description)
+print('pci_server =', pci_server)
+print('pci_client =', pci_client)
+print('queue_size =', queue_size)
+print('btlbw =', btlbw)	
+print('loss_rate = ', loss_rate)
+
+client = PMDPort(pci=pci_client) #pci_client)
+server = PMDPort(pci=pci_server)#pci_server)
+
+# check if environment variables to say how to use Queue
+server_in = PortInc(port=server.name)
+client_in = PortInc(port=client.name)
+server_out = PortOut(port=server.name)
+client_out = PortOut(port=client.name)
+
+btl_queue = Queue(size=queue_size)
+btl_queue.set_burst(burst=1)
+bess.add_tc('bit_limit',	
+	policy='rate_limit',
+	resource='bit',
+	limit={'bit': 1000000*btlbw}) # how many mbits, default is 1
+btl_queue.attach_task(parent='bit_limit')
+
+if loss_rate > 0:
+    drop_pkts = RandomSplit(drop_rate=loss_rate, gates=[0])
+    client_in -> drop_pkts -> btl_queue -> server_out
+else:
+    client_in -> btl_queue -> server_out
+server_in -> Timestamp() -> QueueDelay(size=4096, delay=flow_delay) -> client_out

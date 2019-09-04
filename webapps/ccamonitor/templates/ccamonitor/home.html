@@ -1,0 +1,31 @@
+{% extends "ccamonitor/navbar.html" %}
+{% load staticfiles %}
+{% block page-content %}
+
+
+<section class="jumbotron text-center">
+    <div class="container">
+        <h1 class="jumbotron-heading">CCA Monitor</h1>
+        <p class="lead text-muted">Short description about this project.</p>
+        <p>
+            <a href="{% url 'queue-experiment' %}" class="btn btn-primary my-2">Submit Experiment</a>
+            <a href="#" class="btn btn-secondary my-2">About</a>
+        </p>
+    </div>
+</section>
+
+<div class="row px-3">
+    {% for graph in graphs %}
+        {% if graph.graph %}
+        <div class="col-md-4">
+            <div class="card pt-2">
+                <img src="{{ graph.graph.url }}" class="mx-auto img-responsive card-img-top">
+                <div class="card-body">
+                    <h5 class="card-title text-center">{{graph.exp.website}} vs {{graph.competing_ccalg}}</h5>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

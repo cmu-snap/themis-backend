@@ -1,0 +1,1 @@
+{"rtt": 275, "btlbw": 5, "queue_size": 128, "rtt_measured": 275.481, "exp_name": "cdg-5bw-275rtt-128q-local-20181129T174015", "delay_added": 275, "rtt_initial": 0.48099999999999454, "true_label": "cdg", "rtt_mean": null, "rtt_std": null, "bw_measured": 2.26344389, "pkts_dropped_queue": 0, "pkts_lost_tcpdump": 0, "pkts_dequeued": 14068, "num_pkts_lost": 0, "observed_bw_diff": 0.4}

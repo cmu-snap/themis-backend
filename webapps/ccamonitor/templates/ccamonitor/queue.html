@@ -1,0 +1,46 @@
+{% extends "ccamonitor/navbar.html" %}
+{% load staticfiles %}
+{% block page-content %}
+<div class="horizontal-center py-md-4">
+    <h3 class="mb-3">Submit Experiment</h3>
+    {% if form.ccalgs.errors %}
+    <div class="alert alert-danger" role="alert">
+        Please select at least one competing CCA.
+    </div>
+    {% endif %}
+    <form action="{% url 'queue-experiment' %}" method="post">
+        <div class="form-row">
+            <div class="form-group col">
+                <label for="id_website">Website</label>
+                {{form.website}}
+            </div>
+            <div class="form-group col">
+                <label for="id_file_url">File URL</label>
+                {{form.file_url}}
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group col">
+                <label for="id_btlbw">BTLBW</label>
+                {{form.btlbw}}
+                <small class="form-text text-muted">Defaults to 10.</small>
+            </div>
+            <div class="form-group col">
+                <label for="id_rtt">RTT</label>
+                {{form.rtt}}
+                <small class="form-text text-muted">Defaults to 75.</small>
+            </div>
+            <div class="form-group col">
+                <label for="id_ccalgs">Competing CCAs</label>
+                {% for ccalg in form.ccalgs %}
+                <div class="form-check">
+                    {{ccalg}}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">Submit</button>
+    </form>
+</div>
+{% endblock %}

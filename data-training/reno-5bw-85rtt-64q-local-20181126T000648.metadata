@@ -1,0 +1,1 @@
+{"rtt": 85, "btlbw": 5, "queue_size": 64, "rtt_measured": 85.25, "exp_name": "reno-5bw-85rtt-64q-local-20181126T000648", "delay_added": 85, "rtt_initial": 0.25, "true_label": "reno", "rtt_mean": null, "rtt_std": null, "bw_measured": 3.87461306, "pkts_dropped_queue": 11, "pkts_lost_tcpdump": 11, "pkts_dequeued": 24055, "num_pkts_lost": 0, "observed_bw_diff": 0.8}

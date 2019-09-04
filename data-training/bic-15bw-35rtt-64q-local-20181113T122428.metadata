@@ -1,0 +1,1 @@
+{"rtt": 35, "btlbw": 15, "queue_size": 64, "rtt_measured": 35.202, "exp_name": "bic-15bw-35rtt-64q-local-20181113T122428", "delay_added": 35, "rtt_initial": 0.20199999999999818, "true_label": "bic", "rtt_mean": null, "rtt_std": null, "bw_measured": 11.94325119, "pkts_dropped_queue": 78, "pkts_lost_tcpdump": 78, "pkts_dequeued": 73016, "num_pkts_lost": 0, "observed_bw_diff": 0.8}

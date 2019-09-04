@@ -1,0 +1,44 @@
+{% extends "ccamonitor/navbar.html" %}
+{% load tz %}
+{% load staticfiles %}
+{% block page-content %}
+<div class="p-md-4">
+    <h4>Jobs</h4>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">Date Submitted</th>
+                <th scope="col">Status</th>
+                <th scope="col">Website</th>
+                <th scope="col">File URL</th>
+                <th scope="col">BTLBW</th>
+                <th scope="col">RTT</th>
+                <th scope="col">Queue size</th>
+                <th scope="col">Test</th>
+                <th scope="col">Competing CCA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td>{{job.request_date|localtime}}</td>
+                <td>{{job.get_status_display}}</td>
+                <td>{{job.exp.website}}</td>
+                <td>{{job.exp.file_url}}</td>
+                <td>{{job.exp.btlbw}}</td>
+                <td>{{job.exp.rtt}}</td>
+                <td>{{job.queue_size}}</td>
+                <td>{{job.get_test_display}}</td>
+                <td>{{job.competing_ccalg}}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!--<script>
+    var socket = new WebSocket('ws://' + window.location.host + '/ws/jobs/');
+</script>-->
+{% endblock %}

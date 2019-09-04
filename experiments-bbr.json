@@ -1,0 +1,92 @@
+{
+    "bbr-8q" : {
+	"btlbw" : "10",
+	"queue_size" : "8",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-16q" : {
+	"btlbw" : "10",
+	"queue_size" : "16",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-32q" : {
+	"btlbw" : "10",
+	"queue_size" : "32",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-64q" : {
+	"btlbw" : "10",
+	"queue_size" : "64",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-128q" : {
+	"btlbw" : "10",
+	"queue_size" : "128",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-256q" : {
+	"btlbw" : "10",
+	"queue_size" : "256",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-512q" : {
+	"btlbw" : "10",
+	"queue_size" : "512",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-1024q" : {
+	"btlbw" : "10",
+	"queue_size" : "1024",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-2048q" : {
+	"btlbw" : "10",
+	"queue_size" : "2048",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    },
+    "bbr-4096q" : {
+	"btlbw" : "10",
+	"queue_size" : "4096",
+	"flows" : [{
+	    "ccalg" : "bbr",
+	    "duration" : "60",
+	    "rtt": "40"
+	}]
+    }
+}
