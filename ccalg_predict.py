@@ -315,6 +315,7 @@ def main(websites, ntwrk_conditions=None, force=False):
             print('Error running experiment for website: {}'.format(website))
             print(e)
             print(traceback.print_exc())
+            exit(1)
 
         num_completed_websites += 1
         print('Completed experiments for {}/{} websites'.format(num_completed_websites, len(websites)))
@@ -336,7 +337,7 @@ def parse_args():
     parser.add_argument(
         '--network, -n', nargs=2, action='append', metavar=('BTLBW','RTT'), dest='ntwrk_conditions', default=None, type=int,
         help='Network conditions for download from website.')
-    parser.add_argument('--force', '-f', action='store_true',
+    parser.add_argument('--force', '-f', action='store_true', dest='force',
                         help='Force experiments that were already run to run again')
     args = parser.parse_args()
     return args

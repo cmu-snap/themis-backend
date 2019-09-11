@@ -40,7 +40,7 @@ EXP_NAMES, = glob_wildcards('data-tmp/{exp_name}.tar.gz')
 # Specify specific experiments as space-delimited string of experiment names
 if 'exp_name' in config:
     EXP_NAMES = config['exp_name'].split()
-            
+
 def get_local_exps(wildcards):
     import re
     # made this regex specific to webite experiments
@@ -461,19 +461,21 @@ rule check_bw_too_low:
 
         # check if bw too low
         predicted_label = classify_results['predicted_label']
+        expected_bw_dict = {'bw_too_low': False}
 
-        with open(getattr(input, predicted_label)) as f:
-            training_metadata = json.load(f)
-            expected_bw = training_metadata['bw_measured']
-
-        expected_bw_diff = BW_THRESHOLD
-        observed_bw_diff = measured_bw / expected_bw
-        bw_too_low = observed_bw_diff < expected_bw_diff
-        expected_bw_dict = {'expected_bw_diff': expected_bw_diff,
-                            'observed_bw_diff': observed_bw_diff,
-                            'expected_bw': expected_bw,
-                            'bw_too_low': bw_too_low}
-        
+        if predicted_label != 'unknown':
+            with open(getattr(input, predicted_label)) as f:
+                training_metadata = json.load(f)
+                expected_bw = training_metadata['bw_measured']
+                
+                expected_bw_diff = BW_THRESHOLD
+                observed_bw_diff = measured_bw / expected_bw
+                bw_too_low = observed_bw_diff < expected_bw_diff
+                expected_bw_dict = {'expected_bw_diff': expected_bw_diff,
+                                    'observed_bw_diff': observed_bw_diff,
+                                    'expected_bw': expected_bw,
+                                    'bw_too_low': bw_too_low}
+                                    
         with open(output.bw_too_low, 'w') as f:
             json.dump(expected_bw_dict, f)
 
