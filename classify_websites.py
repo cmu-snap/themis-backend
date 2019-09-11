@@ -42,11 +42,15 @@ def classify_websites(websites):
             print(completed_exps)
             
             predicted_label = predict_label(completed_exps)
-            today = date.today().strftime('%y-%m-%d')
+            today = date.today().strftime('%Y%m%d')
             results_filename = '{}/{}-{}.results'.format(RESULTS_DIR, website, today)
 
             with open(results_filname, 'w') as f:
-                f.write('{{ predicted_label: {} }}'.format(predicted_label))
+                results = {'predicted_label': predicted_label, 'experiments': []}
+                for exp in completed_exps:
+                    results['experiments'].append(exp)
+
+                f.write(str(results))
 
             print('Predicted label {} written to {}'.format(predicted_label, results_filename))
 
