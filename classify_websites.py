@@ -1,11 +1,15 @@
 import argparse
-import json, os, re
+import glob, json, os, re
 import shlex, subprocess
 from datetime import datetime
 
 CLASSIFY_SNAKEFILE = '/opt/cctestbed/classify_websites.snakefile'
 CCALG_PREDICT = '/opt/cctestbed/ccalg_predict.py'
-RESULTS_DIR = '/tmp/data-processed'
+DATA_PROCESSED = '/tmp/data-processed'
+RESULTS_FILENAME = DATA_PROCESSED + '/{}.results'
+DATA_RAW = '/tmp/data-raw'
+DATA_TMP = '/tmp/data-tmp'
+
 # Max number of times to rerun an experiment.
 RUN_LIMIT = 3
 
@@ -15,6 +19,15 @@ def parse_network_conditions(exp_name):
     rtt = r"^\d+bw-(\d+)rtt"
     return (re.findall(bw, exp_name)[0], re.findall(rtt, exp_name)[0])
 
+# Remove all files with the given experiment name.
+def remove_experiment(exp_name):
+    pattern = '{}/{}*'
+    files = glob.glob(pattern.format(DATA_RAW, exp_name))
+    files.extend(glob.glob(pattern.format(DATA_TMP, exp_name)))
+    files.extend(glob.glob(pattern.format(DATA_PROCESSED, exp_name)))
+
+    for f in files:
+        os.remove(f)
 
 # Classify the CCA of the given websites. Reruns any experiments from ccalg_predict.py
 # which are marked invalid by classify_websites.snakefile up to 3 times. Of the final
@@ -33,6 +46,7 @@ def classify_websites(websites):
                         completed_exps[network] = exp_name
                         reruns.pop(network)
                     else:
+                        remove_experiment(exp_name)
                         reruns[network] += 1
                         network_conditions.append(network)
 
@@ -46,7 +60,7 @@ def classify_websites(websites):
             
             predicted_label = predict_label(completed_exps.values())
             today = datetime.now().strftime('%Y%m%dT%H%M%S')
-            results_filename = '{}/{}-{}.results'.format(RESULTS_DIR, website, today)
+            results_filename = RESULTS_FILENAME.format(website + '-' + today)
 
             with open(results_filename, 'w') as f:
                 results = {'predicted_label': predicted_label, 'experiments': []}
@@ -60,13 +74,12 @@ def classify_websites(websites):
         except Exception as e:
             print(e)
 
-
 def predict_label(exp_names):
     num_exps = len(exp_names)
     label_counts = {}
 
     for exp in exp_names:
-        results_filename = '{}/{}.results'.format(RESULTS_DIR, exp)
+        results_filename = RESULTS_FILENAME.format(exp)
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
@@ -89,9 +102,9 @@ def predict_label(exp_names):
 def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
     exp_names = []
     if skip_predict:
-        for exp in os.listdir('/tmp/data-raw'):
-            print(exp)
-            exp_names.append(exp[:exp.index('.tar')])
+        for exp in os.listdir(DATA_RAW):
+            if exp.endswith('.tar.gz'):
+                exp_names.append(exp[:exp.index('.tar')])
     else:
         network_arg = ' '.join(['--network {} {}'.format(bw, rtt) for bw, rtt in network_conditions])
         cmd = 'python3.6 {} --website {} {} {} --f'.format(CCALG_PREDICT, website, url, network_arg)
@@ -104,7 +117,9 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
         # Turn stdout bytes into string
         output = process.stdout.decode('utf-8')
         regex_name=r"exp_name=(.+)\n"
-        exp_names = re.findall(regex_name, output)
+        for exp in re.findall(regex_name, output):
+            if os.path.exists('{}/{}.tar.gz'.format(DATA_RAW, exp)):
+                exp_names.append(exp)
 
     invalid_exps = run_classify_snakefile(exp_names)
     labeled = dict([(parse_network_conditions(n), n) for n in exp_names if n not in invalid_exps])
@@ -124,7 +139,7 @@ def run_classify_snakefile(exp_names):
     invalid_exps = []
 
     for exp in exp_names:
-        results_filename = '{}/{}.results'.format(RESULTS_DIR, exp)
+        results_filename = RESULTS_FILENAME.format(exp)
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
