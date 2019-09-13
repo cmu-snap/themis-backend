@@ -26,7 +26,7 @@ def get_metric_files_list(wildcards):
 
     
             
-BW_THRESHOLD=0.5
+BW_THRESHOLD=0.8
 PKT_LOSS_THRESHOLD=0
 BYTES_TO_BITS = 8
 BITS_TO_MEGABITS = 1.0 / 1e6

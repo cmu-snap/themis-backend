@@ -1,7 +1,7 @@
 import argparse
 import json, os, re
 import shlex, subprocess
-from datetime import date
+from datetime import datetime
 
 CLASSIFY_SNAKEFILE = '/opt/cctestbed/classify_websites.snakefile'
 CCALG_PREDICT = '/opt/cctestbed/ccalg_predict.py'
@@ -26,34 +26,37 @@ def classify_websites(websites):
             completed_exps, invalid_exps = run_ccalg_predict(website, url)
             reruns = dict([(network, 1) for network in invalid_exps])
 
-            while any(reruns[network] < 3 for network in invalid_exps):
+            while len(reruns) > 0:
                 network_conditions = []
                 for network, exp_name in invalid_exps.items():
-                    if reruns[network] == 3:
-                        completed_exps.append(exp_name)
+                    if reruns[network] == RUN_LIMIT:
+                        completed_exps[network] = exp_name
+                        reruns.pop(network)
                     else:
                         reruns[network] += 1
                         network_conditions.append(network)
 
-                labeled, invalid_exps = run_ccalg_predict(website, url, network_conditions)
-                completed_exps.extend(labeled)
+                if len(network_conditions) > 0:
+                    labeled, invalid_exps = run_ccalg_predict(website, url, network_conditions)
+                    for network, exp_name in labeled.items():
+                        reruns.pop(network)
+                        completed_exps[network] = exp_name
 
             print('Completed classify websits experiments for {}'.format(website))
-            print(completed_exps)
             
-            predicted_label = predict_label(completed_exps)
-            today = date.today().strftime('%Y%m%d')
+            predicted_label = predict_label(completed_exps.values())
+            today = datetime.now().strftime('%Y%m%dT%H%M%S')
             results_filename = '{}/{}-{}.results'.format(RESULTS_DIR, website, today)
 
-            with open(results_filname, 'w') as f:
+            with open(results_filename, 'w') as f:
                 results = {'predicted_label': predicted_label, 'experiments': []}
-                for exp in completed_exps:
+                for exp in completed_exps.values():
                     results['experiments'].append(exp)
-
-                f.write(str(results))
-
-            print('Predicted label {} written to {}'.format(predicted_label, results_filename))
-
+                j = json.dumps(results, indent=2)
+                print('Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename))
+                print(j)
+                print(j, file=f)
+            
         except Exception as e:
             print(e)
 
@@ -67,10 +70,11 @@ def predict_label(exp_names):
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
-                if results['predicted_label'] in label_counts:
-                    label_counts[results['predicted_label']] += 1
-                else:
-                    label_counts[results['predicted_label']] = 1
+                if not results['mark_invalid']:
+                    if results['predicted_label'] in label_counts:
+                        label_counts[results['predicted_label']] += 1
+                    else:
+                        label_counts[results['predicted_label']] = 1
 
     predicted_label = max(label_counts, key=label_counts.get)
     if label_counts[predicted_label] >= num_exps / 2:
@@ -80,12 +84,13 @@ def predict_label(exp_names):
 
 # Run ccalg_predict.py for a single website and the given network conditions and runs
 # classifies each of the resulting experiments. Returns (labeled, invalid) where
-#   labeled: list of labeled experiments
-#   invalid: dictionary mapping (bw, rtt) to experiment name for all invalid experiments
+#   labeled: dictionary mapping (bw, rtt) to experiment name of all labeled experiments
+#   invalid: dictionary mapping (bw, rtt) to experiment name of all invalid experiments
 def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
     exp_names = []
     if skip_predict:
         for exp in os.listdir('/tmp/data-raw'):
+            print(exp)
             exp_names.append(exp[:exp.index('.tar')])
     else:
         network_arg = ' '.join(['--network {} {}'.format(bw, rtt) for bw, rtt in network_conditions])
@@ -102,8 +107,8 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
         exp_names = re.findall(regex_name, output)
 
     invalid_exps = run_classify_snakefile(exp_names)
-    labeled = [name for name in exp_names if name not in invalid_exps]
-    invalid = dict([(parse_network_conditions(name), name) for name in invalid_exps])
+    labeled = dict([(parse_network_conditions(n), n) for n in exp_names if n not in invalid_exps])
+    invalid = dict([(parse_network_conditions(n), n) for n in invalid_exps])
     return (labeled, invalid)
 
 
