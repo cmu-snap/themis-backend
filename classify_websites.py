@@ -83,14 +83,19 @@ def predict_label(exp_names):
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
-                if not results['mark_invalid']:
+                if results['mark_invalid']:
+                    if 'unknown' in label_counts:
+                        label_counts['unknown'] += 1
+                    else:
+                        label_counts['unknown'] = 1
+                else:
                     if results['predicted_label'] in label_counts:
                         label_counts[results['predicted_label']] += 1
                     else:
                         label_counts[results['predicted_label']] = 1
 
     predicted_label = max(label_counts, key=label_counts.get)
-    if label_counts[predicted_label] >= num_exps / 2:
+    if label_counts[predicted_label] > num_exps / 2:
         return predicted_label
 
     return 'unknown'
@@ -111,12 +116,17 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
         args = shlex.split(cmd)
         process = subprocess.run(args, stdout=subprocess.PIPE)
         if process.returncode != 0:
-            raise Exception('Could not run experiments for website: {} url: {} network: '.format(
+            raise Exception('Error running experiments for website: {} url: {} network: {}'.format(
                 website, url, ' '.join(network_conditions)))
     
         # Turn stdout bytes into string
         output = process.stdout.decode('utf-8')
         regex_name=r"exp_name=(.+)\n"
+        names = re.findall(regex_name, output)
+        if len(names) == 0:
+            raise Exception('Unable to get flows for website: {} url: {} network: {}'.format(
+                website, url, ' '.join(network_conditions)))
+
         for exp in re.findall(regex_name, output):
             if os.path.exists('{}/{}.tar.gz'.format(DATA_RAW, exp)):
                 exp_names.append(exp)
