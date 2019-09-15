@@ -305,6 +305,7 @@ def install_packages():
 	"sudo apt-get install -y postgresql postgresql-contrib python3-psycopg2 libpq-dev",
         "pip install --user psycopg2",
         "pip3 install --user channels_redis",
+        "pip install --upgrade paramiko --user",
         ]
     for cmd in cmds:
         proc = subprocess.run(cmd, shell=True)
