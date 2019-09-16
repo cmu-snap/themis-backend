@@ -3,8 +3,15 @@ import glob, json, os, re
 import shlex, subprocess
 from datetime import datetime
 
-CLASSIFY_SNAKEFILE = '/opt/cctestbed/classify_websites.snakefile'
-CCALG_PREDICT = '/opt/cctestbed/ccalg_predict.py'
+import logging
+from logging.config import fileConfig
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CLASSIFY_SNAKEFILE = os.path.join(CURRENT_DIR, 'classify_websites.snakefile')
+CCALG_PREDICT = os.path.join(CURRENT_DIR, 'ccalg_predict.py')
+LOGGING_CONFIG = os.path.join(CURRENT_DIR, 'classify_logging_config.ini')
+
 DATA_PROCESSED = '/tmp/data-processed'
 RESULTS_FILENAME = DATA_PROCESSED + '/{}.results'
 DATA_RAW = '/tmp/data-raw'
@@ -25,6 +32,9 @@ def remove_experiment(exp_name):
     files = glob.glob(pattern.format(DATA_RAW, exp_name))
     files.extend(glob.glob(pattern.format(DATA_TMP, exp_name)))
     files.extend(glob.glob(pattern.format(DATA_PROCESSED, exp_name)))
+    files.extend(glob.glob(pattern.format('/tmp', exp_name)))
+
+    logging.info('Removing files for experiment {}'.format(exp_name))
 
     for f in files:
         os.remove(f)
@@ -35,11 +45,14 @@ def remove_experiment(exp_name):
 # no label has a majority.
 def classify_websites(websites):
     for website, url in websites:
+        logging.info('Starting classification for {} {}'.format(website, url))
         try:
             completed_exps, invalid_exps = run_ccalg_predict(website, url)
+            logging.info('Valid experiments {}'.format(completed_exps.values()))
             reruns = dict([(network, 1) for network in invalid_exps])
 
             while len(reruns) > 0:
+                logging.info('Valid experiments {}'.format(completed_exps.values()))
                 network_conditions = []
                 for network, exp_name in invalid_exps.items():
                     if reruns[network] == RUN_LIMIT:
@@ -51,14 +64,15 @@ def classify_websites(websites):
                         network_conditions.append(network)
 
                 if len(network_conditions) > 0:
+                    logging.info('Rerunning network conditions {}'.format(network_conditions))
                     labeled, invalid_exps = run_ccalg_predict(website, url, network_conditions)
                     for network, exp_name in labeled.items():
                         reruns.pop(network)
                         completed_exps[network] = exp_name
-
-            print('Completed classify websits experiments for {}'.format(website))
+                        
+            logging.info('Completed classification experiments for website {} url {}'.format(website, url))
             
-            predicted_label = predict_label(completed_exps.values())
+            predicted_label = predict_label(website, url, completed_exps.values())
             today = datetime.now().strftime('%Y%m%dT%H%M%S')
             results_filename = RESULTS_FILENAME.format(website + '-' + today)
 
@@ -67,14 +81,19 @@ def classify_websites(websites):
                 for exp in completed_exps.values():
                     results['experiments'].append(exp)
                 j = json.dumps(results, indent=2)
-                print('Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename))
+                predicted_logging = 'Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename)
+                print(predicted_logging)
                 print(j)
                 print(j, file=f)
+                logging.info(predicted_logging)
             
         except Exception as e:
+            logging.error(e)
             print(e)
 
-def predict_label(exp_names):
+def predict_label(website, url, exp_names):
+    logging.info('Predicting label for website {} url {}'.format(website, url))
+
     num_exps = len(exp_names)
     label_counts = {}
 
@@ -84,15 +103,19 @@ def predict_label(exp_names):
             with open(results_filename) as f:
                 results = json.load(f)
                 if results['mark_invalid']:
+                    logging.info('Experiment {} marked invalid'.format(exp))
                     if 'unknown' in label_counts:
                         label_counts['unknown'] += 1
                     else:
                         label_counts['unknown'] = 1
                 else:
-                    if results['predicted_label'] in label_counts:
-                        label_counts[results['predicted_label']] += 1
+                    label = results['predicted_label']
+                    logging.info('Experiment {} labeled {}'.format(exp, label))
+
+                    if label in label_counts:
+                        label_counts[label] += 1
                     else:
-                        label_counts[results['predicted_label']] = 1
+                        label_counts[label] = 1
 
     predicted_label = max(label_counts, key=label_counts.get)
     if label_counts[predicted_label] > num_exps / 2:
@@ -107,29 +130,34 @@ def predict_label(exp_names):
 def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
     exp_names = []
     if skip_predict:
+        logging.info('Grabbing experiments from /tmp/data-raw')
         for exp in os.listdir(DATA_RAW):
             if exp.endswith('.tar.gz'):
                 exp_names.append(exp[:exp.index('.tar')])
     else:
+        logging.info('Running ccalg_predict.py for network conditions {}'.format(network_conditions))
         network_arg = ' '.join(['--network {} {}'.format(bw, rtt) for bw, rtt in network_conditions])
         cmd = 'python3.6 {} --website {} {} {} --f'.format(CCALG_PREDICT, website, url, network_arg)
         args = shlex.split(cmd)
         process = subprocess.run(args, stdout=subprocess.PIPE)
+
         if process.returncode != 0:
-            raise Exception('Error running experiments for website: {} url: {} network: {}'.format(
-                website, url, ' '.join(network_conditions)))
+            raise Exception('Error running experiments for website {}, url {}, network {}'.format(
+                website, url, network_conditions))
     
         # Turn stdout bytes into string
         output = process.stdout.decode('utf-8')
         regex_name=r"exp_name=(.+)\n"
         names = re.findall(regex_name, output)
         if len(names) == 0:
-            raise Exception('Unable to get flows for website: {} url: {} network: {}'.format(
-                website, url, ' '.join(network_conditions)))
+            raise Exception('Unable to get flows for website {}, url {}, network {}'.format(
+                website, url, network_conditions))
 
         for exp in re.findall(regex_name, output):
             if os.path.exists('{}/{}.tar.gz'.format(DATA_RAW, exp)):
                 exp_names.append(exp)
+
+    logging.info('Ran experiments {}'.format(exp_names))
 
     invalid_exps = run_classify_snakefile(exp_names)
     labeled = dict([(parse_network_conditions(n), n) for n in exp_names if n not in invalid_exps])
@@ -140,6 +168,7 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
 # Runs classify_websites.snakefile for the given experiment names and returns a list
 # of the experiment names which were marked invalid.
 def run_classify_snakefile(exp_names):
+    logging.info('Running classify snakefile for {}'.format(exp_names))
     cmd = 'snakemake --config exp_name="{}" -s {} --latency-wait 10'.format(' '.join(exp_names), CLASSIFY_SNAKEFILE)
     args = shlex.split(cmd)
     process = subprocess.run(args, stdout=subprocess.PIPE)
@@ -174,5 +203,6 @@ def parse_args():
 
 
 if __name__ == '__main__':
+    fileConfig(LOGGING_CONFIG)
     args = parse_args()
     classify_websites(args.websites)
