@@ -436,12 +436,13 @@ rule classify_flow:
         .to_dict('index'))
 
         classify_results = classify_results[0]
+        classify_results['closest_exp_name'] = training_exp_names[classify_results['predicted_label']]
+
         if classify_results['closest_distance'] > DIST_THRESHOLD:
             classify_results['predicted_label'] = 'unknown'
+            classify_results['dist_too_high'] = True
         else:
-            classify_results['closest_exp_name'] = training_exp_names[
-            classify_results['predicted_label']]
-
+            classify_results['dist_too_high'] = False
 
         with open(output.classify, 'w') as f:
             json.dump(classify_results, f)
@@ -495,7 +496,9 @@ rule merge_results:
         results['mark_invalid'] = results['bw_too_low'] | results['loss_too_high']
         
         with open(output.results, 'w') as f:
-            json.dump(results, f)
+            j = json.dumps(results, indent=2, sort_keys=True)
+            print(j, file=f)
+            #json.dump(results, f)
 
 rule scp_results:
     input:

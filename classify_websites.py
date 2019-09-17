@@ -1,9 +1,8 @@
-import argparse
+import argparse, logging
 import glob, json, os, re
 import shlex, subprocess
+import matplotlib.pyplot as plt, numpy as np
 from datetime import datetime
-
-import logging
 from logging.config import fileConfig
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +15,7 @@ DATA_PROCESSED = '/tmp/data-processed'
 RESULTS_FILENAME = DATA_PROCESSED + '/{}.results'
 DATA_RAW = '/tmp/data-raw'
 DATA_TMP = '/tmp/data-tmp'
+DATA_TRAINING = os.path.join(CURRENT_DIR, 'data-training')
 
 # Max number of times to rerun an experiment.
 RUN_LIMIT = 3
@@ -38,6 +38,36 @@ def remove_experiment(exp_name):
 
     for f in files:
         os.remove(f)
+
+def plot_queue_occupancy(website, exp_names):
+    plots = []
+    for name in exp_names:
+        try:
+            features_pattern = '{}/{}.features'
+            with open(RESULTS_FILENAME.format(name)) as f:
+                results = json.load(f)
+                closest_training = results['closest_exp_name']
+                training_features = []
+
+                with open(features_pattern.format(DATA_TRAINING, closest_training)) as training_file:
+                    training_features = training_file.readlines()
+                    
+                exp_features = []
+                with open(features_pattern.format(DATA_PROCESSED, name)) as exp_file:
+                    exp_features = exp_file.readlines()
+
+                network = parse_network_conditions(name)
+                rtt = int(network[1])
+                time = np.arange(rtt, (len(exp_features) + 1) * rtt, rtt)
+                # [website] and training queue occupancy for BTLBW=, RTT=, Q=
+                # y-axis: queue occupancy ewna (packets)
+                # x-axis: time (s)
+                # legend: [website] and [closest-label]-training
+                # Below plot: predicted=results[predicted label], dtw distance=results[closest label], invalid=[0 or 1]
+
+        except Exception as e:
+            logging.error(e)
+            print(e)
 
 # Classify the CCA of the given websites. Reruns any experiments from ccalg_predict.py
 # which are marked invalid by classify_websites.snakefile up to 3 times. Of the final
@@ -71,25 +101,37 @@ def classify_websites(websites):
                         completed_exps[network] = exp_name
                         
             logging.info('Completed classification experiments for website {} url {}'.format(website, url))
-            
-            predicted_label = predict_label(website, url, completed_exps.values())
-            today = datetime.now().strftime('%Y%m%dT%H%M%S')
-            results_filename = RESULTS_FILENAME.format(website + '-' + today)
-
-            with open(results_filename, 'w') as f:
-                results = {'predicted_label': predicted_label, 'experiments': []}
-                for exp in completed_exps.values():
-                    results['experiments'].append(exp)
-                j = json.dumps(results, indent=2)
-                predicted_logging = 'Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename)
-                print(predicted_logging)
-                print(j)
-                print(j, file=f)
-                logging.info(predicted_logging)
+            output_results(website, url, completed_exps.values())
             
         except Exception as e:
             logging.error(e)
             print(e)
+
+
+def output_results(website, url, exp_names):
+    predicted_label = predict_label(website, url, exp_names)
+    today = datetime.now().strftime('%Y%m%dT%H%M%S')
+    results_filename = RESULTS_FILENAME.format(website + '-' + today)
+    keys = ['predicted_label', 'bw_too_low', 'closest_distance', 'dist_too_high', 'loss_too_high']
+
+    with open(results_filename, 'w') as f:
+        results = {'predicted_label': predicted_label, 'experiments': []}
+
+        for name in exp_names:
+            exp = {'name': name}
+            with open(RESULTS_FILENAME.format(name)) as exp_file:
+                exp_results = json.load(exp_file)
+                exp.update(dict([(k, exp_results[k]) for k in keys]))
+
+            results['experiments'].append(exp)
+        
+        j = json.dumps(results, indent=2, sort_keys=True)
+        predicted_logging = 'Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename)
+        print(predicted_logging)
+        print(j)
+        print(j, file=f)
+        logging.info(predicted_logging)
+
 
 def predict_label(website, url, exp_names):
     logging.info('Predicting label for website {} url {}'.format(website, url))
