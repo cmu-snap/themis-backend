@@ -12,7 +12,7 @@ CCALG_PREDICT = os.path.join(CURRENT_DIR, 'ccalg_predict.py')
 LOGGING_CONFIG = os.path.join(CURRENT_DIR, 'classify_logging_config.ini')
 
 DATA_PROCESSED = '/tmp/data-processed'
-RESULTS_FILENAME = DATA_PROCESSED + '/{}.results'
+RESULTS_FILENAME = '{}/{}.results'
 DATA_RAW = '/tmp/data-raw'
 DATA_TMP = '/tmp/data-tmp'
 DATA_TRAINING = os.path.join(CURRENT_DIR, 'data-training')
@@ -27,11 +27,11 @@ def parse_network_conditions(exp_name):
     return (re.findall(bw, exp_name)[0], re.findall(rtt, exp_name)[0])
 
 # Remove all files with the given experiment name.
-def remove_experiment(exp_name):
+def remove_experiment(exp_name, exp_dir):
     pattern = '{}/{}*'
     files = glob.glob(pattern.format(DATA_RAW, exp_name))
     files.extend(glob.glob(pattern.format(DATA_TMP, exp_name)))
-    files.extend(glob.glob(pattern.format(DATA_PROCESSED, exp_name)))
+    files.extend(glob.glob(pattern.format(exp_dir, exp_name)))
     files.extend(glob.glob(pattern.format('/tmp', exp_name)))
 
     logging.info('Removing files for experiment {}'.format(exp_name))
@@ -51,21 +51,22 @@ def get_features(directory, exp_name):
 # For each of the given experiments, creates and saves a plot of the
 # queue occupancy of both the experiment and the training data for the
 # experiment's predicted label.
-def plot_queue_occupancy(website, exp_names, results_filename):
-    plot_dir = '{}/{}/plots'.format(DATA_PROCESSED, results_filename)
+def plot_queue_occupancy(website, exp_names, exp_dir):
+    logging.info('Creating plots for {}'.format(website))
+    plot_dir = exp_dir + '/plots'
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
 
     features = '{}/{}.features'
     for name in exp_names:
         try:
-            with open(RESULTS_FILENAME.format(name)) as f:
+            with open(RESULTS_FILENAME.format(exp_dir, name)) as f:
                 results = json.load(f)
                 closest_training = results['closest_exp_name']
                 network_conditions = results['ntwrk_conditions']
 
                 training_features = get_features(DATA_TRAINING, closest_training)
-                exp_features = get_features(DATA_PROCESSED, name)
+                exp_features = get_features(exp_dir, name)
 
                 rtt = results['rtt']
                 length = min(len(exp_features), len(training_features))
@@ -84,11 +85,15 @@ def plot_queue_occupancy(website, exp_names, results_filename):
                 text = 'dtw distance={}\ninvalid={}'.format(round(results[closest_label], 2), results['mark_invalid'])
                 plt.text(0.3, 0.05, text, transform=ax.transAxes)
                 plt.legend()
-                plt.savefig('{}/{}.png'.format(plot_dir, network_conditions))
+                plot_name = '{}/{}.png'.format(plot_dir, network_conditions)
+                plt.savefig(plot_name)
+                logging.info('Saved plot {}'.format(plot_name))
 
         except Exception as e:
             logging.exception(e)
             print(e)
+
+    print('Finished queue occupancy plots')
 
 # Classify the CCA of the given websites. Reruns any experiments from ccalg_predict.py
 # which are marked invalid by classify_websites.snakefile up to 3 times. Of the final
@@ -98,7 +103,13 @@ def classify_websites(websites):
     for website, url in websites:
         logging.info('Starting classification for {} {}'.format(website, url))
         try:
-            completed_exps, invalid_exps = run_ccalg_predict(website, url)
+            # Make directory for results
+            today = datetime.now().strftime('%Y%m%dT%H%M%S')
+            exp_dir = '{}/{}'.format(DATA_PROCESSED, website + '-' + today)
+            if not os.path.exists(exp_dir):
+                os.makedirs(exp_dir)
+
+            completed_exps, invalid_exps = run_ccalg_predict(website, url, exp_dir)
             logging.info('Valid experiments {}'.format(completed_exps.values()))
             reruns = dict([(network, 1) for network in invalid_exps])
 
@@ -110,19 +121,19 @@ def classify_websites(websites):
                         completed_exps[network] = exp_name
                         reruns.pop(network)
                     else:
-                        remove_experiment(exp_name)
+                        remove_experiment(exp_name, exp_dir)
                         reruns[network] += 1
                         network_conditions.append(network)
 
                 if len(network_conditions) > 0:
                     logging.info('Rerunning network conditions {}'.format(network_conditions))
-                    labeled, invalid_exps = run_ccalg_predict(website, url, network_conditions)
+                    labeled, invalid_exps = run_ccalg_predict(website, url, exp_dir, network_conditions)
                     for network, exp_name in labeled.items():
                         reruns.pop(network)
                         completed_exps[network] = exp_name
                         
             logging.info('Completed classification experiments for website {} url {}'.format(website, url))
-            results_filename = output_results(website, url, completed_exps.values())
+            results_filename = output_results(website, url, completed_exps.values(), exp_dir)
             
         except Exception as e:
             logging.exception(e)
@@ -130,10 +141,9 @@ def classify_websites(websites):
 
 # Outputs the final classification for the given website using the experiments
 # in exp_names. Returns the name of the results file.
-def output_results(website, url, exp_names):
-    predicted_label = predict_label(website, url, exp_names)
-    today = datetime.now().strftime('%Y%m%dT%H%M%S')
-    results_filename = RESULTS_FILENAME.format(website + '-' + today)
+def output_results(website, url, exp_names, exp_dir):
+    predicted_label = predict_label(website, url, exp_names, exp_dir)
+    results_filename = RESULTS_FILENAME.format(exp_dir, website)
     keys = ['predicted_label',
             'mark_invalid',
             'closest_distance',
@@ -145,11 +155,11 @@ def output_results(website, url, exp_names):
         results = { 'website': website,
                     'url': url,
                     'predicted_label': predicted_label,
-                    'experiments': []}
+                    'experiments': [] }
 
         for name in exp_names:
             exp = { 'name': name }
-            with open(RESULTS_FILENAME.format(name)) as exp_file:
+            with open(RESULTS_FILENAME.format(exp_dir, name)) as exp_file:
                 exp_results = json.load(exp_file)
                 exp.update(dict([(k, exp_results[k]) for k in keys]))
 
@@ -162,6 +172,8 @@ def output_results(website, url, exp_names):
         print(j, file=f)
         logging.info(predicted_logging)
 
+    plot_queue_occupancy(website, exp_names, exp_dir)
+
     return results_filename
 
 
@@ -169,14 +181,14 @@ def output_results(website, url, exp_names):
 # If a label has a strict majority, the website is classified as that label.
 # Otherwise the website is classified as unknown. Experiments marked as invalid
 # are considered unknown.
-def predict_label(website, url, exp_names):
+def predict_label(website, url, exp_names, exp_dir):
     logging.info('Predicting label for website {} url {}'.format(website, url))
 
     num_exps = len(exp_names)
     label_counts = {}
 
     for exp in exp_names:
-        results_filename = RESULTS_FILENAME.format(exp)
+        results_filename = RESULTS_FILENAME.format(exp_dir, exp)
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
@@ -205,7 +217,7 @@ def predict_label(website, url, exp_names):
 # classifies each of the resulting experiments. Returns (labeled, invalid) where
 #   labeled: dictionary mapping (bw, rtt) to experiment name of all labeled experiments
 #   invalid: dictionary mapping (bw, rtt) to experiment name of all invalid experiments
-def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
+def run_ccalg_predict(website, url, exp_dir, network_conditions=[], skip_predict=False):
     exp_names = []
     if skip_predict:
         logging.info('Grabbing experiments from /tmp/data-raw')
@@ -237,16 +249,17 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
 
     logging.info('Ran experiments {}'.format(exp_names))
 
-    return run_classify_snakefile(exp_names)
+    return run_classify_snakefile(exp_names, exp_dir)
 
 
 # Runs classify_websites.snakefile for the given experiment names and returns a list
 # of the experiment names which were marked invalid. Returns (labeled, invalid) where
 #   labeled: dictionary mapping (bw, rtt) to experiment name of all labeled experiments
 #   invalid: dictionary mapping (bw, rtt) to experiment name of all invalid experiments
-def run_classify_snakefile(exp_names):
+def run_classify_snakefile(exp_names, exp_dir):
     logging.info('Running classify snakefile for {}'.format(exp_names))
-    cmd = 'snakemake --config exp_name="{}" -s {} --latency-wait 10'.format(' '.join(exp_names), CLASSIFY_SNAKEFILE)
+    cmd = 'snakemake --config exp_name="{}" results_dir="{}" -s {} --latency-wait 10'.format(
+            ' '.join(exp_names), exp_dir, CLASSIFY_SNAKEFILE)
     args = shlex.split(cmd)
     process = subprocess.run(args, stdout=subprocess.PIPE)
     if process.returncode != 0:
@@ -256,7 +269,7 @@ def run_classify_snakefile(exp_names):
     labeled = {}
 
     for exp in exp_names:
-        results_filename = RESULTS_FILENAME.format(exp)
+        results_filename = RESULTS_FILENAME.format(exp_dir, exp)
         if os.path.isfile(results_filename):
             with open(results_filename) as f:
                 results = json.load(f)
