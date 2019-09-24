@@ -39,34 +39,55 @@ def remove_experiment(exp_name):
     for f in files:
         os.remove(f)
 
-def plot_queue_occupancy(website, exp_names):
-    plots = []
+
+def get_features(directory, exp_name):
+    features = []
+    with open('{}/{}.features'.format(directory, exp_name)) as f:
+        lines = f.readlines()[1:]
+        features = [float(l.strip()) for l in lines]
+    return features
+
+
+# For each of the given experiments, creates and saves a plot of the
+# queue occupancy of both the experiment and the training data for the
+# experiment's predicted label.
+def plot_queue_occupancy(website, exp_names, results_filename):
+    plot_dir = '{}/{}/plots'.format(DATA_PROCESSED, results_filename)
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+
+    features = '{}/{}.features'
     for name in exp_names:
         try:
-            features_pattern = '{}/{}.features'
             with open(RESULTS_FILENAME.format(name)) as f:
                 results = json.load(f)
                 closest_training = results['closest_exp_name']
-                training_features = []
+                network_conditions = results['ntwrk_conditions']
 
-                with open(features_pattern.format(DATA_TRAINING, closest_training)) as training_file:
-                    training_features = training_file.readlines()
-                    
-                exp_features = []
-                with open(features_pattern.format(DATA_PROCESSED, name)) as exp_file:
-                    exp_features = exp_file.readlines()
+                training_features = get_features(DATA_TRAINING, closest_training)
+                exp_features = get_features(DATA_PROCESSED, name)
 
-                network = parse_network_conditions(name)
-                rtt = int(network[1])
-                time = np.arange(rtt, (len(exp_features) + 1) * rtt, rtt)
-                # [website] and training queue occupancy for BTLBW=, RTT=, Q=
-                # y-axis: queue occupancy ewna (packets)
-                # x-axis: time (s)
-                # legend: [website] and [closest-label]-training
-                # Below plot: predicted=results[predicted label], dtw distance=results[closest label], invalid=[0 or 1]
+                rtt = results['rtt']
+                length = min(len(exp_features), len(training_features))
+                time = np.arange(0, length * rtt, rtt).tolist()
+                # Convert time from ms to s
+                time[:] = [t / 1000 for t in time]
+
+                closest_label = closest_training.split('-')[0]
+
+                f, ax = plt.subplots()
+                plt.plot(time, exp_features[:length], label=website)
+                plt.plot(time, training_features[:length], label=closest_label + '-training')
+                plt.ylabel('queue occupancy ewna (packets)')
+                plt.xlabel('time (s)')
+                plt.title('{}, predicted={}, network={}'.format(website, results['predicted_label'], network_conditions))
+                text = 'dtw distance={}\ninvalid={}'.format(round(results[closest_label], 2), results['mark_invalid'])
+                plt.text(0.3, 0.05, text, transform=ax.transAxes)
+                plt.legend()
+                plt.savefig('{}/{}.png'.format(plot_dir, network_conditions))
 
         except Exception as e:
-            logging.error(e)
+            logging.exception(e)
             print(e)
 
 # Classify the CCA of the given websites. Reruns any experiments from ccalg_predict.py
@@ -101,38 +122,53 @@ def classify_websites(websites):
                         completed_exps[network] = exp_name
                         
             logging.info('Completed classification experiments for website {} url {}'.format(website, url))
-            output_results(website, url, completed_exps.values())
+            results_filename = output_results(website, url, completed_exps.values())
             
         except Exception as e:
-            logging.error(e)
+            logging.exception(e)
             print(e)
 
-
+# Outputs the final classification for the given website using the experiments
+# in exp_names. Returns the name of the results file.
 def output_results(website, url, exp_names):
     predicted_label = predict_label(website, url, exp_names)
     today = datetime.now().strftime('%Y%m%dT%H%M%S')
     results_filename = RESULTS_FILENAME.format(website + '-' + today)
-    keys = ['predicted_label', 'bw_too_low', 'closest_distance', 'dist_too_high', 'loss_too_high']
+    keys = ['predicted_label',
+            'mark_invalid',
+            'closest_distance',
+            'bw_too_low',
+            'dist_too_high',
+            'loss_too_high']
 
     with open(results_filename, 'w') as f:
-        results = {'predicted_label': predicted_label, 'experiments': []}
+        results = { 'website': website,
+                    'url': url,
+                    'predicted_label': predicted_label,
+                    'experiments': []}
 
         for name in exp_names:
-            exp = {'name': name}
+            exp = { 'name': name }
             with open(RESULTS_FILENAME.format(name)) as exp_file:
                 exp_results = json.load(exp_file)
                 exp.update(dict([(k, exp_results[k]) for k in keys]))
 
             results['experiments'].append(exp)
         
-        j = json.dumps(results, indent=2, sort_keys=True)
+        j = json.dumps(results, indent=2)
         predicted_logging = 'Predicted label {} for {} written to {}'.format(predicted_label, website, results_filename)
         print(predicted_logging)
         print(j)
         print(j, file=f)
         logging.info(predicted_logging)
 
+    return results_filename
 
+
+# Predict the label for the given website from the experiments in exp_names.
+# If a label has a strict majority, the website is classified as that label.
+# Otherwise the website is classified as unknown. Experiments marked as invalid
+# are considered unknown.
 def predict_label(website, url, exp_names):
     logging.info('Predicting label for website {} url {}'.format(website, url))
 
@@ -165,7 +201,7 @@ def predict_label(website, url, exp_names):
 
     return 'unknown'
 
-# Run ccalg_predict.py for a single website and the given network conditions and runs
+# Run ccalg_predict.py for a single website and the given network conditions and
 # classifies each of the resulting experiments. Returns (labeled, invalid) where
 #   labeled: dictionary mapping (bw, rtt) to experiment name of all labeled experiments
 #   invalid: dictionary mapping (bw, rtt) to experiment name of all invalid experiments
@@ -201,14 +237,13 @@ def run_ccalg_predict(website, url, network_conditions=[], skip_predict=False):
 
     logging.info('Ran experiments {}'.format(exp_names))
 
-    invalid_exps = run_classify_snakefile(exp_names)
-    labeled = dict([(parse_network_conditions(n), n) for n in exp_names if n not in invalid_exps])
-    invalid = dict([(parse_network_conditions(n), n) for n in invalid_exps])
-    return (labeled, invalid)
+    return run_classify_snakefile(exp_names)
 
 
 # Runs classify_websites.snakefile for the given experiment names and returns a list
-# of the experiment names which were marked invalid.
+# of the experiment names which were marked invalid. Returns (labeled, invalid) where
+#   labeled: dictionary mapping (bw, rtt) to experiment name of all labeled experiments
+#   invalid: dictionary mapping (bw, rtt) to experiment name of all invalid experiments
 def run_classify_snakefile(exp_names):
     logging.info('Running classify snakefile for {}'.format(exp_names))
     cmd = 'snakemake --config exp_name="{}" -s {} --latency-wait 10'.format(' '.join(exp_names), CLASSIFY_SNAKEFILE)
@@ -217,7 +252,8 @@ def run_classify_snakefile(exp_names):
     if process.returncode != 0:
         raise Exception('classify_websites.snakefile failed on {}'.format('\n'.join(exp_names)))
 
-    invalid_exps = []
+    invalid = {}
+    labeled = {}
 
     for exp in exp_names:
         results_filename = RESULTS_FILENAME.format(exp)
@@ -225,9 +261,11 @@ def run_classify_snakefile(exp_names):
             with open(results_filename) as f:
                 results = json.load(f)
                 if results['mark_invalid']:
-                    invalid_exps.append(exp)
+                    invalid[(results['btlbw'], results['rtt'])] = exp
+                else:
+                    labeled[(results['btlbw'], results['rtt'])] = exp
 
-    return invalid_exps
+    return (labeled, invalid)
 
 
 def parse_args():
