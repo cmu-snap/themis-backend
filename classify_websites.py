@@ -40,11 +40,11 @@ def remove_experiment(exp_name, exp_dir):
         os.remove(f)
 
 
-def get_features(directory, exp_name):
+def get_features(directory, exp_name, queue_size):
     features = []
     with open('{}/{}.features'.format(directory, exp_name)) as f:
         lines = f.readlines()[1:]
-        features = [float(l.strip()) for l in lines]
+        features = [float(l.strip()) * queue_size for l in lines]
     return features
 
 
@@ -62,11 +62,12 @@ def plot_queue_occupancy(website, exp_names, exp_dir):
         try:
             with open(RESULTS_FILENAME.format(exp_dir, name)) as f:
                 results = json.load(f)
+                queue_size = results['queue_size']
                 closest_training = results['closest_exp_name']
                 network_conditions = results['ntwrk_conditions']
 
-                training_features = get_features(DATA_TRAINING, closest_training)
-                exp_features = get_features(exp_dir, name)
+                training_features = get_features(DATA_TRAINING, closest_training, queue_size)
+                exp_features = get_features(exp_dir, name, queue_size)
 
                 rtt = results['rtt']
                 length = min(len(exp_features), len(training_features))
