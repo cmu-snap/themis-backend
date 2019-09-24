@@ -4,7 +4,10 @@ import os
 import json
 
 workdir: "/tmp/"
-         
+RESULTS_DIR = 'data-processed'
+if 'results_dir' in config:
+    RESULTS_DIR = config['results_dir']
+
 onsuccess:
     pass
     #shell('rm -f /tmp/data-tmp/*')
@@ -62,14 +65,14 @@ def get_local_exps_metadata(wildcards):
 # decidde which subset of local experiments we actually need to compute dtw for this exp
 def get_dtws(wildcards):
     experiments = get_local_exps(wildcards)
-    dtws=expand('data-processed/{testing_exp_name}:{training_exp_name}.dtw',
-                testing_exp_name=wildcards.exp_name, training_exp_name=experiments)
+    dtws=expand('{dir}/{testing_exp_name}:{training_exp_name}.dtw',
+                dir=RESULTS_DIR, testing_exp_name=wildcards.exp_name, training_exp_name=experiments)
     return dtws
     
 # specify final output of the pipeline
 rule all:
     input:
-         all_results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES)
+         all_results=expand('{dir}/{exp_name}.results', dir=RESULTS_DIR, exp_name=EXP_NAMES)
          #all_results=expand('{exp_name}.website.tar.gz',exp_name=EXP_NAMES)
          #rerun='experiments.rerun'
          
@@ -94,17 +97,17 @@ rule load_exp_description:
     params:
         exp_description='{exp_name}.json'
     output:
-        'data-processed/{exp_name}.json'
+        '{RESULTS_DIR}/{exp_name}.json'
     shell:
         """
-        tar -C data-processed/ -xzvf {input.exp_tarfile} {params.exp_description}
+        tar -C {RESULTS_DIR}/ -xzvf {input.exp_tarfile} {params.exp_description}
         """
 
 rule store_queue_hdf:
     input:
         raw_queue_data='data-raw/queue-{exp_name}.txt'
     output:
-        hdf_queue='data-processed/queue-{exp_name}.h5'
+        hdf_queue='{RESULTS_DIR}/queue-{exp_name}.h5'
     run:
         import pandas as pd
         import numpy as np
@@ -172,10 +175,10 @@ rule store_queue_hdf:
 
 rule compute_flow_features:
     input:
-        queue_store='data-processed/queue-{exp_name}.h5',
-        exp_description='data-processed/{exp_name}.json'
+        queue_store='{RESULTS_DIR}/queue-{exp_name}.h5',
+        exp_description='{RESULTS_DIR}/{exp_name}.json'
     output:
-        features='data-processed/{exp_name}.features'
+        features='{RESULTS_DIR}/{exp_name}.features'
     run:
         import pandas as pd
         import json
@@ -267,14 +270,14 @@ rule load_exp_capinfos:
 
 rule get_metadata:
     input:
-        exp_description='data-processed/{exp_name}.json',
+        exp_description='{RESULTS_DIR}/{exp_name}.json',
         tcpdump='data-raw/server-tcpdump-{exp_name}.pcap',
         ping='data-raw/ping-{exp_name}.txt',
         capinfos='data-raw/capinfos-{exp_name}.txt',
-        hdf_queue='data-processed/queue-{exp_name}.h5',
+        hdf_queue='{RESULTS_DIR}/queue-{exp_name}.h5',
         website='data-raw/website-{exp_name}.json'
     output:
-        metadata='data-processed/{exp_name}.metadata'
+        metadata='{RESULTS_DIR}/{exp_name}.metadata'
     run:
         import re
         import pandas as pd
@@ -385,10 +388,10 @@ rule get_metadata:
 
 rule compute_dtw:
     input:
-        testing_flow='data-processed/{testing_exp_name}.features',
+        testing_flow='{RESULTS_DIR}/{testing_exp_name}.features',
         training_flow='/opt/cctestbed/data-training/{training_exp_name}.features'
     output:
-        dtw='data-processed/{testing_exp_name}:{training_exp_name}.dtw'
+        dtw='{RESULTS_DIR}/{testing_exp_name}:{training_exp_name}.dtw'
     run:
         from fastdtw import dtw
         import pandas as pd
@@ -406,10 +409,10 @@ rule compute_dtw:
 
 rule classify_flow:
     input:
-        metadata='data-processed/{exp_name}.metadata',
+        metadata='{RESULTS_DIR}/{exp_name}.metadata',
         dtws=get_dtws
     output:
-        classify=temp('data-processed/{exp_name}.classify')
+        classify=temp('{RESULTS_DIR}/{exp_name}.classify')
     run:
         import pandas as pd
         import json
@@ -436,12 +439,13 @@ rule classify_flow:
         .to_dict('index'))
 
         classify_results = classify_results[0]
+        classify_results['closest_exp_name'] = training_exp_names[classify_results['predicted_label']]
+
         if classify_results['closest_distance'] > DIST_THRESHOLD:
             classify_results['predicted_label'] = 'unknown'
+            classify_results['dist_too_high'] = True
         else:
-            classify_results['closest_exp_name'] = training_exp_names[
-            classify_results['predicted_label']]
-
+            classify_results['dist_too_high'] = False
 
         with open(output.classify, 'w') as f:
             json.dump(classify_results, f)
@@ -449,9 +453,9 @@ rule classify_flow:
 rule check_bw_too_low:
     input:
         unpack(get_local_exps_metadata),
-        classify='data-processed/{exp_name}.classify'
+        classify='{RESULTS_DIR}/{exp_name}.classify'
     output:
-        bw_too_low=temp('data-processed/{exp_name}.bwtoolow')
+        bw_too_low=temp('{RESULTS_DIR}/{exp_name}.bwtoolow')
     run:
         import json
         
@@ -481,10 +485,10 @@ rule check_bw_too_low:
 
 rule merge_results:
     input:
-        classify='data-processed/{exp_name}.classify',
-        bw_too_low='data-processed/{exp_name}.bwtoolow'
+        classify='{RESULTS_DIR}/{exp_name}.classify',
+        bw_too_low='{RESULTS_DIR}/{exp_name}.bwtoolow'
     output:
-        results='data-processed/{exp_name}.results'
+        results='{RESULTS_DIR}/{exp_name}.results'
     run:
         with open(input.classify) as f:
             results = json.load(f)
@@ -495,15 +499,17 @@ rule merge_results:
         results['mark_invalid'] = results['bw_too_low'] | results['loss_too_high']
         
         with open(output.results, 'w') as f:
-            json.dump(results, f)
+            j = json.dumps(results, indent=2, sort_keys=True)
+            print(j, file=f)
+            #json.dump(results, f)
 
 rule scp_results:
     input:
-        results='data-processed/{exp_name}.results',
+        results='{RESULTS_DIR}/{exp_name}.results',
         exp_tarfile='data-raw/{exp_name}.tar.gz',
-        metadata='data-processed/{exp_name}.metadata',
-        queue='data-processed/queue-{exp_name}.h5',
-        features='data-processed/{exp_name}.features'    
+        metadata='{RESULTS_DIR}/{exp_name}.metadata',
+        queue='{RESULTS_DIR}/queue-{exp_name}.h5',
+        features='{RESULTS_DIR}/{exp_name}.features'    
     output:
         compressed_results='{exp_name}.website.tar.gz'
     shell:
@@ -514,7 +520,7 @@ rule scp_results:
 """ CAN'T GET THIS TO WORK; GIVING UP
 rule rerun_invalid_exp:
     input:
-        results=expand('data-processed/{exp_name}.results', exp_name=EXP_NAMES),
+        results=expand('{RESULTS_DIR}/{exp_name}.results', exp_name=EXP_NAMES),
         compressed_results=expand('{exp_name}.website.tar.gz', exp_name=EXP_NAMES)
     params:
         airflow_cmd=lambda wildcards: 'ssh -o StrictHostKeyChecking=no -i /users/rware/.ssh/rware-potato.pem ranysha@128.2.208.104 AIRFLOW_HOME=/opt/airflow /home/ranysha/.local/bin/airflow trigger_dag cctestbed_website --conf \'{{"cmdline_args":"--website {} \\"{}\\" {} --force"}}\''
