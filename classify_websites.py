@@ -40,11 +40,11 @@ def remove_experiment(exp_name, exp_dir):
         os.remove(f)
 
 
-def get_features(directory, exp_name):
+def get_features(directory, exp_name, queue_size):
     features = []
     with open('{}/{}.features'.format(directory, exp_name)) as f:
         lines = f.readlines()[1:]
-        features = [float(l.strip()) for l in lines]
+        features = [float(l.strip()) * queue_size for l in lines]
     return features
 
 
@@ -62,11 +62,12 @@ def plot_queue_occupancy(website, exp_names, exp_dir):
         try:
             with open(RESULTS_FILENAME.format(exp_dir, name)) as f:
                 results = json.load(f)
+                queue_size = results['queue_size']
                 closest_training = results['closest_exp_name']
                 network_conditions = results['ntwrk_conditions']
 
-                training_features = get_features(DATA_TRAINING, closest_training)
-                exp_features = get_features(exp_dir, name)
+                training_features = get_features(DATA_TRAINING, closest_training, queue_size)
+                exp_features = get_features(exp_dir, name, queue_size)
 
                 rtt = results['rtt']
                 length = min(len(exp_features), len(training_features))
@@ -83,7 +84,7 @@ def plot_queue_occupancy(website, exp_names, exp_dir):
                 plt.xlabel('time (s)')
                 plt.title('{}, predicted={}, network={}'.format(website, results['predicted_label'], network_conditions))
                 text = 'dtw distance={}\ninvalid={}'.format(round(results[closest_label], 2), results['mark_invalid'])
-                plt.text(0.3, 0.05, text, transform=ax.transAxes)
+                plt.plot([], [], ' ', label=text)
                 plt.legend()
                 plot_name = '{}/{}.png'.format(plot_dir, network_conditions)
                 plt.savefig(plot_name)
@@ -238,14 +239,13 @@ def run_ccalg_predict(website, url, exp_dir, network_conditions=[], skip_predict
         # Turn stdout bytes into string
         output = process.stdout.decode('utf-8')
         regex_name=r"exp_name=(.+)\n"
-        names = re.findall(regex_name, output)
-        if len(names) == 0:
-            raise Exception('Unable to get flows for website {}, url {}, network {}'.format(
-                website, url, network_conditions))
-
         for exp in re.findall(regex_name, output):
             if os.path.exists('{}/{}.tar.gz'.format(DATA_RAW, exp)):
                 exp_names.append(exp)
+
+    if len(exp_names) == 0:
+        raise Exception('Unable to get flows for website {}, url {}, network {}'.format(
+                website, url, network_conditions))
 
     logging.info('Ran experiments {}'.format(exp_names))
 
