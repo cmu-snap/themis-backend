@@ -17,7 +17,7 @@ The classification for a website will fail if an error is encountered when runni
 `classify_websites.py` logs info to `/tmp/cctestbed-classify-websites.log`.
 
 ### Example output
-The final results file will look something like
+The final results file will look similar to
 ```
 {
   "website": "capitallink.com",
@@ -46,3 +46,7 @@ The final results file will look something like
   ]
 }
 ```
+
+### Example plot
+![Queue occupancy plot](example_queue_plot.png?raw=true "Example queue occupancy plot")
+

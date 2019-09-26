@@ -84,7 +84,7 @@ def plot_queue_occupancy(website, exp_names, exp_dir):
                 plt.xlabel('time (s)')
                 plt.title('{}, predicted={}, network={}'.format(website, results['predicted_label'], network_conditions))
                 text = 'dtw distance={}\ninvalid={}'.format(round(results[closest_label], 2), results['mark_invalid'])
-                plt.text(0.3, 0.05, text, transform=ax.transAxes)
+                plt.plot([], [], ' ', label=text)
                 plt.legend()
                 plot_name = '{}/{}.png'.format(plot_dir, network_conditions)
                 plt.savefig(plot_name)
