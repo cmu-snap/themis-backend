@@ -239,14 +239,13 @@ def run_ccalg_predict(website, url, exp_dir, network_conditions=[], skip_predict
         # Turn stdout bytes into string
         output = process.stdout.decode('utf-8')
         regex_name=r"exp_name=(.+)\n"
-        names = re.findall(regex_name, output)
-        if len(names) == 0:
-            raise Exception('Unable to get flows for website {}, url {}, network {}'.format(
-                website, url, network_conditions))
-
         for exp in re.findall(regex_name, output):
             if os.path.exists('{}/{}.tar.gz'.format(DATA_RAW, exp)):
                 exp_names.append(exp)
+
+    if len(exp_names) == 0:
+        raise Exception('Unable to get flows for website {}, url {}, network {}'.format(
+                website, url, network_conditions))
 
     logging.info('Ran experiments {}'.format(exp_names))
 
