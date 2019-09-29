@@ -269,7 +269,7 @@ def bbr_config(server, client, end_time, bdp=32):
 
 
 # note the queue size must be a power of 2
-def cloudlab_config(cca, end_time, queue_size=1024, btlbw=10, rtt=40):
+def cloudlab_config(cca, end_time, queue_size=1024, btlbw=10, rtt=40, kind='iperf'):
     config = {}
     config['server'] = dict(HOST_SERVER._asdict())
     config['client'] = dict(HOST_CLIENT._asdict())
@@ -284,7 +284,8 @@ def cloudlab_config(cca, end_time, queue_size=1024, btlbw=10, rtt=40):
         experiment['flows'] = [{'ccalg': cca,
                                 'start_time': 0,
                                 'end_time': end_time,
-                                'rtt': rtt} for _ in range(num_cca_flows)]
+                                'rtt': rtt,
+                                'kind' : kind} for _ in range(num_cca_flows)]
         config['experiments'][experiment_name] = experiment        
     return config
 
@@ -295,7 +296,8 @@ def main(argv):
     server = hosts[args.server]
     client = hosts[args.client]
     if args.experiment_type == 'cloudlab':
-        config = cloudlab_config(cca=args.cca, end_time=args.end_time, queue_size=args.queue_size, btlbw=args.btlbw, rtt=args.rtt)
+        config = cloudlab_config(cca=args.cca, end_time=args.end_time, queue_size=args.queue_size, btlbw=args.btlbw, rtt=args.rtt, 
+                                 kind=args.kind)
     if args.experiment_type == 'cubic-bbr':
         config = cubic_bbr_config(server, client, btlbw=args.btlbw,
                                   rtt=args.rtt, queue_size=args.queue_size,
@@ -342,6 +344,8 @@ def parse_args(argv):
     parser.add_argument('--queue_size', default=1024, required=False, type=int,
                         help='size of bottleneck queue in packets')
     parser.add_argument('--exp_name_suffix', required=False, help='experiment name suffix')
+    parser.add_argument('--kind', default='iperf', required=False,
+                        help='Type of traffic; This can be either video or iperf')
     parser.add_argument('end_time', type=int, help='length of experiment in seconds')
     args = parser.parse_args(argv)
     return args

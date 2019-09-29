@@ -113,7 +113,8 @@ class Experiment:
         cleanup_cmds = [('sudo pkill -9 tcpdump', ('server', 'client')),
                         ('sudo pkill -9 cat', ('client')),
                         ('sudo pkill iperf', ('server','client')),
-                        ('sudo rmmod tcp_probe_ray', ('client'))]
+                        ('sudo rmmod tcp_probe_ray', ('client')),
+                        ('sudo service apache2 stop', ('client'))]
         for cmd, machines in cleanup_cmds:
             if 'client' in machines:
                 with get_ssh_client(self.client.ip_wan,
@@ -140,6 +141,7 @@ class Experiment:
             #    self._run_dig()
             with ExitStack() as stack:
                 self._run_tcpdump('server', stack)
+                #self._run_tcpdump('server', stack, capture_http=True)
                 self._run_tcpdump('client', stack)
                 self._run_tcpprobe(stack)
                 self._run_all_flows(stack, bess_config_name=bess_config_name)
@@ -479,8 +481,41 @@ class Experiment:
                 stop_bess()
         # need to update description log with avg rtt
         self.write_description_log() 
+
+    def _start_video_flow(self, flow, stack):
+        # start apache server which is running on the cctestbed-client
+        with get_ssh_client(
+                flow.client.ip_wan,
+                flow.client.username,
+                key_filename=flow.client.key_filename) as ssh_client:
+            start_apache_cmd = "sudo service apache2 start"
+            exec_command(
+                ssh_client, flow.client.ip_wan, start_apache_cmd)
+        # change default cclag for client
+        with get_ssh_client(
+                flow.client.ip_wan,
+                flow.client.username,
+                key_filename=flow.client.key_filename) as ssh_client:
+            change_ccalg = 'echo {} | sudo tee /proc/sys/net/ipv4/tcp_congestion_control'.format(flow.ccalg)
+            exec_command(ssh_client, flow.client.ip_wan, change_ccalg)
+
+        #TODO: should change ccalg back to default after running flow
+
+        # delay flow start for start time plus 3 seconds
+        web_download_cmd = 'timeout {}s google-chrome --disable-gpu --headless --remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required "http://{}:1234/"'.format(flow.end_time, self.client.ip_lan)
+        start_download = RemoteCommand(
+            web_download_cmd,
+            self.server.ip_wan,
+            username=self.server.username,
+            key_filename=self.server.key_filename,
+            pgrep_string='google-chrome'.format(
+                self.client.ip_lan))
+        stack.enter_context(start_download())
+        return start_download
                 
     def _run_all_flows(self, stack, bess_config_name='active-middlebox-pmd'):
+        #TODO: If multiple video flows are among the flows, skip them and give a warning.
+        #TODO: Enforce only 1 video flow to be run with a given CCA. 
         # get wait times for each flow
         if len(self.flows) > 1:
             wait_times = self.get_wait_times()
@@ -493,61 +528,73 @@ class Experiment:
         self._show_bess_pipeline()
         stack.enter_context(self._run_bess_monitor())
         for flow in self.flows:
-            start_server_cmd = ('iperf3 --server '
-                                '--bind {} '
-                                '--port {} '
-                                '--one-off '
-                                '--affinity {} '
-                                '--logfile {} ').format(
-                                    self.server.ip_lan,
-                                    flow.server_port,
-                                    1,
-                                    flow.server_log)
-            start_server = RemoteCommand(start_server_cmd,
-                                         self.server.ip_wan,
-                                         username=self.server.username,
-                                         logs=[flow.server_log],
-                                         key_filename=self.server.key_filename)
-            stack.enter_context(start_server())
-
+            if flow.kind == 'iperf':
+                start_server_cmd = ('iperf3 --server '
+                                    '--bind {} '
+                                    '--port {} '
+                                    '--one-off '
+                                    '--affinity {} '
+                                    '--logfile {} ').format(
+                                        self.server.ip_lan,
+                                        flow.server_port,
+                                        1,
+                                        flow.server_log)
+                start_server = RemoteCommand(start_server_cmd,
+                                            self.server.ip_wan,
+                                            username=self.server.username,
+                                            logs=[flow.server_log],
+                                            key_filename=self.server.key_filename)
+                stack.enter_context(start_server())
+            elif flow.kind == 'video':
+                #logging.warning("Video experiments are yet to be implemented")
+                video_flow = self._start_video_flow(flow, stack)
+                logging.info('Waiting for flow to finish')
+                # wait for flow to finish
+                video_flow._wait()
+                # add add a time buffer before finishing up experiment
+                logging.info('Local video flow finished')
+            else:
+                logging.warning("Only iperf and video flows are supported")
+                #TODO:throw an exception here
         for idx, flow in enumerate(self.flows):
-            # make sure first flow runs for the whole time regardless of start time
-            # note this assumes self.flows is sorted by start time
-            flow_duration = flow.end_time - flow.start_time
-            if idx == 0:
-                flow_duration = flow.end_time
-            start_client_cmd = ('iperf3 --client {} '
-                                '--port {} '
-                                '--verbose '
-                                '--bind {} '
-                                '--cport {} '
-                                '--linux-congestion {} '
-                                '--interval 0.5 '
-                                '--time {} '
-                                #'--length 1024K '#1024K '
-                                '--affinity {} '
-                                #'--set-mss 500 ' # default is 1448
-                                #'--window 100K '
-                                '--zerocopy '
-                                '--json '
-                                '--logfile {} ').format(self.server_nat_ip,
-                                                        flow.server_port,
-                                                        self.client.ip_lan,
-                                                        flow.client_port,
-                                                        flow.ccalg,
-                                                        flow_duration,
-                                                        idx % 32,
-                                                        flow.client_log)
-            start_client = RemoteCommand(start_client_cmd,
-                                         self.client.ip_wan,
-                                         username=self.client.username,
-                                         logs=[flow.client_log],
-                                         key_filename=self.client.key_filename)
-            
-            logging.info('Sleep for {}s before starting flow with start time {}'.format(
-                    wait_times[idx], flow.start_time))
-            time.sleep(wait_times[idx])
-            stack.enter_context(start_client())
+            if flow.kind == 'iperf':
+                # make sure first flow runs for the whole time regardless of start time
+                # note this assumes self.flows is sorted by start time
+                flow_duration = flow.end_time - flow.start_time
+                if idx == 0:
+                    flow_duration = flow.end_time
+                start_client_cmd = ('iperf3 --client {} '
+                                    '--port {} '
+                                    '--verbose '
+                                    '--bind {} '
+                                    '--cport {} '
+                                    '--linux-congestion {} '
+                                    '--interval 0.5 '
+                                    '--time {} '
+                                    #'--length 1024K '#1024K '
+                                    '--affinity {} '
+                                    #'--set-mss 500 ' # default is 1448
+                                    #'--window 100K '
+                                    '--zerocopy '
+                                    '--json '
+                                    '--logfile {} ').format(self.server_nat_ip,
+                                                            flow.server_port,
+                                                            self.client.ip_lan,
+                                                            flow.client_port,
+                                                            flow.ccalg,
+                                                            flow_duration,
+                                                            idx % 32,
+                                                            flow.client_log)
+                start_client = RemoteCommand(start_client_cmd,
+                                            self.client.ip_wan,
+                                            username=self.client.username,
+                                            logs=[flow.client_log],
+                                            key_filename=self.client.key_filename)
+                
+                logging.info('Sleep for {}s before starting flow with start time {}'.format(
+                        wait_times[idx], flow.start_time))
+                time.sleep(wait_times[idx])
+                stack.enter_context(start_client())
         # last flow should be the last one
         sleep_time = flow.end_time - flow.start_time + 1
         logging.info('Sleep for {}s'.format(sleep_time))
@@ -612,7 +659,7 @@ def load_experiments(config, config_filename,
             flows.append(Flow(ccalg=flow['ccalg'], start_time=flow['start_time'],
                               end_time=flow['end_time'], rtt=int(flow['rtt']),
                               server_port=server_port, client_port=client_port,
-                              client_log=None, server_log=None, kind='iperf',
+                              client_log=None, server_log=None, kind=flow['kind'],
                               client=client))
             server_port += 1
             client_port += 1
