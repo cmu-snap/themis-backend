@@ -1,0 +1,35 @@
+version: '3'
+services:
+  server:
+    build: .
+    container_name: themis-server
+    environment:
+      - NODE_ENV=development
+      - PORT=9000
+      - REDIS_URL=redis://themis-cache
+    command: "sh -c 'npm i && npm start'"
+    volumes:
+        - .:/var/www/server
+    links:
+        - redis
+    ports:
+        - "9000:9000"
+  
+  worker:
+    build: .
+    container_name: themis-worker
+    environment:
+        - NODE_ENV=development
+        - PORT=8000
+        - REDIS_URL=redis://themis-cache
+    command: "sh -c 'npm i && npm run worker'"
+    volumes:
+        - .:/var/www/server
+    links:
+        - redis
+
+  redis:
+      image: redis
+      container_name: themis-cache
+      expose:
+          - "6379"

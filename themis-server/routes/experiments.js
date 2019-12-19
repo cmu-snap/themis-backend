@@ -1,3 +1,4 @@
+const Queues = require('../queues.js');
 var express = require('express');
 var router = express.Router();
 
@@ -11,6 +12,7 @@ router.get('/', function(req, res, next) {
 
 router.post('/submit', function(req, res, next) {
     console.log(req.body);
+    Queues.experimentQueue.add(req.body, Queues.jobOptions);
     res.send('Experiment submitted');
 });
 
