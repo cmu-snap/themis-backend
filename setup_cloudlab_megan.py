@@ -297,15 +297,17 @@ def install_packages():
 	"git config --global user.name 'Megan Yu'",
 	"git config --global user.email 'mtyu227@gmail.com'",
         "sudo rm /tmp/cctestbed-experiments.log",
-	"pip install --user django django-rq channels",
-	"wget http://download.redis.io/redis-stable.tar.gz",
-	"tar xvzf redis-stable.tar.gz",
-	"cd redis-stable && make && sudo make install",
         "sudo apt-get update",
 	"sudo apt-get install -y postgresql postgresql-contrib python3-psycopg2 libpq-dev",
         "pip install --user psycopg2",
-        "pip3 install --user channels_redis",
         "pip install --upgrade paramiko --user",
+        "curl -sL https://deb.nodesource.com/setup_13.x -o nodesource_setup.sh",
+        "sudo bash nodesource_setup.sh",
+        "sudo apt-get install -y nodejs",
+        "sudo groupadd docker",
+        "sudo usermod -aG docker $(whoami)",
+        "sudo curl -L 'https://github.com/docker/compose/releases/download/1.25.0/docker-compose-$(uname -s)-$(uname -m)' -o /usr/local/bin/docker-compose",
+        "sudo chmod +x /usr/local/bin/docker-compose"
         ]
     for cmd in cmds:
         proc = subprocess.run(cmd, shell=True)
