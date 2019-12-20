@@ -1,2 +1,2 @@
-FROM node:10
+FROM node:13
 WORKDIR '/var/www/server'
