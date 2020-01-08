@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "start": "node ./bin/www",
-    "worker": "node ./server/worker.js"
+    "start:dev": "npx nodemon ./bin/www",
+    "worker": "node ./server/worker.js",
+    "worker:dev": "npx nodemon ./server/worker.js",
+    "migrate": "npx sequelize-cli db:migrate"
   },
   "dependencies": {
     "bull": "^3.12.1",
@@ -21,6 +24,7 @@
     "sequelize": "^5.21.3"
   },
   "devDependencies": {
+    "nodemon": "^2.0.2",
     "sequelize-cli": "^5.5.1"
   }
 }

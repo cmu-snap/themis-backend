@@ -1,11 +1,13 @@
 'use strict';
+const params = require('../parameters.js');
+
 module.exports = (sequelize, DataTypes) => {
   const Experiment = sequelize.define('Experiment', {
     website: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    fileURL: {
+    file: {
       type: DataTypes.STRING,
       allowNull: false,
     },
@@ -14,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     ccas: {
-      type: DataTypes.ARRAY(DataTypes.ENUM('BBR', 'Cubic', 'Reno')),
+      type: DataTypes.ARRAY(DataTypes.ENUM(params.ccas)),
       allowNull: false,
     },
     status: {

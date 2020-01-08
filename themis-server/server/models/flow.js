@@ -1,4 +1,6 @@
 'use strict';
+const params = require('../parameters.js');
+
 module.exports = (sequelize, DataTypes) => {
   const Flow = sequelize.define('Flow', {
     btlbw: {
@@ -14,11 +16,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     cca: {
-      type: DataTypes.ENUM('BBR', 'Cubic', 'Reno'),
+      type: DataTypes.ENUM(params.ccas),
       allowNull: false,
     },
     test: {
-      type: DataTypes.ENUM('iperf-website', 'iperf16-website', 'apache-website', 'video'),
+      type: DataTypes.ENUM(params.tests),
       allowNull: false
     },
     name: DataTypes.STRING,
@@ -34,8 +36,21 @@ module.exports = (sequelize, DataTypes) => {
       ),
       allowNull: false,
       defaultValue: 'Queued for download'
+    },
+    isFinished: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
     }
-  }, {});
+  }, {
+    setterMethods: {
+      status(value) {
+        const finishedStatus = ['Completed', 'Failed download', 'Failed to get metrics'];
+        this.setDataValue('isFinished', finishedStatus.includes(value));
+        this.setDataValue('status', value);
+      },
+    }
+  });
 
   Flow.associate = (models) => {
     Flow.belongsTo(models.Experiment, {

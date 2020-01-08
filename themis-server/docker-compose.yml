@@ -3,13 +3,17 @@ services:
   server:
     build: .
     container_name: themis-server
+    depends_on:
+      - postgres
     environment:
       - NODE_ENV=development
       - PORT=9000
       - REDIS_URL=redis://themis-cache
-    command: "sh -c 'npm i && npm start'"
+      - DB_URL=postgres://${DB_USERNAME}:${DB_PASSWORD}@postgres:${DB_PORT}/${DB_DATABASE}
+    command: "sh -c 'npm run migrate && npm run start:dev'"
     volumes:
-        - .:/var/www/server
+        - .:/app/
+        - /app/node_modules
     links:
         - redis
     ports:
@@ -22,9 +26,9 @@ services:
         - NODE_ENV=development
         - PORT=8000
         - REDIS_URL=redis://themis-cache
-    command: "sh -c 'npm i && npm run worker'"
+    command: npm run worker:dev
     volumes:
-        - .:/var/www/server
+        - .:/app/
     links:
         - redis
 
@@ -33,3 +37,13 @@ services:
       container_name: themis-cache
       expose:
           - "6379"
+  
+  postgres:
+    image: postgres:12.1
+    ports:
+      - "3${DB_PORT}:${DB_PORT}"
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+
