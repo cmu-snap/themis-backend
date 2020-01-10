@@ -1,7 +1,5 @@
 const Queue = require('bull');
-const models = require('./models');
-const Experiment = models.Experiment;
-const Flow = models.Flow;
+const { Experiment, Flow } = require('./models');
 
 const downloadQueue = new Queue('download files', process.env.REDIS_URL);
 const metricsQueue = new Queue('process metrics', process.env.REDIS_URL);
@@ -28,7 +26,7 @@ downloadQueue.on('completed', async (job, result) => {
   metricsQueue.add({ name: name, flowId: job.data.flowId }, jobOptions);
 })
 .on('failed', async (job, err) => {
-  console.log(`Download flow ${job.data.flowId} tries ${job.attemptsMade} failed with error ${err}`);
+  console.log(`Download flow ${job.data.flowId} tries ${job.attemptsMade} failed with error`);
   if (job.attemptsMade === jobOptions.attempts) {
     await Flow.update({ status: 'Failed download' }, { where: { id: job.data.flowId }});
     await plotExperiment(job.data.experimentId, job.data.totalFlows);

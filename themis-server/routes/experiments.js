@@ -1,7 +1,5 @@
 const Queues = require('../server/queues.js');
-const models = require('../server/models');
-const Experiment = models.Experiment;
-const Flow = models.Flow;
+const { Experiment, Flow } = require('../server/models');
 const params = require('../server/parameters');
 const express = require('express');
 const router = express.Router();
@@ -22,30 +20,34 @@ router.post('/submit', async (req, res, next) => {
       email: req.body.email,
       ccas: req.body.ccas
     });
-    console.log(`Created experiment with id ${exp.id}`);
     const totalFlows = params.queueSizes.length * exp.ccas.length * params.tests.length;
+    let count = 0;
     for (const queueSize of params.queueSizes) {
       for (const cca of exp.ccas) {
         for (const test of params.tests) {
-          let fields = {
-            btlbw: params.btlbw,
-            rtt: params.rtt,
-            queueSize: queueSize,
-            cca: cca,
-            test: test,
-            experimentId: exp.id
-          };
-          const flow = await Flow.create(fields);
-          fields['flowId'] = flow.id;
-          fields['website'] = exp.website;
-          fields['file'] = exp.file;
-          fields['totalFlows'] = totalFlows;
-          Queues.downloadQueue.add(fields, Queues.jobOptions);
+          if (count == 0) {
+            let fields = {
+              btlbw: params.btlbw,
+              rtt: params.rtt,
+              queueSize: queueSize,
+              cca: cca,
+              test: test,
+              experimentId: exp.id
+            };
+            const flow = await Flow.create(fields);
+            fields['flowId'] = flow.id;
+            fields['website'] = exp.website;
+            fields['file'] = exp.file;
+            fields['totalFlows'] = totalFlows;
+            Queues.downloadQueue.add(fields, Queues.jobOptions);
+          }
+          count += 1;
         }
       }
     }
     res.send('Experiment submitted');
   } catch (err) {
+    console.error(err);
     next(err);
   }
 });
