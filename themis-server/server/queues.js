@@ -1,5 +1,6 @@
 const Queue = require('bull');
 const { Experiment, Flow } = require('./models');
+const { Op } = require('sequelize');
 
 const downloadQueue = new Queue('download files', process.env.REDIS_URL);
 const metricsQueue = new Queue('process metrics', process.env.REDIS_URL);
@@ -13,24 +14,42 @@ const jobOptions = { attempts: 3 };
  */
 async function plotExperiment(experimentId, totalFlows) {
   const finishedFlows = await Flow.count({ where: { experimentId: experimentId, isFinished: true }});
+  const failedFlows = await Flow.count({
+    where: {
+      experimentId: experimentId,
+      isFinished: true,
+      status: {
+        [Op.ne]: 'Completed'
+      }
+    }
+  });
+
   if (totalFlows === finishedFlows) {
     const exp = await Experiment.findByPk(experimentId);
-    plotQueue.add({ experimentId: experimentId, ccas: exp.ccas, website: exp.website }, { attempts: 1 });
+    // Plot results if at least half the flows completed
+    if (failedFlows > finishedFlows / 2) {
+      await exp.update({ status: 'Failed' });
+      console.log(`Experiment id ${experimentId} failed`);
+    } else {
+      plotQueue.add({ experimentId: experimentId, ccas: exp.ccas, website: exp.website }, { attempts: 1 });
+    }
   }
 }
 
 downloadQueue.on('completed', async (job, result) => {
-  console.log(`Completed download for flow ${job.data.flowId}`);
-  const name = 'placeholder';
-  await Flow.update({ name: name, status: 'Queued for metrics' }, { where: { id: job.data.flowId }});
-  metricsQueue.add({ name: name, flowId: job.data.flowId }, jobOptions);
+  console.log(`Completed download for flow ${job.data.flowId} result ${result.name}`);
+  await Flow.update({ name: result.name, status: 'Queued for metrics' }, { where: { id: job.data.flowId }});
+  metricsQueue.add({ name: result.name, flowId: job.data.flowId }, jobOptions);
 })
 .on('failed', async (job, err) => {
-  console.log(`Download flow ${job.data.flowId} tries ${job.attemptsMade} failed with error`);
+  console.log(`Download flow ${job.data.flowId} tries ${job.attemptsMade} failed ${err}`);
   if (job.attemptsMade === jobOptions.attempts) {
     await Flow.update({ status: 'Failed download' }, { where: { id: job.data.flowId }});
     await plotExperiment(job.data.experimentId, job.data.totalFlows);
   }
+})
+.on('stalled', function (job) {
+  console.log(`Job stalled ${job.data.website} ${job.data.file} ${job.data.queueSize} ${job.data.test} ${job.data.cca}`); 
 });
 
 metricsQueue.on('completed', async (job, result) => {

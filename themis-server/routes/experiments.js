@@ -21,27 +21,23 @@ router.post('/submit', async (req, res, next) => {
       ccas: req.body.ccas
     });
     const totalFlows = params.queueSizes.length * exp.ccas.length * params.tests.length;
-    let count = 0;
     for (const queueSize of params.queueSizes) {
       for (const cca of exp.ccas) {
         for (const test of params.tests) {
-          if (count == 0) {
-            let fields = {
-              btlbw: params.btlbw,
-              rtt: params.rtt,
-              queueSize: queueSize,
-              cca: cca,
-              test: test,
-              experimentId: exp.id
-            };
-            const flow = await Flow.create(fields);
-            fields['flowId'] = flow.id;
-            fields['website'] = exp.website;
-            fields['file'] = exp.file;
-            fields['totalFlows'] = totalFlows;
-            Queues.downloadQueue.add(fields, Queues.jobOptions);
-          }
-          count += 1;
+          let fields = {
+            btlbw: params.btlbw,
+            rtt: params.rtt,
+            queueSize: queueSize,
+            cca: cca,
+            test: test,
+            experimentId: exp.id
+          };
+          const flow = await Flow.create(fields);
+          fields['flowId'] = flow.id;
+          fields['website'] = exp.website;
+          fields['file'] = exp.file;
+          fields['totalFlows'] = totalFlows;
+          Queues.downloadQueue.add(fields, Queues.jobOptions);
         }
       }
     }

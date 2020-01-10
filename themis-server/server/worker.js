@@ -1,31 +1,45 @@
 const Queues = require('./queues');
 const { Experiment, Flow } = require('./models');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 
 Queues.downloadQueue.process(async (job, done) => {
+  console.log(`Downloading ${job.data.website} ${job.data.file} ${job.data.queueSize} ${job.data.test} ${job.data.cca}...`)
   const exp = await Experiment.findByPk(job.data.experimentId);
   if (exp.status !== 'In Progress') {
-    exp.update({ status: 'In Progress' });
+    await exp.update({ status: 'In Progress' });
   }
   await Flow.update({ status: 'Downloading' }, { where: { id: job.data.flowId }});
+  
   const website = `--website ${job.data.website} ${job.data.file}`
   const network = `--network ${job.data.btlbw} ${job.data.rtt} ${job.data.queueSize}`
-  const test = `--test ${job.data.test} --competing_ccalg ${job.data.cca}`
-  const cmd = `python3 ~/git/meganyu/ccalg_fairness.py ${website} ${network} ${test} --num_competing 1 --duration 240`
-  exec(cmd, (err, stdout, stderr) => {
-    if (err) {
-      console.error(`exec error: ${err}`);
-      done(new Error(err));
-    } else if (stderr) {
-      done(new Error(stderr));
-    } else {
+  const test = `--test ${job.data.test} --competing_ccalg ${job.data.cca.toLowerCase()}`
+  const args = `/opt/cctestbed/ccalg_fairness.py ${website} ${network} ${test} --num_competing 1 --duration 240`
+  const child = spawn('python3.6', args.split(' '), { stdio: ['inherit', 'pipe', 'pipe'] });
+
+  let output = '';
+  let error = '';
+
+  child.on('error', (err) => {
+    console.error('Failed to start subprocess');
+    done(new Error(err));
+  });
+
+  child.stdout.on('data', (data) => { output += data; });
+
+  child.stderr.on('data', (data) => { error += data; });
+
+  child.on('close', (code) => {
+    if (code === 0) {
       const regexName = /exp_name=(.+)\n/
-      const matches = stdout.match(regexName)
+      const matches = output.match(regexName)
       if (matches.length >= 2) {
-        done(matches[1]);
+        done(null, { name: matches[1] });
       } else {
-        done('');
+        done(new Error('Failed to get experiment name'));
       }
+    } else {
+      console.error(error);
+      done(new Error(error));
     }
   });
 });
@@ -33,14 +47,11 @@ Queues.downloadQueue.process(async (job, done) => {
 Queues.metricsQueue.process(async (job, done) => {
   console.log(`Processing metrics ${job.data.name}`);
   await Flow.update({ status: 'Processing metrics' }, { where: { id: job.data.flowId }});
-  if (job.data.flowId % 4 === 0) {
-    done(new Error('failed metrics error'));
-  }
   done();
 });
 
 Queues.plotQueue.process(async (job, done) => {
-  console.log(`Creating plot for experiment ${job.experimentId}`);
+  console.log(`Creating plot for experiment ${job.data.experimentId}`);
   done();
 });
 
