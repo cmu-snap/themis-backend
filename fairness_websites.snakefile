@@ -44,7 +44,7 @@ if 'exp_name' in config:
 rule all:
     input:
          #all_results=expand('{exp_name}.fairness.tar.gz', exp_name=EXP_NAMES)
-         all_results=expand('data-processed/{exp_name}.metric',exp_name=EXP_NAMES)
+         all_results=expand('{metric_dir}/{exp_name}.metric',metric_dir=METRIC_DIR,exp_name=EXP_NAMES)
          
 rule load_raw_queue_data:
     input:

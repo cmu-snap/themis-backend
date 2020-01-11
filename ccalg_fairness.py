@@ -16,6 +16,7 @@ import datetime
 import argparse
 import json
 import itertools
+import sys
 
 #mkdir websites/nytimes/
 #wget -E -H -k -K -p https://www.nytimes.com
@@ -221,7 +222,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
             logging.info('Flow ran for {} seconds'.format(flow_end_time - flow_start_time))
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
         logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
         with open(exp.logs['website_log'], 'w') as f:
@@ -235,7 +236,7 @@ def run_experiment_1vmany(website, url, competing_ccalg, num_competing,
 
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
-                print('Timeout. Flow longer than {}s.'.format(duration+5))
+                print('Timeout. Flow longer than {}s.'.format(duration+5), flush=True)
                 logging.warning('Timeout. Flow longer than {}s.'.format(duration+5))
             else:
                 logging.error(stdout.read())
@@ -371,7 +372,7 @@ def run_experiment_1vapache(website, url, competing_ccalg,
         time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
         logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
         with open(exp.logs['website_log'], 'w') as f:
@@ -495,7 +496,7 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
             logging.info('Flow ran for {} seconds'.format(flow_end_time - flow_start_time))
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
         logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
         with open(exp.logs['website_log'], 'w') as f:
@@ -509,7 +510,7 @@ def run_experiment_rtt(website, url, competing_ccalg, num_competing,
 
         if exit_status != 0:
             if exit_status == 124: # timeout exit status
-                print('Timeout. Flow longer than {}s.'.format(duration+5))
+                print('Timeout. Flow longer than {}s.'.format(duration+5), flush=True)
                 logging.warning('Timeout. Flow longer than {}s.'.format(duration+5))
             else:
                 logging.error(stdout.read())
@@ -735,7 +736,7 @@ def run_iperf_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows):
         time.sleep(duration+5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
     proc = exp._compress_logs_url()
     return (proc, '{}-{}'.format(experiment_name, exp.exp_time))
@@ -821,7 +822,7 @@ def run_bbr_cubic_experiments(ccalg, btlbw, rtt, queue_size, duration, num_flows
         time.sleep(duration+5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
     proc = exp._compress_logs_url()
     return (proc, '{}-{}'.format(experiment_name, exp.exp_time))
@@ -883,7 +884,7 @@ def run_apache_experiments(ccalg, btlbw, rtt, queue_size, duration):
         time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
     proc = exp._compress_logs_url()
     return (proc, '{}-{}'.format(experiment_name, exp.exp_time))
@@ -948,7 +949,7 @@ def run_video_experiments(ccalg, btlbw, rtt, queue_size, duration):
         time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
     proc = exp._compress_logs_url()
     return (proc, '{}-{}'.format(experiment_name, exp.exp_time))
@@ -1081,7 +1082,7 @@ def run_experiment_1video(website, url, competing_ccalg,
         time.sleep(5)
         exp._show_bess_pipeline()
         cmd = '/opt/bess/bessctl/bessctl command module queue0 get_status EmptyArg'
-        print(cctestbed.run_local_command(cmd))
+        print(cctestbed.run_local_command(cmd), flush=True)
 
         logging.info('Dumping website data to log: {}'.format(exp.logs['website_log']))
         with open(exp.logs['website_log'], 'w') as f:
@@ -1105,7 +1106,7 @@ def main(tests, websites,
          chrome=False):
     completed_experiment_procs = []
     logging.info('Found {} websites'.format(len(websites)))
-    print('Found {} websites'.format(len(websites)))
+    print('Found {} websites'.format(len(websites)), flush=True)
     if ntwrk_conditions is None:
         ntwrk_conditions = [(5,35), (5,85), (5,130), (5,275),
                             (10,35), (10,85), (10,130), (10,275),
@@ -1129,10 +1130,10 @@ def main(tests, websites,
             num_completed_experiments += 1
             too_small_rtt = 0
             print('Running experiment {}/{} params={}'.format(
-                num_completed_experiments, len(exp_params), params))
+                num_completed_experiments, len(exp_params), params), flush=True)
 
             if rtt <= too_small_rtt:
-                print('Skipping experiment RTT too small')
+                print('Skipping experiment RTT too small', flush=True)
                 continue
 
             if test == 'iperf':
@@ -1216,17 +1217,17 @@ def main(tests, websites,
             if proc == -1:
                 too_small_rtt = max(too_small_rtt, rtt)
             elif proc is not None:
-                print('Experiment exp_name={}'.format(exp_name))
+                print('Experiment exp_name={}'.format(exp_name), flush=True)
                 completed_experiment_procs.append(proc)
             time.sleep(60)
         except Exception as e:
             logging.error('Error running experiment for website: {}'.format(website))
             logging.error(e)
             logging.error(traceback.print_exc())
-            print('Error running experiment for website: {}'.format(website))
-            print(e)
-            print(traceback.print_exc())
-            exit(1)
+            # print('Error running experiment for website: {}'.format(website))
+            # print(e)
+            # print(traceback.print_exc())
+            sys.exit(e)
                 
     for proc in completed_experiment_procs:
         logging.info('Waiting for subprocess to finish PID={}'.format(proc.pid))
