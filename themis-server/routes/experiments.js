@@ -23,10 +23,10 @@ router.post('/submit', async (req, res, next) => {
     const totalFlows = params.queueSizes.length * exp.ccas.length * params.tests.length;
     for (const queueSize of params.queueSizes) {
       for (const cca of exp.ccas) {
-        for (const test of params.tests) {
+        for (const test of Object.keys(params.tests)) {
           let fields = {
-            btlbw: params.btlbw,
-            rtt: params.rtt,
+            btlbw: tests[test].btlbw,
+            rtt: tests[test].rtt,
             queueSize: queueSize,
             cca: cca,
             test: test,

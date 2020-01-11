@@ -23,6 +23,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('Queued', 'In Progress', 'Completed', 'Failed'),
       allowNull: false,
       defaultValue: 'Queued'
+    },
+    directory: {
+      type: DataTypes.STRING,
+      allowNull: true,
     }
   }, {});
 

@@ -8,6 +8,11 @@ const plotQueue = new Queue('plot results', process.env.REDIS_URL);
 
 const jobOptions = { attempts: 3 };
 
+async function updateFlow(flowStatus, data) {
+  await Flow.update({ status: flowStatus }, { where: { id: data.flowId }});
+  await plotExperiment(data.experimentId, data.totalFlows);
+}
+
 /**
  * Plots the experiment with the given id if all of its associated flows are finished.
  * @param {string} experimentId 
@@ -27,50 +32,57 @@ async function plotExperiment(experimentId, totalFlows) {
   if (totalFlows === finishedFlows) {
     const exp = await Experiment.findByPk(experimentId);
     // Plot results if at least half the flows completed
-    if (failedFlows > finishedFlows / 2) {
-      await exp.update({ status: 'Failed' });
-      console.log(`Experiment id ${experimentId} failed`);
+    if (failedFlows < finishedFlows / 2 && exp.directory) {
+      plotQueue.add({
+        experimentId: experimentId,
+        ccas: exp.ccas,
+        expDir: exp.directory,
+        website: exp.website
+      }, { attempts: 1 });
     } else {
-      plotQueue.add({ experimentId: experimentId, ccas: exp.ccas, website: exp.website }, { attempts: 1 });
+      await exp.update({ status: 'Failed' });
+      console.log(`[EXPERIMENT FAILED] experiment ${experimentId}`);
     }
   }
 }
 
 downloadQueue.on('completed', async (job, result) => {
-  console.log(`Completed download for flow ${job.data.flowId} result ${result.name}`);
+  console.log(`[DOWNLOAD COMPLETE] flow ${job.data.flowId} result ${result.name}`);
   await Flow.update({ name: result.name, status: 'Queued for metrics' }, { where: { id: job.data.flowId }});
-  metricsQueue.add({ name: result.name, flowId: job.data.flowId }, jobOptions);
+  metricsQueue.add({
+    name: result.name,
+    flowId: job.data.flowId,
+    experimentId: job.data.experimentId,
+    website: job.data.website,
+  }, jobOptions);
 })
 .on('failed', async (job, err) => {
-  console.log(`Download flow ${job.data.flowId} tries ${job.attemptsMade} failed ${err}`);
+  console.log(`[DOWNLOAD FAILED] flow ${job.data.flowId} tries ${job.attemptsMade}`);
   if (job.attemptsMade === jobOptions.attempts) {
-    await Flow.update({ status: 'Failed download' }, { where: { id: job.data.flowId }});
-    await plotExperiment(job.data.experimentId, job.data.totalFlows);
+    await updateFlow('Failed download', job.data);
   }
 })
 .on('stalled', function (job) {
-  console.log(`Job stalled ${job.data.website} ${job.data.file} ${job.data.queueSize} ${job.data.test} ${job.data.cca}`); 
+  console.log(`[DOWNLOAD STALLED] flow ${job.data.flowId} stalled`); 
 });
 
 metricsQueue.on('completed', async (job, result) => {
-  console.log(`Completed metrics for flow ${job.data.flowId}`);
-  await Flow.update({ status: 'Completed' }, { where: { id: job.data.flowId }});
-  await plotExperiment(job.data.experimentId, job.data.totalFlows);
+  console.log(`[METRICS COMPLETE] flow ${job.data.flowId}`);
+  await updateFlow('Completed', job.data);
 })
 .on('failed', async (job, err) => {
-  console.log(`Metrics flow ${job.data.flowId} tries ${job.attemptsMade} failed with error ${err}`);
+  console.log(`[METRICS FAILED] flow ${job.data.flowId} tries ${job.attemptsMade} failed`);
   if (job.attemptsMade === jobOptions.attempts) {
-    await Flow.update({ status: 'Failed to get metrics' }, { where: { id: job.data.flowId }});
-    await plotExperiment(job.data.experimentId, job.data.totalFlows);
+    await updateFlow('Failed to get metrics', job.data);
   }
 });
 
 plotQueue.on('completed', async (job, result) => {
-  console.log(`Plotted results for experiment ${job.data.experimentId}`);
+  console.log(`[PLOT COMPLETE] experiment ${job.data.experimentId} completed`);
   await Experiment.update({ status: 'Completed' }, { where: { id: job.data.experimentId }});
 })
 .on('failed', async (job, err) => {
-  console.log(`Plot experiment ${job.data.experimentId} failed with error ${err}`);
+  console.log(`[PLOT FAILED] experiment ${job.data.experimentId} failed`);
   await Experiment.update({ status: 'Failed' }, { where: { id: job.data.experimentId }});
 })
 

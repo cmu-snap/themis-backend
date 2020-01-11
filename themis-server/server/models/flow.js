@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     test: {
-      type: DataTypes.ENUM(params.tests),
+      type: DataTypes.ENUM(Object.keys(params.tests)),
       allowNull: false
     },
     name: DataTypes.STRING,
@@ -41,6 +41,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false
+    },
+    metrics: {
+      type: DataTypes.JSON,
+      allowNull: true
     }
   }, {
     setterMethods: {
