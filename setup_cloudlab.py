@@ -259,7 +259,7 @@ def setup_webserver(host_client):
             'sudo apt-get install -y libappindicator1 fonts-liberation ffmpeg',
             'wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
             'sudo dpkg -i google-chrome*.deb',
-            'sudo apt-get install -yf' # install missing dependencies
+            'sudo apt-get install -yf', # install missing dependencies
             'rm google-chrome-stable_current_amd64.deb']
     for cmd in server_cmds:
         proc = subprocess.run('ssh -o StrictHostKeyChecking=no cctestbed-server {}'.format(cmd), shell=True)
