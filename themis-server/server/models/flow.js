@@ -11,28 +11,19 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
-    queueSize: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-    cca: {
-      type: DataTypes.ENUM(params.ccas),
-      allowNull: false,
-    },
-    test: {
-      type: DataTypes.ENUM(Object.keys(params.tests)),
-      allowNull: false
-    },
+    queueSize: DataTypes.INTEGER,
+    cca: DataTypes.ENUM(params.ccas),
+    test: DataTypes.ENUM(Object.keys(params.tests)),
     name: DataTypes.STRING,
     status: {
       type: DataTypes.ENUM(
         'Queued for download',
         'Downloading',
-        'Queued for metrics',
-        'Processing metrics',
+        'Queued for analysis',
+        'Analyzing data',
         'Completed',
         'Failed download',
-        'Failed to get metrics'
+        'Failed analysis',
       ),
       allowNull: false,
       defaultValue: 'Queued for download'
@@ -42,14 +33,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: false
     },
-    metrics: {
-      type: DataTypes.JSON,
-      allowNull: true
-    }
+    results: DataTypes.JSON,
+    label: DataTypes.STRING,
   }, {
     setterMethods: {
       status(value) {
-        const finishedStatus = ['Completed', 'Failed download', 'Failed to get metrics'];
+        const finishedStatus = ['Completed', 'Failed download', 'Failed analaysis'];
         this.setDataValue('isFinished', finishedStatus.includes(value));
         this.setDataValue('status', value);
       },

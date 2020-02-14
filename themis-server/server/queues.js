@@ -1,23 +1,29 @@
 const Queue = require('bull');
 const { Experiment, Flow } = require('./models');
 const { Op } = require('sequelize');
+const { parseNetwork, removeExperiment } = require('./common');
 
-const downloadQueue = new Queue('download files', process.env.REDIS_URL);
-const metricsQueue = new Queue('process metrics', process.env.REDIS_URL);
+// Define job queues for downloading website files, analyzing experiment data, and plotting.
+const fairnessQueue = new Queue('download fairness files', process.env.REDIS_URL);
+const classificationQueue = new Queue('download classification files', process.env.REDIS_URL);
+const analysisQueue = new Queue('analyze experiment data', process.env.REDIS_URL);
 const plotQueue = new Queue('plot results', process.env.REDIS_URL);
 
-const jobOptions = { attempts: 3 };
+const jobOptions = { attempts: 3 }; // number of times to retry failed job
+const RETRY_INVALID_LIMIT = 3; // number of times to re-download invalid classification flow
 
 async function updateFlow(flowStatus, data) {
   await Flow.update({ status: flowStatus }, { where: { id: data.flowId }});
-  await plotExperiment(data.experimentId, data.totalFlows);
+  await isExperimentFinished(data.experimentId);
 }
 
 /**
- * Plots the experiment with the given id if all of its associated flows are finished.
+ * Checks if all of the flows associated with the given experiment are finished.
+ * If they are, pushes the experiment onto the plot queue.
  * @param {string} experimentId 
  */
-async function plotExperiment(experimentId, totalFlows) {
+async function isExperimentFinished(experimentId) {
+  const totalFlows = await Flow.count({ where: { experimentId: experimentId }});
   const finishedFlows = await Flow.count({ where: { experimentId: experimentId, isFinished: true }});
   const failedFlows = await Flow.count({
     where: {
@@ -31,14 +37,18 @@ async function plotExperiment(experimentId, totalFlows) {
 
   if (totalFlows === finishedFlows) {
     const exp = await Experiment.findByPk(experimentId);
-    // Plot results if at least half the flows completed
-    if (failedFlows < finishedFlows / 2 && exp.directory) {
-      plotQueue.add({
-        experimentId: experimentId,
-        ccas: exp.ccas,
-        expDir: exp.directory,
-        website: exp.website
-      }, { attempts: 1 });
+    const fields = {
+      experimentId: experimentId,
+      expDir: exp.directory,
+      ccas: exp.ccas,
+      website: exp.website,
+      type: exp.experimentType
+    };
+    // Plot fairness experiment if at least half the flows completed, and plot
+    // classification experiment if all flows were successfully classified.
+    if ((exp.experimentType === 'Fairness' && failedFlows < finishedFlows / 2 && exp.directory) ||
+        (exp.experimentType === 'Classification' && finishedFlows === totalFlows && failedFlows === 0)) {
+      plotQueue.add(fields, { attempts: 1 });
     } else {
       await exp.update({ status: 'Failed' });
       console.log(`[EXPERIMENT FAILED] experiment ${experimentId}`);
@@ -46,34 +56,117 @@ async function plotExperiment(experimentId, totalFlows) {
   }
 }
 
-downloadQueue.on('completed', async (job, result) => {
-  console.log(`[DOWNLOAD COMPLETE] flow ${job.data.flowId} result ${result.name}`);
-  await Flow.update({ name: result.name, status: 'Queued for metrics' }, { where: { id: job.data.flowId }});
-  metricsQueue.add({
+/**
+ * Fairness queue. Downloaded flows are pushed onto the analysis queue to process
+ * the data and create metrics files. Failed downloads are retried up to 3 times.
+ */
+fairnessQueue.on('completed', async (job, result) => {
+  console.log(`[FAIRNESS DOWNLOAD COMPLETE] flow ${job.data.flowId} result ${result.name}`);
+  await Flow.update({ name: result.name, status: 'Queued for analysis' }, { where: { id: job.data.flowId }});
+  analysisQueue.add({
     name: result.name,
     flowId: job.data.flowId,
     experimentId: job.data.experimentId,
     website: job.data.website,
+    file: job.data.file,
+    tries: 1,
+    type: 'Fairness',
   }, jobOptions);
 })
 .on('failed', async (job, err) => {
-  console.log(`[DOWNLOAD FAILED] flow ${job.data.flowId} tries ${job.attemptsMade}`);
+  console.log(`[FAIRNESS DOWNLOAD FAILED] flow ${job.data.flowId} tries ${job.attemptsMade}`);
   if (job.attemptsMade === jobOptions.attempts) {
     await updateFlow('Failed download', job.data);
   }
 })
 .on('stalled', function (job) {
-  console.log(`[DOWNLOAD STALLED] flow ${job.data.flowId} stalled`); 
+  console.log(`[FAIRNESS DOWNLOAD STALLED] flow ${job.data.flowId} stalled`); 
 });
 
-metricsQueue.on('completed', async (job, result) => {
-  console.log(`[METRICS COMPLETE] flow ${job.data.flowId}`);
-  await updateFlow('Completed', job.data);
+/**
+ * Classification queue. Completed flows are pushed onto the analysis queue to
+ * classify the flow. Failed downloads are retried up to 3 times.
+ */
+classificationQueue.on('completed', async (job, result) => {
+  console.log(`[CLASSIFICATION DOWNLOAD COMPLETE] result ${result.names}`);
+  const flowIds = [];
+  if (job.data.flowId) {
+    // Delete data from previous download.
+    const exp = await Experiment.findByPk(job.data.experimentId);
+    const flow = await Flow.findByPk(job.data.flowId);
+    removeExperiment(flow.name, exp.directory);
+    
+    // Update flow with new name and status.
+    flow.name = result.names[0];
+    flow.status = 'Queued for analysis';
+    flow.save();
+    flowIds.push(job.data.flowId);
+  } else {
+    for (const name of result.names) {
+      const network = parseNetwork(name);
+      const flow = await Flow.create({
+        btlbw: network[0],
+        rtt: network[1],
+        experimentId: job.data.experimentId,
+        status: 'Queued for analysis',
+        name: name
+      });
+      flowIds.push(flow.id);
+    }
+  }
+  for (const id of flowIds) {
+    analysisQueue.add({
+      name: name,
+      flowId: id,
+      experimentId: job.data.experimentId,
+      website: job.data.website,
+      file: job.data.file,
+      tries: job.data.tries,
+      type: 'Classification'
+    }, jobOptions);
+  }
 })
 .on('failed', async (job, err) => {
-  console.log(`[METRICS FAILED] flow ${job.data.flowId} tries ${job.attemptsMade} failed`);
+  console.log(`[CLASSIFICATION DOWNLOAD FAILED] flow ${job.data.flowId} tries ${job.attemptsMade}`);
+  if (job.attemptsMade === jobOptions.attempts && !job.data.flowId) {
+    await Experiment.update({ status: 'Failed' }, { where: { id: job.data.experimentId }});
+  } else {
+    await updateFlow('Failed download', job.data);
+  }
+})
+.on('stalled', function (job) {
+  console.log(`[CLASSIFICATION DOWNLOAD STALLED] flow ${job.data.flowId} stalled`); 
+});
+
+/**
+ * Analysis queue. If a classification flow completed classification but was
+ * marked as invalid, re-downloads the flow up to RETRY_INVALID_LIMIT times.
+ * Failed analysis jobs are retried up to 3 times.
+ */
+analysisQueue.on('completed', async (job, result) => {
+  console.log(`[ANALYSIS COMPLETE] flow ${job.data.flowId}`);
+  // Classification flow was marked as invalid, so add the flow to the download queue.
+  if (job.data.type === 'Classification' && result.isInvalid && job.data.tries < RETRY_INVALID_LIMIT) {
+    const flow = await Flow.findByPk(job.data.flowId);
+    flow.status = 'Queued for download';
+    flow.save();
+    classificationQueue.add({
+      website: job.data.website,
+      file: job.data.file,
+      btlbw: flow.btlbw,
+      rtt: flow.rtt,
+      flowId: flow.id,
+      experimentId: job.data.experimentId,
+      tries: job.data.tries + 1
+    }, jobOptions);
+  } else {
+    await updateFlow('Completed', job.data);
+  }
+})
+.on('failed', async (job, err) => {
+  console.log(`[ANALYSIS FAILED] flow ${job.data.flowId} tries ${job.attemptsMade} failed`);
   if (job.attemptsMade === jobOptions.attempts) {
-    await updateFlow('Failed to get metrics', job.data);
+    await updateFlow('Failed analysis', job.data);
   }
 });
 
@@ -87,8 +180,9 @@ plotQueue.on('completed', async (job, result) => {
 })
 
 module.exports = {
-  downloadQueue: downloadQueue,
-  metricsQueue: metricsQueue,
+  fairnessQueue: fairnessQueue,
+  classificationQueue: classificationQueue,
+  analysisQueue: analysisQueue,
   plotQueue: plotQueue,
   jobOptions: jobOptions
 };

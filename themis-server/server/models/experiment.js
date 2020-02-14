@@ -15,19 +15,18 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    ccas: {
-      type: DataTypes.ARRAY(DataTypes.ENUM(params.ccas)),
+    ccas: DataTypes.ARRAY(DataTypes.ENUM(params.ccas)),
+    experimentType: {
+      type: DataTypes.ENUM('Fairness', 'Classification'),
       allowNull: false,
     },
+    predictedLabel: DataTypes.STRING,
     status: {
       type: DataTypes.ENUM('Queued', 'In Progress', 'Completed', 'Failed'),
       allowNull: false,
       defaultValue: 'Queued'
     },
-    directory: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    }
+    directory: DataTypes.STRING,
   }, {});
 
   Experiment.associate = (models) => {
