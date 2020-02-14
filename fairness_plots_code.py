@@ -1,17 +1,20 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import subprocess, glob, json, os
+import subprocess, glob, json, os, sys
+import argparse
 
 COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-df_tests = pd.read_csv('/opt/cctestbed/webapps/ccamonitor/fairness_test_description.csv') 
+DIR = os.path.dirname(os.path.realpath(sys.argv[0]))
+DATA_DIR = '/tmp/data-websites'
+df_tests = pd.read_csv('{}/fairness_test_description.csv'.format(DIR)) 
 
-def make_plot(website, ccalgs, exp_id):
-    results = get_fairness_results(website, exp_id)
+def make_plot(website, ccas, exp_dir):
+    results = get_fairness_results(website, exp_dir)
     paths = []
 
-    for cca in ccalgs:
+    for cca in ccas:
         df_to_plot = (pd
                 .DataFrame(results)
                 .drop_duplicates()
@@ -22,11 +25,11 @@ def make_plot(website, ccalgs, exp_id):
                 .unstack(0)
                 .reset_index()
                 .assign(test=lambda x: x.apply(lambda df:'{}\n{:g} BDP'.format(df['test'],df['queue_bdp']), axis=1))
-                ).set_index('test').sort_index(ascending=True)[ccalgs]
+                ).set_index('test').sort_index(ascending=True)[ccas]
         
         ax = plot_fairness(df_to_plot[cca].sort_index(), '')
-        path = 'graphs/{}-vs{}-{}.png'.format(website,cca,exp_id)
-        ax.figure.savefig('/opt/cctestbed/webapps/media/' + path, bbox_inches='tight')
+        path = '{}/{}/{}-vs-{}.png'.format(DATA_DIR, exp_dir, website, cca)
+        ax.figure.savefig(path, bbox_inches='tight')
         paths.append(path)
 
     return paths
@@ -81,11 +84,11 @@ def plot_fairness(df, title, **kwargs):
     return ax
 
 
-def get_fairness_results(website_name, exp_id):
+def get_fairness_results(website_name, exp_dir):
     all_testing_results = []
     for _, test in df_tests.iterrows():
-        baseline_exp_pattern = '/tmp/data-websites/'+test['baseline_name_pattern']+'.fairness.tar.gz'
-        test_exp_pattern = '/tmp/data-websites/{}/'.format(exp_id) + test['test_name_pattern'].format(website_name)+'.metric'
+        baseline_exp_pattern = '{}/{}.fairness.tar.gz'.format(DATA_DIR, test['baseline_name_pattern'])
+        test_exp_pattern = '{}/{}/{}.metric'.format(DATA_DIR, exp_dir, test['test_name_pattern'].format(website_name))
         baseline_exp_filenames = glob.glob(baseline_exp_pattern)
         test_exp_filenames = glob.glob(test_exp_pattern)
         num_testing = len(test_exp_filenames)
@@ -102,8 +105,9 @@ def get_fairness_results(website_name, exp_id):
             if testing_results['test'] == 'video':
                 http = baseline_filename[:-len('.features.tar.gz')] + '.http'
                 if not os.path.isfile(http):
-                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(http)), 
-                                   check=True, shell=True)
+                    subprocess.run('tar -C {}/ -xzvf {} data-processed/{} --strip-components=1'.format(
+                        DATA_DIR, baseline_filename, os.path.basename(http)), 
+                        check=True, shell=True)
                     assert(os.path.isfile(http))
 
                 df_http = (pd.read_csv(http,
@@ -134,8 +138,9 @@ def get_fairness_results(website_name, exp_id):
             elif testing_results['test'] == 'apache':
                 tshark = baseline_filename[:-len('.features.tar.gz')] + '.tshark'
                 if not os.path.isfile(tshark):
-                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
-                                   check=True, shell=True)
+                    subprocess.run('tar -C {}/ -xzvf {} data-processed/{} --strip-components=1'.format(
+                        DATA_DIR, baseline_filename, os.path.basename(tshark)), 
+                        check=True, shell=True)
                     assert(os.path.isfile(tshark))
                 df_tshark = pd.read_csv(tshark,
                                          header=None,
@@ -150,8 +155,9 @@ def get_fairness_results(website_name, exp_id):
             elif (testing_results['test'] == 'iperf1') | (testing_results['test'] == 'iperf16'):
                 tshark = baseline_filename[:-len('.features.tar.gz')] + '.tshark'
                 if not os.path.isfile(tshark):
-                    subprocess.run('tar -C /tmp/data-websites/ -xzvf {} data-processed/{} --strip-components=1'.format(baseline_filename, os.path.basename(tshark)), 
-                                   check=True, shell=True)
+                    subprocess.run('tar -C {}/ -xzvf {} data-processed/{} --strip-components=1'.format(
+                        DATA_DIR, baseline_filename, os.path.basename(tshark)), 
+                        check=True, shell=True)
                     assert(os.path.isfile(tshark))
                 df_tshark = pd.read_csv(tshark,
                                 header=None,
@@ -169,3 +175,15 @@ def get_fairness_results(website_name, exp_id):
                 testing_results['test'] = 'webpage'
             all_testing_results.append(testing_results)
     return all_testing_results
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Create plots for fairness experiments')
+    parser.add_argument('--website', required=True, help='Website used in the experiment')
+    parser.add_argument('--ccas', nargs='+', dest='ccas', required=True, help='Competing CCAs used in the experiment')
+    parser.add_argument('--exp_dir', required=True, help='Experiment data directory')
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    args = parse_args()
+    paths = make_plot(args.website, args.ccas, args.exp_dir)
+    print(' '.join(paths))
